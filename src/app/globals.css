@@ -1,26 +1,369 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ─────────────────────────────────────────────────────────────
+   Honey Expense Tracker — Design System (Tailwind v4)
+   Gold-yellow accent · cream base · soft glass · modern serif
+   ───────────────────────────────────────────────────────────── */
+
+@theme {
+  /* ===== Surfaces (warm cream) ===== */
+  --color-bg-0: oklch(0.985 0.012 85);
+  --color-bg-1: oklch(0.975 0.018 82);
+  --color-bg-2: oklch(0.96 0.022 80);
+  --color-bg-card: #ffffff;
+
+  /* ===== Ink (text colors) ===== */
+  --color-ink-0: oklch(0.20 0.015 75);
+  --color-ink-1: oklch(0.36 0.015 75);
+  --color-ink-2: oklch(0.55 0.012 75);
+  --color-ink-3: oklch(0.72 0.010 75);
+  --color-line: oklch(0.90 0.012 80);
+  --color-line-soft: oklch(0.94 0.010 80);
+
+  /* ===== Accent — Gold Honey (primary brand color) ===== */
+  --color-gold-50:  oklch(0.97 0.035 92);
+  --color-gold-100: oklch(0.93 0.070 92);
+  --color-gold-200: oklch(0.88 0.110 90);
+  --color-gold-300: oklch(0.82 0.145 88);
+  --color-gold-400: oklch(0.76 0.160 85);
+  --color-gold-500: oklch(0.72 0.165 82);
+  --color-gold-600: oklch(0.62 0.145 78);
+  --color-gold-700: oklch(0.50 0.115 74);
+  --color-gold-900: oklch(0.30 0.070 70);
+
+  /* ===== Category hues ===== */
+  --color-hue-food:   oklch(0.82 0.130 40);
+  --color-hue-shop:   oklch(0.80 0.110 340);
+  --color-hue-ent:    oklch(0.78 0.120 300);
+  --color-hue-trans:  oklch(0.80 0.100 220);
+  --color-hue-health: oklch(0.82 0.110 160);
+  --color-hue-bills:  oklch(0.78 0.090 260);
+  --color-hue-other:  oklch(0.82 0.025 80);
+
+  /* ===== Typography ===== */
+  --font-display: var(--font-display-loaded), 'Instrument Serif', 'Times New Roman', serif;
+  --font-ui: var(--font-ui-loaded), 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-mono-loaded), 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+
+  /* ===== Border radius ===== */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
+
+  /* ===== Shadows ===== */
+  --shadow-sm: 0 1px 2px rgba(60, 40, 10, 0.04), 0 0 0 1px rgba(60, 40, 10, 0.04);
+  --shadow-md: 0 2px 6px rgba(60, 40, 10, 0.05), 0 10px 30px -12px rgba(60, 40, 10, 0.14);
+  --shadow-lg: 0 4px 12px rgba(60, 40, 10, 0.06), 0 24px 60px -20px rgba(60, 40, 10, 0.22);
+  --shadow-gold: 0 8px 24px -6px oklch(0.76 0.160 85 / 0.55);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ─────────────────────────────────────────────────────────────
+   Base styles
+   ───────────────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
+  color: var(--color-ink-0);
+  background: var(--color-bg-0);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'ss01', 'cv11';
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Custom utilities (使用 @utility 而不是 @layer utilities，v4 推荐)
+   ───────────────────────────────────────────────────────────── */
+
+@utility mono {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum';
+}
+
+@utility display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.025em;  
+  line-height: 1.05;
+}
+
+/* For large numbers - slightly lighter weight */
+@utility display-number {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.035em;  /* 数字需要更 tight */
+  line-height: 1;
+  font-feature-settings: 'tnum', 'cv11';  /* tabular numbers + alt styles */
+}
+
+/* Glassmorphism card effect */
+@utility glass {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: var(--shadow-md);
+}
+
+/* Gold gradient backgrounds */
+@utility grad-gold {
+  background: linear-gradient(135deg,
+    oklch(0.92 0.110 95) 0%,
+    oklch(0.82 0.155 88) 45%,
+    oklch(0.72 0.155 78) 100%);
+}
+
+@utility grad-gold-soft {
+  background: linear-gradient(135deg,
+    oklch(0.98 0.025 92) 0%,
+    oklch(0.94 0.060 88) 100%);
+}
+
+/* Chip (small pill-shaped badge) */
+@utility chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  font-family: var(--font-ui);
+  background: var(--color-bg-2);
+  color: var(--color-ink-1);
+  border: 1px solid var(--color-line-soft);
+}
+
+/* Colored dot (used in chips, status indicators) */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Custom scrollbar (warm tone)
+   ───────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(0.86 0.015 80);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.78 0.015 80);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Ambient gold orbs (background decoration)
+   ───────────────────────────────────────────────────────────── */
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.orb-1 { background: oklch(0.88 0.140 88); }
+.orb-2 { background: oklch(0.86 0.110 40); }
+
+/* ─────────────────────────────────────────────────────────────
+   Animations
+   ───────────────────────────────────────────────────────────── */
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.pulse::before, .pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid oklch(0.76 0.160 85);
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+.pulse::after {
+  animation-delay: 0.9s;
+}
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+.wave-bar {
+  animation: wave 1.1s ease-in-out infinite;
+  transform-origin: center;
+  background: currentColor;
+  border-radius: 2px;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.float {
+  animation: float 4s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.fade-up {
+  animation: fadeUp 0.5s ease-out both;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Table styles (used in Recent transactions, Ledger)
+   ───────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────
+   Table styles (used in Recent transactions, Ledger)
+   ───────────────────────────────────────────────────────────── */
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.tbl thead {
+  /* Strong divider between header and body */
+  border-bottom: 1px solid var(--color-line);
+}
+
+.tbl th {
+  text-align: left;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+  padding: 14px 16px;
+  background: transparent;
+}
+
+.tbl th:first-child {
+  padding-left: 24px;
+}
+
+.tbl th:last-child {
+  padding-right: 24px;
+}
+
+.tbl td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-line-soft);
+  color: var(--color-ink-0);
+  vertical-align: middle;
+}
+
+.tbl td:first-child {
+  padding-left: 24px;
+}
+
+.tbl td:last-child {
+  padding-right: 24px;
+}
+
+.tbl tr:hover td {
+  background: var(--color-bg-1);
+}
+
+.tbl tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Mobile-specific tweaks
+   ───────────────────────────────────────────────────────────── */
+
+/* Safer mobile padding (account for notches & tab bar overlay) */
+@media (max-width: 767px) {
+  /* Add bottom padding to body content to avoid tab bar overlap */
+  .mobile-safe-bottom {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+
+  /* Allow horizontal scroll for charts that need fixed width */
+  .mobile-h-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mobile-h-scroll::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Animation utilities (used by Framer Motion / inline)
+   ───────────────────────────────────────────────────────────── */
+
+/* Stronger fade-up with cubic-bezier easing (replaces old fade-up) */
+@keyframes fadeUpStrong {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up-strong {
+  animation: fadeUpStrong 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Donut segment draw-in (animates stroke-dashoffset) */
+@keyframes donutDraw {
+  from {
+    stroke-dashoffset: var(--donut-circumference);
+  }
+  to {
+    stroke-dashoffset: var(--donut-final-offset);
+  }
+}
+
+/* Bar grow up (used in MonthBars) */
+@keyframes barGrowUp {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
 }
