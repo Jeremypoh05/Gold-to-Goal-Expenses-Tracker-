@@ -6,6 +6,10 @@ import { BottomTabBar } from '@/components/dashboard/BottomTabBar';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { Orbs } from '@/components/shared';
 import { CURRENT } from '@/data/sampleExpenses';
+import {
+    AddModalProvider,
+} from '@/components/dashboard/AddModalContext';
+import { ManualAddModal } from '@/components/dashboard/ManualAddModal';
 
 export default function DashboardLayout({
     children,
@@ -30,22 +34,27 @@ export default function DashboardLayout({
     };
 
     return (
-        <div className="h-screen flex relative bg-bg-0 overflow-hidden">
-            <Orbs count={3} />
+        <AddModalProvider>
+            <div className="h-screen flex relative bg-bg-0 overflow-hidden">
+                <Orbs count={3} />
 
-            {/* Sidebar - md+ only */}
-            <div className="hidden md:block flex-shrink-0 relative z-20">
-                <Sidebar />
+                {/* Sidebar - md+ only */}
+                <div className="hidden md:block flex-shrink-0 relative z-20">
+                    <Sidebar />
+                </div>
+
+                {/* Right side */}
+                <div className="flex-1 flex flex-col relative z-10 min-w-0">
+                    <TopBar month={month} year={year} onMonthChange={handleMonthChange} />
+                    <main className="flex-1 overflow-y-auto pb-24 md:pb-0">{children}</main>
+                </div>
+
+                {/* Bottom tab - mobile only */}
+                <BottomTabBar />
+
+                {/* Modal — rendered once, controlled by context */}
+                <ManualAddModal />
             </div>
-
-            {/* Right side */}
-            <div className="flex-1 flex flex-col relative z-10 min-w-0">
-                <TopBar month={month} year={year} onMonthChange={handleMonthChange} />
-                <main className="flex-1 overflow-y-auto pb-24 md:pb-0">{children}</main>
-            </div>
-
-            {/* Bottom tab - mobile only */}
-            <BottomTabBar />
-        </div>
+        </AddModalProvider>
     );
 }
