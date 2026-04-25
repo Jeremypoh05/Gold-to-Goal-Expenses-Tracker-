@@ -218,3 +218,92 @@ export function SparkleIcon({ size = 16, className }: IconProps) {
         </svg>
     );
 }
+
+export function EditIcon({ size = 14, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <path d="M4 20 H9 L20 9 L15 4 L4 15 Z" />
+        </svg>
+    );
+}
+
+export function TrashIcon({ size = 14, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            className={className}
+        >
+            <path d="M5 7 H19 M8 7 V20 H16 V7 M10 11 V17 M14 11 V17 M9 7 V4 H15 V7" />
+        </svg>
+    );
+}
+
+export function SearchIcon({ size = 16, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            className={className}
+        >
+            <circle cx="11" cy="11" r="6" />
+            <path d="M20 20 L16 16" />
+        </svg>
+    );
+}
+
+export function DownloadIcon({ size = 16, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <path d="M12 4 V16 M6 11 L12 17 L18 11 M4 20 H20" />
+        </svg>
+    );
+}
+
+export function SortIcon({ size = 14, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <path d="M7 4 V20 M3 16 L7 20 L11 16 M17 20 V4 M13 8 L17 4 L21 8" />
+        </svg>
+    );
+}
