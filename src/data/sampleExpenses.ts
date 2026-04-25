@@ -240,3 +240,90 @@ export function getHourlyBuckets(day: number): number[] {
       .reduce((a, b) => a + b.amt, 0)
   );
 }
+
+
+// ─────────────────────────────────────────────────────────────
+// Calendar helpers
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Get spending breakdown by category for a specific day.
+ * Returns sorted array of { cat, amount } descending.
+ */
+export function getDayCategoryBreakdown(day: number) {
+  const dayExpenses = SAMPLE_EXPENSES.filter((t) => t.day === day);
+  const byCat: Record<string, number> = {};
+  dayExpenses.forEach((t) => {
+    byCat[t.cat] = (byCat[t.cat] ?? 0) + t.amt;
+  });
+  return Object.entries(byCat)
+    .map(([cat, amount]) => ({ cat, amount }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+/**
+ * Get a brief summary (top expenses) for hover preview.
+ */
+export function getDayPreview(day: number) {
+  const dayExpenses = SAMPLE_EXPENSES.filter((t) => t.day === day);
+  return {
+    expenses: dayExpenses,
+    total: dayExpenses.reduce((a, b) => a + b.amt, 0),
+    voiceCount: dayExpenses.filter((t) => t.voice).length,
+    count: dayExpenses.length,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Month summary stats
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Calculate month-wide stats for side panel display.
+ */
+export function getMonthStats() {
+  // Group by day to find "top spending day"
+  const byDay: Record<number, number> = {};
+  SAMPLE_EXPENSES.forEach((t) => {
+    byDay[t.day] = (byDay[t.day] ?? 0) + t.amt;
+  });
+
+  // Top day
+  const topDayEntry = Object.entries(byDay).sort(
+    (a, b) => Number(b[1]) - Number(a[1])
+  )[0];
+  const topDay = topDayEntry ? Number(topDayEntry[0]) : 1;
+  const topDayAmount = topDayEntry ? Number(topDayEntry[1]) : 0;
+
+  // Active days (days with at least 1 expense)
+  const activeDays = Object.keys(byDay).length;
+
+  // Total + avg
+  const total = SAMPLE_EXPENSES.reduce((a, b) => a + b.amt, 0);
+  const dailyAvg = total / Math.max(activeDays, 1);
+
+  // Top category
+  const byCat: Record<string, number> = {};
+  SAMPLE_EXPENSES.forEach((t) => {
+    byCat[t.cat] = (byCat[t.cat] ?? 0) + t.amt;
+  });
+  const topCatEntry = Object.entries(byCat).sort(
+    (a, b) => Number(b[1]) - Number(a[1])
+  )[0];
+
+  // Voice ratio
+  const voiceCount = SAMPLE_EXPENSES.filter((t) => t.voice).length;
+  const voiceRatio = (voiceCount / SAMPLE_EXPENSES.length) * 100;
+
+  return {
+    topDay,
+    topDayAmount,
+    activeDays,
+    total,
+    dailyAvg,
+    topCategory: topCatEntry ? topCatEntry[0] : 'food',
+    topCategoryAmount: topCatEntry ? Number(topCatEntry[1]) : 0,
+    voiceCount,
+    voiceRatio,
+  };
+}
