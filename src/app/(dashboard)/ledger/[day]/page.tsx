@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
 import {
     CategoryTile,
     MicIcon,
@@ -88,16 +89,66 @@ function DaySwitcher({
 
 function HourTimeline({ buckets }: { buckets: number[] }) {
     const maxHr = Math.max(...buckets, 1);
+    const [hoveredHour, setHoveredHour] = useState<number | null>(null);
 
     return (
-        <div>
+        <div className="relative">
+            {/* Custom tooltip */}
+            <AnimatePresence>
+                {hoveredHour !== null && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 4 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute pointer-events-none z-10 -translate-x-1/2"
+                        style={{
+                            left: `${((hoveredHour + 0.5) / 24) * 100}%`,
+                            bottom: 70,
+                        }}
+                    >
+                        <div
+                            className="px-3 py-1.5 rounded-lg whitespace-nowrap"
+                            style={{
+                                background: 'oklch(0.20 0.015 75)',
+                                color: '#fff',
+                                boxShadow: '0 8px 20px -6px rgba(0,0,0,0.3)',
+                            }}
+                        >
+                            <div className="text-[10px] mono opacity-70">
+                                {String(hoveredHour).padStart(2, '0')}:00
+                            </div>
+                            <div className="text-xs font-semibold">
+                                {buckets[hoveredHour] > 0
+                                    ? formatMoney(buckets[hoveredHour])
+                                    : 'No spending'}
+                            </div>
+                        </div>
+                        {/* Tooltip arrow */}
+                        <svg
+                            width="10"
+                            height="6"
+                            viewBox="0 0 10 6"
+                            className="mx-auto"
+                            style={{ display: 'block', marginTop: -1 }}
+                        >
+                            <path
+                                d="M0 0 L5 6 L10 0 Z"
+                                fill="oklch(0.20 0.015 75)"
+                            />
+                        </svg>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Bars */}
             <div className="flex items-end gap-[2px] h-[60px]">
                 {buckets.map((v, h) => (
                     <div
                         key={h}
-                        className="flex-1 flex flex-col items-center"
-                        title={v > 0 ? `${String(h).padStart(2, '0')}:00 — ${formatMoney(v)}` : `${String(h).padStart(2, '0')}:00 — no spending`}
+                        className="flex-1 flex flex-col items-center cursor-pointer"
+                        onMouseEnter={() => setHoveredHour(h)}
+                        onMouseLeave={() => setHoveredHour(null)}
                     >
                         <motion.div
                             initial={{ height: 0 }}
@@ -107,23 +158,24 @@ function HourTimeline({ buckets }: { buckets: number[] }) {
                                 width: '80%',
                                 background:
                                     v > 0
-                                        ? 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.65 0.145 78))'
-                                        : 'var(--color-bg-2)',
+                                        ? 'linear-gradient(180deg, oklch(0.78 0.165 85), oklch(0.55 0.15 75))'
+                                        : 'oklch(0.92 0.01 80)',
                                 borderRadius: 4,
-                                opacity: v > 0 ? 1 : 0.4,
+                                opacity: v > 0 ? 1 : 0.7,
+                                boxShadow: v > 0 ? '0 2px 4px -1px oklch(0.55 0.15 75 / 0.3)' : 'none',
+                                transition: 'transform 0.15s ease',
+                                transform: hoveredHour === h ? 'scaleY(1.08)' : 'scaleY(1)',
+                                transformOrigin: 'bottom',
                             }}
                         />
                     </div>
                 ))}
             </div>
 
-            {/* Hour labels (0, 6, 12, 18, 23) */}
+            {/* Hour labels */}
             <div className="flex mt-1.5 text-[9px] text-ink-3 mono">
                 {[0, 6, 12, 18, 23].map((h, i) => (
-                    <div
-                        key={h}
-                        style={{ flex: i === 4 ? 0 : 1 }}
-                    >
+                    <div key={h} style={{ flex: i === 4 ? 0 : 1 }}>
                         {String(h).padStart(2, '0')}:00
                     </div>
                 ))}

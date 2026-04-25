@@ -367,3 +367,84 @@ body {
     transform: scaleY(1);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Premium shine effect - sweep from left, settle on right
+   Usage: <button className="shine-wrap">...</button>
+   ───────────────────────────────────────────────────────────── */
+
+.shine-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Sweep layer (animates left-to-right on hover, stays at right) */
+.shine-wrap::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -100%;
+  width: 200%;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.55) 48%,
+    rgba(255, 255, 255, 0.7) 50%,
+    rgba(255, 255, 255, 0.55) 52%,
+    transparent 65%
+  );
+  transform: translateX(0);
+  transition: transform 0s;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.shine-wrap:hover::before {
+  opacity: 1;
+  transform: translateX(50%);
+  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.15s ease-out;
+}
+
+/* Settle glow (fades in slightly later, stays on right side) */
+.shine-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 40%;
+  background: linear-gradient(
+    -90deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease 0.4s;
+  pointer-events: none;
+}
+
+.shine-wrap:hover::after {
+  opacity: 1;
+}
+
+/* Variant for dark buttons (Export-style) */
+.shine-wrap-light::before {
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.22) 48%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0.22) 52%,
+    transparent 65%
+  );
+}
+
+.shine-wrap-light::after {
+  background: linear-gradient(
+    -90deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    transparent 100%
+  );
+}
