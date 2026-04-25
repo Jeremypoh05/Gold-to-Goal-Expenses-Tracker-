@@ -12,4 +12,9 @@ export {
   SparkleIcon,
   ArrowIcon,
   BellIcon,
+  EditIcon,
+  TrashIcon,
+  SearchIcon,
+  DownloadIcon,
+  SortIcon,
 } from "./UIIcons";

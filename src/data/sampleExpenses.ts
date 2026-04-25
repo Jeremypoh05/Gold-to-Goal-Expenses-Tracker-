@@ -200,3 +200,43 @@ export const TOTAL_SPENT = Object.values(EXPENSES_BY_CATEGORY).reduce(
   (a, b) => a + b,
   0,
 );
+
+export function countByCategory(cat: string): number {
+  return SAMPLE_EXPENSES.filter((t) => t.cat === cat).length;
+}
+
+export const VOICE_COUNT = SAMPLE_EXPENSES.filter((t) => t.voice).length;
+export const FIXED_COUNT = SAMPLE_EXPENSES.filter((t) => t.fixed).length;
+
+// ─────────────────────────────────────────────────────────────
+// Daily detail helpers
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Get all expenses for a specific day, sorted by time.
+ */
+export function getExpensesForDay(day: number) {
+  return SAMPLE_EXPENSES.filter((t) => t.day === day).sort((a, b) =>
+    a.time.localeCompare(b.time)
+  );
+}
+
+/**
+ * Get all unique days with expenses (for navigation: ← previous day, next day →).
+ */
+export function getAllExpenseDays(): number[] {
+  return [...new Set(SAMPLE_EXPENSES.map((t) => t.day))].sort((a, b) => a - b);
+}
+
+/**
+ * Group expenses for a day into 24 hourly buckets.
+ * Returns array of length 24 with sum per hour.
+ */
+export function getHourlyBuckets(day: number): number[] {
+  const dayExpenses = SAMPLE_EXPENSES.filter((t) => t.day === day);
+  return Array.from({ length: 24 }, (_, hour) =>
+    dayExpenses
+      .filter((t) => parseInt(t.time.split(':')[0], 10) === hour)
+      .reduce((a, b) => a + b.amt, 0)
+  );
+}

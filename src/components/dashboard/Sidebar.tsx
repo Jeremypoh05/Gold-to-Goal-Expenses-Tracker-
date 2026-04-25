@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
     HomeIcon,
     MicIcon,
@@ -12,31 +14,25 @@ import {
 import { cn } from '@/lib/utils';
 
 // ─────────────────────────────────────────────────────────────
-// Navigation item type — order matches design: Dashboard, Ledger,
-// Calendar, Income, Voice log (voice at BOTTOM, not second)
+// Navigation item type
 // ─────────────────────────────────────────────────────────────
-export type NavKey = 'dashboard' | 'ledger' | 'calendar' | 'income' | 'voice';
-
 interface NavItem {
-    key: NavKey;
+    href: string;
     label: string;
     Icon: React.ComponentType<{ size?: number; className?: string }>;
 }
 
 const NAV_ITEMS: NavItem[] = [
-    { key: 'dashboard', label: 'Dashboard', Icon: HomeIcon },
-    { key: 'ledger', label: 'Ledger', Icon: GridIcon },
-    { key: 'calendar', label: 'Calendar', Icon: CalendarIcon },
-    { key: 'income', label: 'Income', Icon: WalletIcon },
-    { key: 'voice', label: 'Voice log', Icon: MicIcon },
+    { href: '/dashboard', label: 'Dashboard', Icon: HomeIcon },
+    { href: '/ledger', label: 'Ledger', Icon: GridIcon },
+    { href: '/calendar', label: 'Calendar', Icon: CalendarIcon },
+    { href: '/income', label: 'Income', Icon: WalletIcon },
+    { href: '/voice', label: 'Voice log', Icon: MicIcon },
 ];
 
-interface SidebarProps {
-    activeNav: NavKey;
-    onNavChange: (key: NavKey) => void;
-}
+export function Sidebar() {
+    const pathname = usePathname();
 
-export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
     return (
         <aside
             className="w-[220px] h-screen flex flex-col px-[14px] py-5 border-r border-line-soft relative z-20"
@@ -45,7 +41,7 @@ export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
                 backdropFilter: 'blur(20px)',
             }}
         >
-            {/* ─── Logo / Brand ─── */}
+            {/* Logo */}
             <div className="flex items-center gap-2.5 px-2.5 pb-5">
                 <div
                     className="w-8 h-8 rounded-[10px] flex items-center justify-center shadow-gold"
@@ -58,23 +54,23 @@ export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
                     </svg>
                 </div>
                 <div>
-                    <div className="serif text-[18px] leading-none">Honey</div>
+                    <div className="display text-[18px] leading-none">Honey</div>
                     <div className="text-[10px] uppercase tracking-[0.1em] text-ink-2 mt-0.5">
                         expense tracker
                     </div>
                 </div>
             </div>
 
-            {/* ─── Navigation ─── */}
+            {/* Navigation */}
             <nav className="flex flex-col gap-0.5">
-                {NAV_ITEMS.map(({ key, label, Icon }) => {
-                    const isActive = activeNav === key;
+                {NAV_ITEMS.map(({ href, label, Icon }) => {
+                    const isActive = pathname === href;
                     return (
-                        <button
-                            key={key}
-                            onClick={() => onNavChange(key)}
+                        <Link
+                            key={href}
+                            href={href}
                             className={cn(
-                                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all text-left w-full',
+                                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all',
                                 isActive
                                     ? 'bg-white text-ink-0 shadow-sm'
                                     : 'bg-transparent text-ink-1 hover:bg-white/40'
@@ -85,15 +81,14 @@ export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
                             {isActive && (
                                 <div className="ml-auto w-1.5 h-1.5 rounded-full bg-gold-500" />
                             )}
-                        </button>
+                        </Link>
                     );
                 })}
             </nav>
 
-            {/* Spacer pushes content below to bottom */}
             <div className="flex-1" />
 
-            {/* ─── AI Tip Card (Bottom) ─── */}
+            {/* AI Tip */}
             <div
                 className="rounded-[18px] p-[14px] mb-2"
                 style={{
@@ -113,7 +108,7 @@ export function Sidebar({ activeNav, onNavChange }: SidebarProps) {
                 </p>
             </div>
 
-            {/* ─── User profile ─── */}
+            {/* User profile */}
             <div className="flex items-center gap-2.5 px-1.5 pt-3.5 pb-1 border-t border-line-soft">
                 <div
                     className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center text-xs font-semibold"

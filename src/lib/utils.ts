@@ -58,3 +58,27 @@ export const MONTH_NAMES = [
   "Nov",
   "Dec",
 ] as const;
+
+/**
+ * Get the ISO week number for a date (1-53).
+ * Used for filtering expenses by week.
+ */
+export function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+/**
+ * Check if two dates are in the same week.
+ */
+export function isSameWeek(date1: Date, date2: Date): boolean {
+  return (
+    getWeekNumber(date1) === getWeekNumber(date2) &&
+    date1.getFullYear() === date2.getFullYear()
+  );
+}
+
+export const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
