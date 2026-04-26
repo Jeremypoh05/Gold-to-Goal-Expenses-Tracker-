@@ -210,7 +210,8 @@ export default function CalendarPage() {
                         </span>
                     </h1>
                     <div className="text-[12px] md:text-[13px] text-ink-2 mt-1">
-                        Tap any day for full breakdown · hover to preview
+                        <span className="hidden md:inline">Hover any day to preview · click to view full breakdown</span>
+                        <span className="md:hidden">Tap a day to preview · tap again to view full breakdown</span>
                     </div>
                 </div>
 
