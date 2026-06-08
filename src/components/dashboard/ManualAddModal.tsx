@@ -229,10 +229,18 @@ function AmountSection({
                 {formattedInt}
                 <span style={{ color: 'var(--color-gold-700)' }}>.{formattedDec}</span>
                 {/* Cursor blink effect */}
+                {/* FIX: caret was a layout character on the right, so `text-center` centered
+                    "S$12.80|" as a whole and pushed the visible amount slightly left. Rendering
+                    it as a zero-width inline-block keeps the glyph but removes its layout width,
+                    so "S$12.80" now centers as a unit (mobile + desktop). */}
                 <motion.span
                     animate={{ opacity: [1, 0, 1] }}
                     transition={{ duration: 1, repeat: Infinity }}
-                    style={{ color: 'var(--color-gold-500)', marginLeft: 2 }}
+                    style={{
+                        color: 'var(--color-gold-500)',
+                        display: 'inline-block',
+                        width: 0,
+                    }}
                 >
                     |
                 </motion.span>
