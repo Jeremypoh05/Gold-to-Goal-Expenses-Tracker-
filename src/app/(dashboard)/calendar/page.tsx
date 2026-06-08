@@ -17,6 +17,7 @@ import {
     type CalendarViewMode,
 } from '@/components/calendar/CalendarMonthView';
 import { MonthSummary } from '@/components/calendar/MonthSummary';
+import { CalendarHint } from '@/components/calendar/CalendarHint';
 
 type FilterId = 'all' | 'voice' | CategoryKey;
 
@@ -209,9 +210,8 @@ export default function CalendarPage() {
                             −<AnimatedNumber value={filteredTotal} format="money" duration={1200} />
                         </span>
                     </h1>
-                    <div className="text-[12px] md:text-[13px] text-ink-2 mt-1">
-                        <span className="hidden md:inline">Hover any day to preview · click to view full breakdown</span>
-                        <span className="md:hidden">Tap a day to preview · tap again to view full breakdown</span>
+                    <div className="mt-2">
+                        <CalendarHint />
                     </div>
                 </div>
 

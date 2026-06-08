@@ -398,6 +398,8 @@ body {
   transition: transform 0s;
   pointer-events: none;
   opacity: 0;
+  border-radius: inherit;   
+  overflow: hidden;       
 }
 
 .shine-wrap:hover::before {
@@ -448,3 +450,41 @@ body {
     transparent 100%
   );
 }
+
+/* Variant for light bg (e.g. calendar day cells) - uses gold shimmer instead of white */
+.shine-wrap-gold::before {
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    oklch(0.97 0.02 90 / 0.6) 48%,    /* 浅银 */
+    oklch(0.99 0.01 90 / 0.85) 50%,   /* 接近白银 */
+    oklch(0.97 0.02 90 / 0.6) 52%,
+    transparent 65%
+  );
+}
+
+.shine-wrap-gold::after {
+  background: linear-gradient(
+    -90deg,
+    oklch(0.98 0.015 90 / 0.25) 0%,
+    transparent 100%
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Rotating gradient border on hover (premium calendar cells)
+   ───────────────────────────────────────────────────────────── */
+
+/* @keyframes rotateBorder {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+} */
+
+/* ─────────────────────────────────────────────────────────────
+   Rotating gradient border on hover (full ring, smooth rotation)
+   ───────────────────────────────────────────────────────────── */
+
