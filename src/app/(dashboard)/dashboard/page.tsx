@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link'; // ADDED (Phase 5): mobile entry point into the Income page
 import { motion } from 'framer-motion';
 import {
     CategoryTile,
@@ -609,29 +610,43 @@ function NetSavingsCard({
                 background: 'linear-gradient(160deg, #fff, oklch(0.97 0.02 92))',
             }}
         >
-            <CardHeader title="Net savings" subtitle="Year to date" />
-            <div className="display-number mt-4" style={{ fontSize: 44 }}>
-                <span
-                    style={{
-                        fontSize: 20,
-                        verticalAlign: '0.4em',
-                        color: 'var(--color-ink-2)',
-                        marginRight: 4,
-                    }}
-                >
-                    S$
-                </span>
-                <AnimatedNumber value={42360} format="integer" duration={2000} delay={delay * 1000} />
-            </div>
-            <div className="text-xs text-ink-1 mt-1.5">
-                <span className="text-gold-700 font-semibold">+ S$4,680</span> vs last year
-            </div>
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
-                <MiniStat label="Income" value={86400} sub="salary × 12" delay={500} />
-                <MiniStat label="Bonuses" value={10000} sub="2 × Q1, Q2" delay={650} />
-                <MiniStat label="Expenses" value={44040} sub="YTD total" delay={800} />
-                <MiniStat label="Goal" value={60000} sub="year-end" accent delay={950} />
-            </div>
+            {/* CHANGED (Phase 5): whole card now links to the Income page. This is the
+                primary entry point on mobile (where there's no Income tab) and a nice
+                affordance on desktop. `group` drives the hover chevron in the header. */}
+            <Link href="/income" className="block group">
+                <CardHeader
+                    title="Net savings"
+                    subtitle="Year to date"
+                    right={
+                        <span className="flex items-center gap-1 text-[11px] text-ink-2 group-hover:text-gold-700 transition-colors">
+                            Details
+                            <ChevronIcon direction="right" size={12} />
+                        </span>
+                    }
+                />
+                <div className="display-number mt-4" style={{ fontSize: 44 }}>
+                    <span
+                        style={{
+                            fontSize: 20,
+                            verticalAlign: '0.4em',
+                            color: 'var(--color-ink-2)',
+                            marginRight: 4,
+                        }}
+                    >
+                        S$
+                    </span>
+                    <AnimatedNumber value={42360} format="integer" duration={2000} delay={delay * 1000} />
+                </div>
+                <div className="text-xs text-ink-1 mt-1.5">
+                    <span className="text-gold-700 font-semibold">+ S$4,680</span> vs last year
+                </div>
+                <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+                    <MiniStat label="Income" value={86400} sub="salary × 12" delay={500} />
+                    <MiniStat label="Bonuses" value={10000} sub="2 × Q1, Q2" delay={650} />
+                    <MiniStat label="Expenses" value={44040} sub="YTD total" delay={800} />
+                    <MiniStat label="Goal" value={60000} sub="year-end" accent delay={950} />
+                </div>
+            </Link>
         </motion.div>
     );
 }

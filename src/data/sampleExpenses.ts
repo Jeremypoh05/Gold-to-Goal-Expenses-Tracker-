@@ -187,6 +187,12 @@ export const SAMPLE_INCOME: IncomeInfo = {
   saved: 42360,
 };
 
+// ADDED (Phase 5): Income page constants — kept here (not in JSX) so the stat band,
+// goal progress, and insights all read from one source of truth. These match the
+// design values in .claude/References/desktop.jsx IncomeView. DB-ready for Phase 8.
+export const PROJECTED_YEARLY_EXPENSES = 44040; // projected full-year spend
+export const SAVINGS_GOAL = 60000; // year-end net-savings target
+
 // Computed values
 export const EXPENSES_BY_CATEGORY = SAMPLE_EXPENSES.reduce(
   (acc, t) => {
@@ -325,5 +331,56 @@ export function getMonthStats() {
     topCategoryAmount: topCatEntry ? Number(topCatEntry[1]) : 0,
     voiceCount,
     voiceRatio,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Income & savings stats (Phase 5)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * ADDED (Phase 5): Derive all Income-page figures from SAMPLE_INCOME +
+ * the projected-expenses / goal constants. Centralizing here keeps the
+ * salary card, stat band, goal progress, and insights panel consistent,
+ * and gives Phase 8 a single clean swap point for real DB queries.
+ */
+export function getIncomeStats() {
+  const monthlySalary = SAMPLE_INCOME.salary;
+  const totalBonuses = SAMPLE_INCOME.bonuses.reduce((a, b) => a + b.amt, 0);
+  const yearlyIncome = monthlySalary * 12 + totalBonuses; // 96,400
+  const yearlyExpenses = PROJECTED_YEARLY_EXPENSES; // 44,040
+  const netSavings = yearlyIncome - yearlyExpenses; // 52,360 (target)
+  const savingsRate = (netSavings / yearlyIncome) * 100; // ~54%
+
+  const goal = SAVINGS_GOAL; // 60,000
+  const saved = SAMPLE_INCOME.saved; // 42,360 (YTD)
+  const toGo = Math.max(0, goal - saved); // 17,640
+  const goalProgressPct = (saved / goal) * 100; // 70.6%
+
+  // Months to goal at the current monthly net-savings pace
+  const monthlyNetSavings = netSavings / 12;
+  const monthsToGoal =
+    monthlyNetSavings > 0 ? Math.ceil(toGo / monthlyNetSavings) : 0;
+
+  // Biggest single bonus (for the insights panel)
+  const biggestBonus = SAMPLE_INCOME.bonuses.reduce(
+    (max, b) => (b.amt > max.amt ? b : max),
+    SAMPLE_INCOME.bonuses[0]
+  );
+
+  return {
+    monthlySalary,
+    totalBonuses,
+    yearlyIncome,
+    yearlyExpenses,
+    netSavings,
+    savingsRate,
+    goal,
+    saved,
+    toGo,
+    goalProgressPct,
+    monthlyNetSavings,
+    monthsToGoal,
+    biggestBonus,
   };
 }

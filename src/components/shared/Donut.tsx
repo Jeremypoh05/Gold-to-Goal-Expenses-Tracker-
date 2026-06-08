@@ -3,13 +3,16 @@
 import { useEffect, useState } from 'react';
 import { CATEGORIES } from '@/data/categories';
 import { EXPENSES_BY_CATEGORY } from '@/data/sampleExpenses';
-import { formatMoney } from '@/lib/utils';
 import type { CategoryKey } from '@/types';
 import { AnimatedHeroAmount } from './AnimatedNumber';
 
 interface DonutData {
-    k: CategoryKey;
+    // CHANGED (Phase 5): widened from CategoryKey to string so the donut can also
+    // render non-category segments (e.g. Income: "salary" / "bonuses").
+    k: string;
     v: number;
+    // ADDED (Phase 5): explicit segment color; falls back to the category hue when omitted.
+    color?: string;
 }
 
 interface Segment {
@@ -24,6 +27,11 @@ interface DonutProps {
     data?: DonutData[];
     /** Animate segments drawing in (default: true) */
     animated?: boolean;
+    // ADDED (Phase 5): customizable center text (defaults keep the dashboard's "Spent … budget").
+    centerLabel?: string;
+    centerSub?: string;
+    /** Override the center amount; defaults to the sum of segments. */
+    centerValue?: number;
 }
 
 export function Donut({
@@ -31,6 +39,9 @@ export function Donut({
     thickness = 22,
     data,
     animated = true,
+    centerLabel = 'Spent',
+    centerSub = 'of S$3,500 budget',
+    centerValue,
 }: DonutProps) {
     const [progress, setProgress] = useState(animated ? 0 : 1);
 
@@ -94,8 +105,11 @@ export function Donut({
                 {segments.map((segment, i) => {
                     const animatedLength = segment.length * progress;
                     const animatedOffset = segment.offset * progress;
-                    const category = CATEGORIES[segment.data.k];
+                    // CHANGED (Phase 5): prefer an explicit per-datum color; else fall back to the
+                    // category hue (cast since `k` is now a plain string, not only CategoryKey).
+                    const category = CATEGORIES[segment.data.k as CategoryKey];
                     const hue = category?.hue ?? 80;
+                    const stroke = segment.data.color ?? `oklch(0.78 0.12 ${hue})`;
                     return (
                         <circle
                             key={i}
@@ -103,7 +117,7 @@ export function Donut({
                             cy={size / 2}
                             r={r}
                             fill="none"
-                            stroke={`oklch(0.78 0.12 ${hue})`}
+                            stroke={stroke}
                             strokeWidth={thickness}
                             strokeDasharray={`${animatedLength} ${c - animatedLength}`}
                             strokeDashoffset={-animatedOffset}
@@ -134,14 +148,15 @@ export function Donut({
                         textTransform: 'uppercase',
                     }}
                 >
-                    Spent
+                    {/* CHANGED (Phase 5): center label now configurable (defaults to "Spent"). */}
+                    {centerLabel}
                 </div>
                 <div
                     className="display-number"
                     style={{ fontSize: 26, lineHeight: 1, marginTop: 4 }}
                 >
                     <AnimatedHeroAmount
-                        value={total}
+                        value={centerValue ?? total}
                         duration={1500}
                         delay={200}
                         symbolSize={14}
@@ -151,7 +166,8 @@ export function Donut({
                 <div
                     style={{ fontSize: 11, color: 'var(--color-ink-2)', marginTop: 4 }}
                 >
-                    of S$3,500 budget
+                    {/* CHANGED (Phase 5): center sub-text now configurable. */}
+                    {centerSub}
                 </div>
             </div>
         </div>
