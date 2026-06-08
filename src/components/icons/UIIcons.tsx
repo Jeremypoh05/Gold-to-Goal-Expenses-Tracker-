@@ -46,6 +46,23 @@ export function MicIcon({ size = 18, className }: IconProps) {
     );
 }
 
+// ADDED (mobile nav): three-dot "More" glyph for the bottom-bar overflow hub.
+export function MoreIcon({ size = 18, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className={className}
+        >
+            <circle cx="5" cy="12" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="19" cy="12" r="1.8" />
+        </svg>
+    );
+}
+
 export function GridIcon({ size = 18, className }: IconProps) {
     return (
         <svg

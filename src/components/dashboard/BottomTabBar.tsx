@@ -1,23 +1,28 @@
 'use client';
 
+import { useState } from 'react'; // ADDED: local state for the More sheet
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
     HomeIcon,
     CalendarIcon,
     GridIcon,
-    PlusIcon,
+    MoreIcon, // CHANGED: was PlusIcon (Add) — Add now lives in the mobile header "+"
     MicIcon,
 } from '@/components/icons';
 import { cn } from '@/lib/utils';
-import { useAddModal } from './AddModalContext';
+import { MoreSheet } from './MoreSheet'; // ADDED
+
+// Destinations reachable from the More sheet — used to keep the More tab
+// highlighted while the user is on one of them.
+const MORE_ROUTES = ['/income', '/voice', '/settings'];
 
 interface TabItem {
     href: string;
     label: string;
     Icon: React.ComponentType<{ size?: number; className?: string }>;
     isCenter?: boolean;
-    isAction?: boolean; // ← if true, opens modal instead of navigating
+    isMore?: boolean; // CHANGED: was isAction (opened Add modal) — now opens the More sheet
 }
 
 const TAB_ITEMS: TabItem[] = [
@@ -25,79 +30,97 @@ const TAB_ITEMS: TabItem[] = [
     { href: '/calendar', label: 'Calendar', Icon: CalendarIcon },
     { href: '/voice', label: '', Icon: MicIcon, isCenter: true },
     { href: '/ledger', label: 'Ledger', Icon: GridIcon },
-    { href: '#add', label: 'Add', Icon: PlusIcon, isAction: true },
+    // CHANGED: Add → More. Manual Add stays available via the header "+" (TopBar).
+    { href: '#more', label: 'More', Icon: MoreIcon, isMore: true },
 ];
 
 export function BottomTabBar() {
     const pathname = usePathname();
-    const { open: openAddModal } = useAddModal();
+    const [moreOpen, setMoreOpen] = useState(false); // ADDED
 
     return (
-        <div
-            className="md:hidden fixed left-3.5 right-3.5 bottom-5 h-16 rounded-[28px] flex items-center justify-around z-30"
-            style={{
-                background: 'rgba(255, 255, 255, 0.75)',
-                backdropFilter: 'blur(24px) saturate(1.6)',
-                WebkitBackdropFilter: 'blur(24px) saturate(1.6)',
-                border: '1px solid rgba(255, 255, 255, 0.8)',
-                boxShadow: '0 12px 36px -8px rgba(60, 40, 10, 0.2)',
-            }}
-        >
-            {TAB_ITEMS.map((item) => {
-                const isActive =
-                    !item.isAction &&
-                    (pathname === item.href ||
-                        pathname?.startsWith(item.href + '/'));
+        <>
+            <div
+                className="md:hidden fixed left-3.5 right-3.5 bottom-5 h-16 rounded-[28px] flex items-center justify-around z-30"
+                style={{
+                    background: 'rgba(255, 255, 255, 0.75)',
+                    backdropFilter: 'blur(24px) saturate(1.6)',
+                    WebkitBackdropFilter: 'blur(24px) saturate(1.6)',
+                    border: '1px solid rgba(255, 255, 255, 0.8)',
+                    boxShadow: '0 12px 36px -8px rgba(60, 40, 10, 0.2)',
+                }}
+            >
+                {TAB_ITEMS.map((item) => {
+                    const isActive =
+                        !item.isMore &&
+                        (pathname === item.href ||
+                            pathname?.startsWith(item.href + '/'));
 
-                // Center voice button (special)
-                if (item.isCenter) {
+                    // Center voice button (special)
+                    if (item.isCenter) {
+                        return (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                className="w-14 h-14 rounded-full flex items-center justify-center border-0 -mt-5 transition-transform hover:scale-105"
+                                style={{
+                                    background:
+                                        'linear-gradient(135deg, oklch(0.88 0.13 92), oklch(0.64 0.16 78))',
+                                    boxShadow: '0 6px 20px -2px oklch(0.65 0.16 78 / 0.55)',
+                                }}
+                                aria-label="Voice log"
+                            >
+                                <item.Icon size={24} className="text-[#1a120a]" />
+                            </Link>
+                        );
+                    }
+
+                    // CHANGED: More button — opens the secondary-destinations sheet instead
+                    // of navigating. Highlights while the sheet is open or the user is on a
+                    // More destination (e.g. /income).
+                    if (item.isMore) {
+                        const moreActive =
+                            moreOpen ||
+                            MORE_ROUTES.some(
+                                (r) => pathname === r || pathname?.startsWith(r + '/')
+                            );
+                        return (
+                            <button
+                                key={item.href}
+                                onClick={() => setMoreOpen(true)}
+                                type="button"
+                                aria-label="More"
+                                aria-expanded={moreOpen}
+                                className={cn(
+                                    'flex flex-col items-center gap-0.5 border-0 bg-transparent p-1.5 transition-colors',
+                                    moreActive ? 'text-gold-700' : 'text-ink-2 hover:text-ink-1'
+                                )}
+                            >
+                                <item.Icon size={22} />
+                                <span className="text-[9.5px] font-medium">{item.label}</span>
+                            </button>
+                        );
+                    }
+
+                    // Regular tab (navigates)
                     return (
                         <Link
                             key={item.href}
                             href={item.href}
-                            className="w-14 h-14 rounded-full flex items-center justify-center border-0 -mt-5 transition-transform hover:scale-105"
-                            style={{
-                                background:
-                                    'linear-gradient(135deg, oklch(0.88 0.13 92), oklch(0.64 0.16 78))',
-                                boxShadow: '0 6px 20px -2px oklch(0.65 0.16 78 / 0.55)',
-                            }}
-                            aria-label="Voice log"
-                        >
-                            <item.Icon size={24} className="text-[#1a120a]" />
-                        </Link>
-                    );
-                }
-
-                // Action button (Add) — opens modal, doesn't navigate
-                if (item.isAction) {
-                    return (
-                        <button
-                            key={item.href}
-                            onClick={openAddModal}
-                            type="button"
-                            className="flex flex-col items-center gap-0.5 border-0 bg-transparent p-1.5 text-ink-2 hover:text-ink-1 transition-colors"
+                            className={cn(
+                                'flex flex-col items-center gap-0.5 border-0 bg-transparent p-1.5 transition-colors',
+                                isActive ? 'text-gold-700' : 'text-ink-2 hover:text-ink-1'
+                            )}
                         >
                             <item.Icon size={22} />
                             <span className="text-[9.5px] font-medium">{item.label}</span>
-                        </button>
+                        </Link>
                     );
-                }
+                })}
+            </div>
 
-                // Regular tab (navigates)
-                return (
-                    <Link
-                        key={item.href}
-                        href={item.href}
-                        className={cn(
-                            'flex flex-col items-center gap-0.5 border-0 bg-transparent p-1.5 transition-colors',
-                            isActive ? 'text-gold-700' : 'text-ink-2 hover:text-ink-1'
-                        )}
-                    >
-                        <item.Icon size={22} />
-                        <span className="text-[9.5px] font-medium">{item.label}</span>
-                    </Link>
-                );
-            })}
-        </div>
+            {/* ADDED: the More hub sheet */}
+            <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />
+        </>
     );
 }
