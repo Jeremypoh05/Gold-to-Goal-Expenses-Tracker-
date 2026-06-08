@@ -3,6 +3,7 @@ export { CategoryTile } from "./CategoryTile";
 export {
   HomeIcon,
   MicIcon,
+  MoreIcon,
   GridIcon,
   CalendarIcon,
   WalletIcon,
