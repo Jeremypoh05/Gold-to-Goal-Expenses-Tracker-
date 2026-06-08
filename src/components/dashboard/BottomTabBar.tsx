@@ -12,6 +12,7 @@ import {
 } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { MoreSheet } from './MoreSheet'; // ADDED
+import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open voice modal
 
 // Destinations reachable from the More sheet — used to keep the More tab
 // highlighted while the user is on one of them.
@@ -37,6 +38,7 @@ const TAB_ITEMS: TabItem[] = [
 export function BottomTabBar() {
     const pathname = usePathname();
     const [moreOpen, setMoreOpen] = useState(false); // ADDED
+    const { openModal: openVoiceModal } = useVoice(); // ADDED (Phase 6.1)
 
     return (
         <>
@@ -56,12 +58,14 @@ export function BottomTabBar() {
                         (pathname === item.href ||
                             pathname?.startsWith(item.href + '/'));
 
-                    // Center voice button (special)
+                    // Center voice button — CHANGED (Phase 6.1): opens the global voice
+                    // capture modal instead of navigating to /voice (quick talk anywhere).
                     if (item.isCenter) {
                         return (
-                            <Link
+                            <button
                                 key={item.href}
-                                href={item.href}
+                                type="button"
+                                onClick={openVoiceModal}
                                 className="w-14 h-14 rounded-full flex items-center justify-center border-0 -mt-5 transition-transform hover:scale-105"
                                 style={{
                                     background:
@@ -71,7 +75,7 @@ export function BottomTabBar() {
                                 aria-label="Voice log"
                             >
                                 <item.Icon size={24} className="text-[#1a120a]" />
-                            </Link>
+                            </button>
                         );
                     }
 
