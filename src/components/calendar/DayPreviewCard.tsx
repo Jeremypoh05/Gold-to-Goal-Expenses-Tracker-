@@ -1,101 +1,145 @@
 'use client';
 
+import {
+    useRef,
+    useState,
+    useEffect,
+    useMemo,
+    useCallback,
+    type RefObject,
+} from 'react';
 import { motion } from 'framer-motion';
+import {
+    useFloating,
+    offset,
+    flip,
+    shift,
+    arrow,
+    FloatingArrow,
+    autoUpdate,
+} from '@floating-ui/react';
 import { ArrowIcon } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
 import { getDayPreview, CURRENT } from '@/data/sampleExpenses';
 import { formatMoney, WEEKDAYS_SHORT } from '@/lib/utils';
 
+const TOOLTIP_BG = 'oklch(0.20 0.015 75)';
+
 interface DayPreviewCardProps {
+    referenceEl: HTMLElement | null;
     day: number;
-    anchorX: number;
-    anchorY: number;
     isPinned?: boolean;
+    containerRef?: RefObject<HTMLDivElement | null>;
     onClose?: () => void;
     onNavigate?: () => void;
 }
 
+function useIsMobile() {
+    const [isMobile, setIsMobile] = useState(false)
+
+    useEffect(() => {
+        const check = () => setIsMobile(window.innerWidth < 640)
+        check()
+        window.addEventListener('resize', check)
+        return () => window.removeEventListener('resize', check)
+    }, [])
+
+    return isMobile
+}
+
 export function DayPreviewCard({
+    referenceEl,
     day,
-    anchorX,
-    anchorY,
     isPinned = false,
+    containerRef,
     onClose,
     onNavigate,
 }: DayPreviewCardProps) {
+    const [arrowEl, setArrowEl] = useState<SVGSVGElement | null>(null);
+
+    // Read containerRef.current via effect → state (React 19 safe)
+    const [boundaryEl, setBoundaryEl] = useState<HTMLElement | null>(null);
+    useEffect(() => {
+        setBoundaryEl(containerRef?.current ?? null);
+    }, [containerRef]);
+
     const preview = getDayPreview(day);
     const date = new Date(CURRENT.year, CURRENT.month - 1, day);
     const weekday = [
-        'Sunday',
-        'Monday',
-        'Tuesday',
-        'Wednesday',
-        'Thursday',
-        'Friday',
-        'Saturday',
+        'Sunday', 'Monday', 'Tuesday', 'Wednesday',
+        'Thursday', 'Friday', 'Saturday',
     ][date.getDay()];
     const isToday = day === CURRENT.day;
 
+    // Memoize middleware to avoid recreating on every render
+    const isMobile = useIsMobile()
+
+    const middleware = useMemo(
+        () => [
+            offset(({ placement }) => ({
+                mainAxis: 12,
+                crossAxis: isMobile ? -6 : 0, // 👈 subtle 修正
+            })),
+
+            flip({ fallbackPlacements: ['bottom'] }),
+
+            shift({
+                padding: isMobile ? -8 : -10,
+                boundary: boundaryEl ?? undefined,
+                crossAxis: false, // 🔥 很关键
+            }),
+
+            arrow({
+                element: arrowEl,
+                padding: isMobile ? 30 : 34,
+            }),
+        ],
+        [boundaryEl, arrowEl, isMobile]
+    )
+
+    const { refs, floatingStyles, context } = useFloating({
+        open: true,
+        elements: { reference: referenceEl },
+        placement: 'top',
+        whileElementsMounted: autoUpdate,
+        middleware,
+    });
+
     // ═══════════════════════════════════════════════════════════
-    // Smart positioning
+    // KEY FIX: Wrap setFloating in useCallback (Gemini's approach)
+    // This stabilizes the callback ref so React 19 doesn't warn
     // ═══════════════════════════════════════════════════════════
-    const cardWidth = 280;
-    const cardHeight = preview.count === 0 ? 70 : 280;
-    const margin = 12;
-
-    // Vertical: flip below if too close to top
-    const flipBelow = anchorY < cardHeight + 20;
-
-    // Horizontal: how much to shift card left/right to stay in viewport
-    let cardShiftX = 0;
-    if (typeof window !== 'undefined') {
-        const halfCard = cardWidth / 2;
-        if (anchorX - halfCard < margin) {
-            // Too close to left → push card right
-            cardShiftX = margin - (anchorX - halfCard);
-        } else if (anchorX + halfCard > window.innerWidth - margin) {
-            // Too close to right → push card left
-            cardShiftX = -(anchorX + halfCard - (window.innerWidth - margin));
-        }
-    }
-
-    // Card final position
-    const cardLeft = anchorX + cardShiftX;
-    const cardTransform = flipBelow
-        ? 'translate(-50%, calc(0% + 12px))'
-        : 'translate(-50%, calc(-100% - 12px))';
-
-    // Arrow position — independent of card shift, always anchored to day cell
-    const arrowLeft = anchorX;
+    const setFloatingRef = useCallback(
+        (node: HTMLElement | null) => {
+            refs.setFloating(node);
+        },
+        [refs]
+    );
 
     // ═══════════════════════════════════════════════════════════
-    // Empty state
+    // EMPTY STATE
     // ═══════════════════════════════════════════════════════════
     if (preview.count === 0) {
         return (
-            <motion.div
+            <div
+                ref={setFloatingRef}
                 id="day-preview-card"
-                initial={{ opacity: 0, y: flipBelow ? -8 : 8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: flipBelow ? -4 : 4, scale: 0.96 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                className="fixed z-50 pointer-events-none"
-                style={{ inset: 0 }}
+                style={{
+                    ...floatingStyles,
+                    zIndex: 100,
+                    pointerEvents: isPinned ? 'auto' : 'none',
+                }}
             >
-                {/* Card */}
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: cardLeft,
-                        top: anchorY,
-                        transform: cardTransform,
-                        pointerEvents: isPinned ? 'auto' : 'none',
-                    }}
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                 >
                     <div
                         className="rounded-xl px-3.5 py-2.5"
                         style={{
-                            background: 'oklch(0.20 0.015 75)',
+                            background: TOOLTIP_BG,
                             color: '#fff',
                             boxShadow: '0 12px 32px -8px rgba(0,0,0,0.35)',
                             minWidth: 180,
@@ -106,66 +150,54 @@ export function DayPreviewCard({
                         </div>
                         <div className="text-xs mt-0.5 opacity-80">No expenses logged</div>
                     </div>
-                </div>
-
-                {/* Arrow — independently positioned to anchor */}
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: arrowLeft,
-                        top: flipBelow ? anchorY + 12 - 6 : anchorY - 12,
-                        transform: 'translate(-50%, -50%)',
-                    }}
-                >
-                    {flipBelow ? <UpArrow /> : <DownArrow />}
-                </div>
-            </motion.div>
+                    <FloatingArrow
+                        ref={setArrowEl} 
+                        context={context}
+                        fill={TOOLTIP_BG}
+                        width={12}
+                        height={6}
+                    />
+                </motion.div>
+            </div>
         );
     }
 
     // ═══════════════════════════════════════════════════════════
-    // Filled state
+    // FILLED STATE
     // ═══════════════════════════════════════════════════════════
     const displayExpenses = preview.expenses.slice(0, 4);
     const remainingCount = preview.expenses.length - displayExpenses.length;
 
     return (
-        <motion.div
+        <div
+            ref={setFloatingRef}
             id="day-preview-card"
-            initial={{ opacity: 0, y: flipBelow ? -8 : 8, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: flipBelow ? -4 : 4, scale: 0.96 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed z-50 pointer-events-none"
-            style={{ inset: 0 }}
+            style={{
+                ...floatingStyles,
+                zIndex: 100,
+                pointerEvents: isPinned ? 'auto' : 'none',
+                width: 280,
+            }}
         >
-            {/* Card */}
-            <div
-                style={{
-                    position: 'absolute',
-                    left: cardLeft,
-                    top: anchorY,
-                    transform: cardTransform,
-                    pointerEvents: isPinned ? 'auto' : 'none',
-                }}
+            <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             >
                 <div
                     className="rounded-2xl overflow-hidden"
                     style={{
-                        background: 'oklch(0.20 0.015 75)',
+                        background: TOOLTIP_BG,
                         color: '#fff',
                         boxShadow: '0 16px 40px -8px rgba(0,0,0,0.4)',
-                        minWidth: 240,
-                        maxWidth: cardWidth,
                     }}
                 >
-                    {/* Header */}
                     <div className="px-4 pt-3 pb-2.5 relative">
                         {isPinned && onClose && (
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    e.preventDefault();
                                     onClose();
                                 }}
                                 onMouseDown={(e) => e.stopPropagation()}
@@ -216,12 +248,8 @@ export function DayPreviewCard({
                         </div>
                     </div>
 
-                    <div
-                        className="h-px mx-4"
-                        style={{ background: 'rgba(255,255,255,0.1)' }}
-                    />
+                    <div className="h-px mx-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
 
-                    {/* Expenses */}
                     <div className="px-4 py-2">
                         {displayExpenses.map((t) => (
                             <div key={t.id} className="flex items-center gap-2 py-1">
@@ -238,9 +266,7 @@ export function DayPreviewCard({
                                         }}
                                     />
                                 </div>
-                                <div className="flex-1 min-w-0 text-[11px] truncate">
-                                    {t.note}
-                                </div>
+                                <div className="flex-1 min-w-0 text-[11px] truncate">{t.note}</div>
                                 <div className="mono text-[11px] font-medium opacity-90 whitespace-nowrap">
                                     −{formatMoney(t.amt)}
                                 </div>
@@ -253,7 +279,6 @@ export function DayPreviewCard({
                         )}
                     </div>
 
-                    {/* Footer */}
                     {isPinned && onNavigate ? (
                         <button
                             onClick={(e) => {
@@ -282,35 +307,15 @@ export function DayPreviewCard({
                         </div>
                     )}
                 </div>
-            </div>
 
-            {/* Arrow — independent position, always anchored to day cell center */}
-            <div
-                style={{
-                    position: 'absolute',
-                    left: arrowLeft,
-                    top: flipBelow ? anchorY + 12 - 6 : anchorY - 12,
-                    transform: 'translate(-50%, -50%)',
-                }}
-            >
-                {flipBelow ? <UpArrow /> : <DownArrow />}
-            </div>
-        </motion.div>
-    );
-}
-
-function DownArrow() {
-    return (
-        <svg width="12" height="7" viewBox="0 0 12 7">
-            <path d="M0 0 L6 7 L12 0 Z" fill="oklch(0.20 0.015 75)" />
-        </svg>
-    );
-}
-
-function UpArrow() {
-    return (
-        <svg width="12" height="7" viewBox="0 0 12 7">
-            <path d="M0 7 L6 0 L12 7 Z" fill="oklch(0.20 0.015 75)" />
-        </svg>
+                <FloatingArrow
+                    ref={setArrowEl}   
+                    context={context}
+                    fill={TOOLTIP_BG}
+                    width={12}
+                    height={6}
+                />
+            </motion.div>
+        </div>
     );
 }

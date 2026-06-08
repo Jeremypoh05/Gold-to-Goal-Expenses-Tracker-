@@ -3,17 +3,12 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CategoryIcon, CategoryTile } from '@/components/icons';
+import { CategoryIcon } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
-import {
-    SAMPLE_EXPENSES,
-    CURRENT,
-    getDayCategoryBreakdown,
-} from '@/data/sampleExpenses';
-import { daysInMonth } from '@/lib/utils';
+import { CURRENT, getDayCategoryBreakdown } from '@/data/sampleExpenses';
+import { daysInMonth, cn } from '@/lib/utils';
 import type { Expense, CategoryKey } from '@/types';
 import { DayPreviewCard } from './DayPreviewCard';
-
 export type CalendarViewMode = 'heat' | 'list';
 type FilterId = 'all' | 'voice' | CategoryKey;
 
@@ -50,18 +45,15 @@ function DayCell({
     viewMode: CalendarViewMode;
     index: number;
     isPreviewing: boolean;
-    onTap: (day: number, x: number, y: number) => void;
-    onHover: (day: number, x: number, y: number) => void;
+    onTap: (day: number, el: HTMLElement) => void;
+    onHover: (day: number, el: HTMLElement) => void;
     onLeave: () => void;
 }) {
     const cellRef = useRef<HTMLButtonElement>(null);
 
-    // Background based on view mode
+    // Background follows heat (no special today color)
     let background: string;
-    if (isToday) {
-        background =
-            'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))';
-    } else if (viewMode === 'heat' && spent > 0) {
+    if (viewMode === 'heat' && spent > 0) {
         background = `oklch(${0.97 - intensity * 0.12} ${intensity * 0.14} 88)`;
     } else {
         background = 'var(--color-bg-1)';
@@ -69,85 +61,133 @@ function DayCell({
 
     // Text color
     let textColor: string;
-    if (isToday) textColor = '#1a120a';
-    else if (isFuture) textColor = 'var(--color-ink-3)';
+    if (isFuture) textColor = 'var(--color-ink-3)';
     else textColor = 'var(--color-ink-0)';
 
-    // Top category for List view
     const topCat = topCategories[0]?.cat as CategoryKey | undefined;
     const otherCats = topCategories.slice(1, 4);
-
-    const handleTap = () => {
-        if (cellRef.current) {
-            const rect = cellRef.current.getBoundingClientRect();
-            onTap(day, rect.left + rect.width / 2, rect.top);
-        }
-    };
-
-    const handleMouseEnter = () => {
-        if (cellRef.current) {
-            const rect = cellRef.current.getBoundingClientRect();
-            onHover(day, rect.left + rect.width / 2, rect.top);
-        }
-    };
 
     return (
         <motion.button
             ref={cellRef}
             type="button"
-            onClick={handleTap}
-            onMouseEnter={handleMouseEnter}
+            onClick={() => cellRef.current && onTap(day, cellRef.current)}
+            onMouseEnter={() => cellRef.current && onHover(day, cellRef.current)}
             onMouseLeave={onLeave}
             initial={{ opacity: 0, scale: 0.92 }}
-            animate={{
-                opacity: 1,
-                scale: isPreviewing ? 1.05 : 1,
-            }}
+            animate={{ opacity: 1, scale: 1 }}
             transition={{
                 opacity: { duration: 0.4, delay: 0.02 * index, ease: [0.16, 1, 0.3, 1] },
-                scale: { duration: 0.2, delay: 0, ease: [0.16, 1, 0.3, 1] },
+                scale: { duration: 0.4, delay: 0.02 * index, ease: [0.16, 1, 0.3, 1] },
             }}
-            className="relative aspect-square rounded-xl flex flex-col items-center justify-center transition-all hover:scale-[1.04] hover:z-10 cursor-pointer p-0 border-0"
+            className={cn(
+                "shine-wrap shine-wrap-gold group relative aspect-square rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer p-0 border-0",
+                isToday && "z-10"  
+            )}
             style={{
                 background,
                 color: textColor,
-                border: isToday
-                    ? 'none'
-                    : `1px solid ${isPreviewing
+                border: `1px solid ${isPreviewing
                         ? 'oklch(0.65 0.16 78)'
                         : spent > 0
                             ? 'transparent'
                             : 'var(--color-line-soft)'
                     }`,
-                boxShadow: isToday
-                    ? 'var(--shadow-gold)'
-                    : isPreviewing
-                        ? '0 8px 20px -6px oklch(0.65 0.16 78 / 0.4), 0 0 0 2px oklch(0.82 0.155 88)'
-                        : spent > 0
-                            ? '0 1px 2px rgba(60,40,10,0.04)'
-                            : 'none',
-                overflow: 'hidden',
+                boxShadow: isPreviewing
+                    ? '0 8px 20px -6px oklch(0.65 0.16 78 / 0.4), 0 0 0 2px oklch(0.82 0.155 88)'
+                    : spent > 0
+                        ? '0 1px 2px rgba(60,40,10,0.04)'
+                        : 'none',
                 outline: 'none',
+                zIndex: isToday ? 10 : 1,   
+                overflow: 'visible',  
             }}
         >
-            {/* Day number */}
+            
+            {/* Static hover ring (subtle) */}
             <div
-                className="font-semibold leading-none"
-                style={{ fontSize: 'clamp(13px, 1.4vw, 16px)' }}
-            >
-                {day}
-            </div>
+                className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                style={{
+                    boxShadow:
+                        'inset 0 0 0 2px oklch(0.65 0.16 78), 0 8px 20px -4px oklch(0.55 0.16 70 / 0.5)',
+                }}
+            />
+
+            {/* ═══════ Day number ═══════ */}
+            {isToday ? (
+                <>
+                    {/* Gold ring around entire cell */}
+                    <div
+                        className="absolute inset-0 rounded-xl pointer-events-none"
+                        style={{
+                            boxShadow:
+                                'inset 0 0 0 1px oklch(0.65 0.16 78), 0 0 0 1px oklch(0.85 0.10 88)',
+                        }}
+                    />
+                    {/* Day number with subtle gold underline */}
+                    <div className="relative z-20 flex flex-col items-center">
+                        <div
+                            className="font-bold leading-none transition-all group-hover:scale-110"
+                            style={{
+                                fontSize: 'clamp(13px, 1.4vw, 16px)',
+                                color: 'oklch(0.40 0.10 60)',
+                            }}
+                        >
+                            {day}
+                        </div>
+                        <div
+                            className="rounded-full mt-0.5"
+                            style={{
+                                width: 4,
+                                height: 4,
+                                background: 'oklch(0.65 0.16 78)',
+                            }}
+                        />
+                    </div>
+                </>
+            ) : (
+                <div
+                    className="font-semibold leading-none transition-all group-hover:scale-110 relative z-20"
+                    style={{ fontSize: 'clamp(13px, 1.4vw, 16px)' }}
+                >
+                    {day}
+                </div>
+            )}
+
+            {/* Today corner pin - sticks out on the border */}
+            {isToday && (
+                <motion.div
+                    className="absolute pointer-events-none"
+                    style={{
+                        top: -7,
+                        right: -3,
+                        zIndex: 50,
+                        transformOrigin: 'bottom center',
+                        fontSize: 24,
+                        lineHeight: 1,
+                        filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))',
+                    }}
+                    animate={{ rotate: [1, 25, 1] }}
+                    transition={{
+                        duration: 2.8,
+                        repeat: Infinity,
+                        ease: 'easeInOut',
+                    }}
+                >
+                    📍
+                </motion.div>
+            )}
 
             {/* ═══════ HEAT VIEW ═══════ */}
             {viewMode === 'heat' && (
                 <>
                     {spent > 0 && (
                         <div
-                            className="mono mt-1"
+                            className="mono mt-1 relative z-20"
                             style={{
                                 fontSize: 'clamp(9px, 0.95vw, 11px)',
                                 opacity: 0.8,
-                                fontWeight: isToday ? 600 : 500,
+                                fontWeight: 500,
                             }}
                         >
                             {spent >= 1000
@@ -155,8 +195,8 @@ function DayCell({
                                 : Math.round(spent)}
                         </div>
                     )}
-                    {/* Subtle category dots at bottom */}
-                    {spent > 0 && !isToday && (
+                    {/* Category dots - now shown for ALL days including today */}
+                    {spent > 0 && (
                         <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-[2px]">
                             {topCategories.slice(0, 4).map((c) => (
                                 <div
@@ -179,25 +219,18 @@ function DayCell({
             {/* ═══════ LIST VIEW ═══════ */}
             {viewMode === 'list' && spent > 0 && topCat && (
                 <>
-                    {/* Main category icon */}
                     <div
-                        className="flex items-center justify-center rounded-lg mt-1.5"
+                        className="flex items-center justify-center rounded-lg mt-1.5 relative z-20"
                         style={{
                             width: 'clamp(22px, 2.4vw, 28px)',
                             height: 'clamp(22px, 2.4vw, 28px)',
                             background: `oklch(0.94 0.05 ${CATEGORIES[topCat].hue})`,
                         }}
                     >
-                        <CategoryIcon
-                            kind={topCat}
-                            size={14}
-                            variant="filled"
-                        />
+                        <CategoryIcon kind={topCat} size={14} variant="filled" />
                     </div>
-
-                    {/* Sub-category dots (if more than 1 category) */}
                     {otherCats.length > 0 && (
-                        <div className="flex gap-[3px] mt-1">
+                        <div className="flex gap-[3px] mt-1 relative z-20">
                             {otherCats.map((c) => (
                                 <div
                                     key={c.cat}
@@ -219,7 +252,7 @@ function DayCell({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Category Legend (shown in List mode)
+// Category Legend
 // ═══════════════════════════════════════════════════════════════
 
 function CategoryLegend() {
@@ -236,9 +269,7 @@ function CategoryLegend() {
                 <div key={k} className="flex items-center gap-1.5">
                     <div
                         className="w-2.5 h-2.5 rounded-full"
-                        style={{
-                            background: `oklch(0.72 0.13 ${CATEGORIES[k].hue})`,
-                        }}
+                        style={{ background: `oklch(0.72 0.13 ${CATEGORIES[k].hue})` }}
                     />
                     <span className="text-[10px] md:text-[11px] text-ink-2">
                         {CATEGORIES[k].label}
@@ -255,52 +286,30 @@ function CategoryLegend() {
 
 export function CalendarMonthView({
     viewMode,
-    filter,
     filteredExpenses,
 }: CalendarMonthViewProps) {
     const router = useRouter();
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // ═══════════════════════════════════════════════════════════
-    // State
-    // ═══════════════════════════════════════════════════════════
-    // Hover state — desktop only (mouse events)
-    const [hovered, setHovered] = useState<{
-        day: number;
-        x: number;
-        y: number;
-    } | null>(null);
+    // Now state holds the actual DOM element (not just coords)
+    const [hovered, setHovered] = useState<{ day: number; el: HTMLElement } | null>(null);
+    const [pinned, setPinned] = useState<{ day: number; el: HTMLElement } | null>(null);
 
-    // "Sticky" preview state — mobile (and persistent on desktop tap)
-    const [pinned, setPinned] = useState<{
-        day: number;
-        x: number;
-        y: number;
-    } | null>(null);
-
-    // ═══════════════════════════════════════════════════════════
-    // Click-outside-to-close (for pinned preview)
-    // ═══════════════════════════════════════════════════════════
+    // Click outside closes pinned
     useEffect(() => {
         if (!pinned) return;
-
         const handleClickOutside = (e: MouseEvent | TouchEvent) => {
             const target = e.target as Node;
-            // Don't close if click is inside calendar grid OR inside the preview card
             if (containerRef.current && !containerRef.current.contains(target)) {
-                // Check if it's the preview card (it's outside the grid)
                 const previewEl = document.getElementById('day-preview-card');
                 if (previewEl && previewEl.contains(target)) return;
                 setPinned(null);
             }
         };
-
-        // Delay attach so the click that opened it doesn't immediately close it
         const timer = setTimeout(() => {
             document.addEventListener('mousedown', handleClickOutside);
             document.addEventListener('touchstart', handleClickOutside);
         }, 100);
-
         return () => {
             clearTimeout(timer);
             document.removeEventListener('mousedown', handleClickOutside);
@@ -308,9 +317,6 @@ export function CalendarMonthView({
         };
     }, [pinned]);
 
-    // ═══════════════════════════════════════════════════════════
-    // ESC to close pinned
-    // ═══════════════════════════════════════════════════════════
     useEffect(() => {
         if (!pinned) return;
         const handleKey = (e: KeyboardEvent) => {
@@ -320,40 +326,29 @@ export function CalendarMonthView({
         return () => window.removeEventListener('keydown', handleKey);
     }, [pinned]);
 
-    // ═══════════════════════════════════════════════════════════
-    // Tap handler: behavior depends on device
-    //   Desktop (has hover): tap = navigate immediately
-    //   Mobile (no hover):   first tap = pin preview, second = navigate
-    // ═══════════════════════════════════════════════════════════
-    const handleTap = (day: number, x: number, y: number) => {
-        // Detect if device has fine pointer (mouse) — desktop
+    const handleTap = (day: number, el: HTMLElement) => {
         const isDesktop =
             typeof window !== 'undefined' &&
             window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
         if (isDesktop) {
-            // Desktop: click = navigate immediately (intuitive)
             router.push(`/ledger/${day}`);
             return;
         }
 
-        // Mobile: two-step
         if (pinned && pinned.day === day) {
-            // Second tap on same day → navigate
             router.push(`/ledger/${day}`);
             setPinned(null);
             setHovered(null);
             return;
         }
-        // First tap → pin preview
-        setPinned({ day, x, y });
+        setPinned({ day, el });
         setHovered(null);
     };
 
-    const handleHover = (day: number, x: number, y: number) => {
-        // Don't change hover if pinned (pinned takes priority)
+    const handleHover = (day: number, el: HTMLElement) => {
         if (pinned) return;
-        setHovered({ day, x, y });
+        setHovered({ day, el });
     };
 
     const handleLeave = () => {
@@ -361,12 +356,8 @@ export function CalendarMonthView({
         setHovered(null);
     };
 
-    // Active preview = pinned (priority) OR hovered (desktop)
     const activePreview = pinned ?? hovered;
 
-    // ═══════════════════════════════════════════════════════════
-    // Calendar grid math
-    // ═══════════════════════════════════════════════════════════
     const days = daysInMonth(CURRENT.year, CURRENT.month);
     const firstDow = new Date(CURRENT.year, CURRENT.month - 1, 1).getDay();
 
@@ -379,7 +370,6 @@ export function CalendarMonthView({
         return result;
     }, [days, firstDow]);
 
-    // Spending per day from FILTERED expenses
     const byDay = useMemo(() => {
         const map: Record<number, number> = {};
         filteredExpenses.forEach((t) => {
@@ -393,7 +383,6 @@ export function CalendarMonthView({
 
     return (
         <div ref={containerRef} className="relative">
-            {/* Day-of-week labels */}
             <div className="grid grid-cols-7 gap-2 md:gap-2.5 mb-2">
                 {dayLabels.map((d) => (
                     <div
@@ -405,11 +394,9 @@ export function CalendarMonthView({
                 ))}
             </div>
 
-            {/* Calendar cells */}
             <div className="grid grid-cols-7 gap-2 md:gap-2.5">
                 {cells.map((d, i) => {
                     if (d === null) return <div key={i} />;
-
                     const spent = byDay[d] ?? 0;
                     const intensity = Math.min(1, spent / maxSpend);
                     const isToday = d === CURRENT.day;
@@ -437,20 +424,18 @@ export function CalendarMonthView({
                 })}
             </div>
 
-            {/* Category Legend (List mode only) */}
             <AnimatePresence>
                 {viewMode === 'list' && <CategoryLegend />}
             </AnimatePresence>
 
-            {/* Preview Card */}
             <AnimatePresence>
                 {activePreview && (
                     <DayPreviewCard
                         key={activePreview.day}
                         day={activePreview.day}
-                        anchorX={activePreview.x}
-                        anchorY={activePreview.y}
+                        referenceEl={activePreview.el}
                         isPinned={pinned !== null}
+                        containerRef={containerRef}
                         onClose={() => {
                             setPinned(null);
                             setHovered(null);
