@@ -25,6 +25,7 @@ import {
 } from '@/data/sampleExpenses';
 import { formatMoney, MONTH_NAMES, cn } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
+import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open the voice modal
 import type { CategoryKey } from '@/types';
 
 // ═══════════════════════════════════════════════════════════════
@@ -165,8 +166,12 @@ function MobileTabs({
 }
 
 function FloatingVoiceButton() {
+    const { openModal } = useVoice(); // ADDED (Phase 6.1)
+    // CHANGED (Phase 6.1): opens the global voice capture modal.
     return (
         <button
+            type="button"
+            onClick={openModal}
             className="hidden md:flex fixed bottom-8 right-8 z-30 w-14 h-14 rounded-full items-center justify-center cursor-pointer transition-all hover:scale-105 pulse"
             style={{
                 background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.64 0.155 75))',
@@ -403,6 +408,7 @@ function HeroSpendCard() {
 // ═══════════════════════════════════════════════════════════════
 
 function VoiceCTACard() {
+    const { openModal } = useVoice(); // ADDED (Phase 6.1)
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -461,7 +467,10 @@ function VoiceCTACard() {
                 </p>
             </div>
 
+            {/* CHANGED (Phase 6.1): opens the global voice capture modal (was a Link to /voice). */}
             <button
+                type="button"
+                onClick={openModal}
                 className="relative z-10 flex items-center gap-3 md:gap-3.5 border-0 py-3 md:py-4 px-3 md:px-4 rounded-[18px] md:rounded-[20px] w-full cursor-pointer mt-4 md:mt-5 transition-all hover:brightness-[1.02] hover:scale-[1.01]"
                 style={{
                     background: 'linear-gradient(135deg, oklch(0.94 0.08 92), oklch(0.82 0.15 85))',

@@ -43,3 +43,39 @@ export interface IncomeInfo {
 }
 
 export type Currency = "SGD" | "USD" | "MYR" | "CNY";
+
+// ─────────────────────────────────────────────────────────────
+// Voice (Phase 6 — simulated; real speech/AI is Phase 9)
+// ─────────────────────────────────────────────────────────────
+
+/** The structured expense the (mock) AI extracts from a spoken utterance. */
+export interface VoiceParsed {
+  cat: CategoryKey;
+  amt: number;
+  note: string;
+  currency: Currency;
+}
+
+/** A scripted utterance used to simulate the listen → parse flow. */
+export interface VoiceSample {
+  id: number;
+  lang: string; // 'zh+en' | 'en' | 'zh' | 'Singlish'
+  transcript: string;
+  parsed: VoiceParsed;
+  learned?: string; // "what Honey learned" memory-chip text
+  ms: number; // simulated parse time in seconds (e.g. 0.4)
+}
+
+/** A past voice-logged entry shown in the Recent voice logs panel. */
+export interface VoiceLog {
+  id: number;
+  lang: string;
+  transcript: string;
+  cat: CategoryKey;
+  amt: number;
+  currency: Currency; // ADDED (Phase 6.1): editable in the history editor
+  note: string;
+  time: string; // HH:MM
+  day: number;
+  status: "confirmed" | "edited" | "reparsed";
+}

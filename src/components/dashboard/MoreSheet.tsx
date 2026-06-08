@@ -27,7 +27,8 @@ interface MoreItem {
 
 const MORE_ITEMS: MoreItem[] = [
     { href: '/income', label: 'Income & savings', sub: 'Salary, bonuses, goals', Icon: WalletIcon },
-    { href: '/voice', label: 'Voice log', sub: 'Review voice entries', Icon: MicIcon, soon: true },
+    // CHANGED (Phase 6): Voice page now exists → live link (was "Soon").
+    { href: '/voice', label: 'Voice log', sub: 'Talk to log · review entries', Icon: MicIcon },
     { href: '/settings', label: 'Settings', sub: 'Account & preferences', Icon: SettingsIcon, soon: true },
 ];
 

@@ -10,6 +10,8 @@ import {
     AddModalProvider,
 } from '@/components/dashboard/AddModalContext';
 import { ManualAddModal } from '@/components/dashboard/ManualAddModal';
+// ADDED (Phase 6.1): global voice capture modal + toast, shared via VoiceProvider.
+import { VoiceProvider, VoiceModal, VoiceToast } from '@/components/voice';
 
 export default function DashboardLayout({
     children,
@@ -35,6 +37,9 @@ export default function DashboardLayout({
 
     return (
         <AddModalProvider>
+            {/* ADDED (Phase 6.1): VoiceProvider wraps the dashboard so the voice modal
+                can be opened from anywhere and the /voice page shares the same logs. */}
+            <VoiceProvider>
             <div className="h-screen flex relative bg-bg-0 overflow-hidden">
                 <Orbs count={3} />
 
@@ -54,7 +59,12 @@ export default function DashboardLayout({
 
                 {/* Modal — rendered once, controlled by context */}
                 <ManualAddModal />
+
+                {/* ADDED (Phase 6.1): global voice capture modal + save toast */}
+                <VoiceModal />
+                <VoiceToast />
             </div>
+            </VoiceProvider>
         </AddModalProvider>
     );
 }
