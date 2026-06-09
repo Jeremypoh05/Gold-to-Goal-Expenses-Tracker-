@@ -72,7 +72,7 @@ export function VoiceModal() {
                                 if (info.offset.y > 120 || info.velocity.y > 500) closeModal();
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-white w-full rounded-t-[28px] relative"
+                            className="bg-bg-card w-full rounded-t-[28px] relative"
                             style={{
                                 maxHeight: '92vh',
                                 overflowY: 'auto',
@@ -80,7 +80,7 @@ export function VoiceModal() {
                                 boxShadow: '0 -20px 60px -10px rgba(60, 40, 10, 0.3)',
                             }}
                         >
-                            <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-white z-10">
+                            <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-bg-card z-10">
                                 <div className="w-10 h-1 rounded-full bg-line" />
                             </div>
                             <button
@@ -113,7 +113,7 @@ export function VoiceModal() {
                             exit={{ opacity: 0, y: 20, scale: 0.96 }}
                             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-white rounded-[28px] shadow-2xl relative"
+                            className="bg-bg-card rounded-[28px] shadow-2xl relative"
                             style={{ width: 'min(680px, 100%)', maxHeight: '92vh', overflowY: 'auto' }}
                         >
                             <button

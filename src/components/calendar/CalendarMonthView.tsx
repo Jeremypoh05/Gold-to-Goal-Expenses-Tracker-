@@ -60,8 +60,11 @@ function DayCell({
     }
 
     // Text color
+    // FIX (dark mode): heat cells are LIGHT in both themes → fixed dark text;
+    // list/empty cells use theme ink (which flips white in dark).
     let textColor: string;
-    if (isFuture) textColor = 'var(--color-ink-3)';
+    if (viewMode === 'heat' && spent > 0) textColor = '#3a2a14';
+    else if (isFuture) textColor = 'var(--color-ink-3)';
     else textColor = 'var(--color-ink-0)';
 
     const topCat = topCategories[0]?.cat as CategoryKey | undefined;
@@ -81,8 +84,12 @@ function DayCell({
                 scale: { duration: 0.4, delay: 0.02 * index, ease: [0.16, 1, 0.3, 1] },
             }}
             className={cn(
-                "shine-wrap shine-wrap-gold group relative aspect-square rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer p-0 border-0",
-                isToday && "z-10"  
+                // FIX (dark mode): dropped `shine-wrap shine-wrap-gold` — the sweep
+                // overflowed the cell (cell is overflow:visible for the today pin),
+                // leaving light streaks in dark. The inset-ring + glow below is the
+                // hover effect instead.
+                "group relative aspect-square rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer p-0 border-0",
+                isToday && "z-10"
             )}
             style={{
                 background,
@@ -130,7 +137,12 @@ function DayCell({
                             className="font-bold leading-none transition-all group-hover:scale-110"
                             style={{
                                 fontSize: 'clamp(13px, 1.4vw, 16px)',
-                                color: 'oklch(0.40 0.10 60)',
+                                // FIX (dark mode): on heat (light cell) use dark gold;
+                                // on list (cell flips dark) use theme ink so it stays visible.
+                                color:
+                                    viewMode === 'heat' && spent > 0
+                                        ? 'oklch(0.40 0.10 60)'
+                                        : 'var(--color-ink-0)',
                             }}
                         >
                             {day}

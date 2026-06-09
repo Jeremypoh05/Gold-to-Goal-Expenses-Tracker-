@@ -153,7 +153,7 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
                         className="mt-4 w-full max-w-[560px] rounded-[20px] p-5 text-left"
-                        style={{ border: '1px solid oklch(0.88 0.08 88)', background: 'linear-gradient(135deg, #fff, oklch(0.98 0.03 92))' }}
+                        style={{ border: '1px solid oklch(0.88 0.08 88)', background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))' }}
                     >
                         {/* AI header */}
                         <div className="flex items-center gap-2.5 mb-3.5">
@@ -229,7 +229,7 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                                         <button
                                             type="button"
                                             onClick={() => setEditing(true)}
-                                            className="flex-1 sm:flex-none h-11 px-4 rounded-full border border-line bg-white text-sm font-medium flex items-center justify-center gap-1.5 hover:border-ink-2 transition-all"
+                                            className="flex-1 sm:flex-none h-11 px-4 rounded-full border border-line bg-bg-card text-sm font-medium flex items-center justify-center gap-1.5 hover:border-ink-2 transition-all"
                                         >
                                             <EditIcon size={14} /> Edit
                                         </button>
@@ -239,7 +239,7 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                                                 setEditing(false);
                                                 sayMore();
                                             }}
-                                            className="flex-1 sm:flex-none h-11 px-4 rounded-full border border-line bg-white text-sm font-medium flex items-center justify-center gap-1.5 hover:border-ink-2 transition-all"
+                                            className="flex-1 sm:flex-none h-11 px-4 rounded-full border border-line bg-bg-card text-sm font-medium flex items-center justify-center gap-1.5 hover:border-ink-2 transition-all"
                                         >
                                             <MicIcon size={14} /> Say more
                                         </button>

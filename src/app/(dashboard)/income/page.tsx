@@ -81,7 +81,7 @@ function BigStat({
         <div>
             <div
                 className="text-[11px] uppercase tracking-[0.1em] font-semibold"
-                style={{ color: accent ? 'var(--color-gold-900)' : 'var(--color-ink-2)' }}
+                style={{ color: accent ? 'var(--color-on-soft)' : 'var(--color-ink-2)' }}
             >
                 {label}
             </div>
@@ -89,7 +89,7 @@ function BigStat({
                 className="display mt-1.5"
                 style={{
                     fontSize: 'clamp(26px, 4vw, 36px)',
-                    color: accent ? 'var(--color-gold-900)' : 'var(--color-ink-0)',
+                    color: accent ? 'var(--color-on-soft)' : 'var(--color-ink-0)',
                 }}
             >
                 {percent ? (
@@ -121,7 +121,7 @@ function SalaryCard({ salary, delay = 0 }: { salary: number; delay?: number }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-6 md:p-7 bg-white"
+            className="glass rounded-3xl p-6 md:p-7 bg-bg-card"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <CardHeader title="Monthly salary" />
@@ -162,7 +162,7 @@ function BonusesCard({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-6 md:p-7 bg-white"
+            className="glass rounded-3xl p-6 md:p-7 bg-bg-card"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <CardHeader
@@ -172,7 +172,7 @@ function BonusesCard({
                     <button
                         type="button"
                         onClick={onAdd}
-                        className="flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border border-line bg-white hover:border-ink-2 transition-all"
+                        className="flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all"
                     >
                         <PlusIcon size={14} /> Add
                     </button>
@@ -188,13 +188,15 @@ function BonusesCard({
                         transition={{ duration: 0.4, delay: delay + 0.2 + i * 0.06 }}
                         className="flex items-center gap-3 p-3.5 rounded-[14px]"
                         style={{
+                            // CHANGED (dark mode): theme-aware soft-gold so the row darkens
+                            // and its (theme-ink) text stays legible in dark.
                             background:
-                                'linear-gradient(135deg, oklch(0.97 0.04 92), oklch(0.93 0.07 88))',
+                                'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
                             border: '1px solid oklch(0.88 0.07 88)',
                         }}
                     >
                         <div
-                            className="w-10 h-10 rounded-[10px] bg-white flex items-center justify-center flex-shrink-0"
+                            className="w-10 h-10 rounded-[10px] bg-bg-card flex items-center justify-center flex-shrink-0"
                             style={{ color: 'var(--color-gold-700)' }}
                         >
                             <SparkleIcon size={18} className="text-gold-600" />
@@ -332,7 +334,7 @@ export default function IncomePage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
                 >
-                    <div className="text-[10px] md:text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                    <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         Income · {MONTH_NAMES[CURRENT.month - 1]} {CURRENT.year}
                     </div>
                     <h1 className="display mt-0.5 md:mt-1" style={{ fontSize: 'clamp(28px, 5vw, 40px)', lineHeight: 1.05 }}>

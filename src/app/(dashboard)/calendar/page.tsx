@@ -56,7 +56,7 @@ function FilterChips({
                         style={{
                             background: isActive
                                 ? 'linear-gradient(135deg, oklch(0.96 0.06 92), oklch(0.88 0.12 88))'
-                                : '#fff',
+                                : 'var(--color-bg-card)',
                             border: isActive
                                 ? '1px solid oklch(0.80 0.12 88)'
                                 : '1px solid var(--color-line-soft)',
@@ -123,7 +123,7 @@ function ViewModeToggle({
                     className={cn(
                         'h-[30px] px-3 rounded-full text-xs font-medium cursor-pointer transition-all flex items-center gap-1.5',
                         value === key
-                            ? 'bg-white text-ink-0 shadow-sm'
+                            ? 'bg-bg-card text-ink-0 shadow-sm'
                             : 'bg-transparent text-ink-1 hover:text-ink-0'
                     )}
                 >
@@ -194,7 +194,7 @@ export default function CalendarPage() {
                 className="flex flex-col md:flex-row md:items-end gap-3"
             >
                 <div className="flex-1 min-w-0">
-                    <div className="text-[10px] md:text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                    <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         Calendar · {monthName} {CURRENT.year}
                     </div>
                     <h1
@@ -236,7 +236,7 @@ export default function CalendarPage() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                    className="rounded-3xl bg-white p-5 md:p-7"
+                    className="rounded-3xl bg-bg-card p-5 md:p-7"
                     style={{ border: '1px solid var(--color-line-soft)' }}
                 >
                     <CalendarMonthView

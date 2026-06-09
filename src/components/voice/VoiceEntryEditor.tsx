@@ -130,7 +130,7 @@ export function VoiceEntryEditor({
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="Add a note (optional)"
-                    className="w-full px-3 py-2 border border-line rounded-xl bg-bg-1 text-[13px] outline-none focus:border-gold-400 focus:bg-white transition-all"
+                    className="w-full px-3 py-2 border border-line rounded-xl bg-bg-1 text-[13px] outline-none focus:border-gold-400 focus:bg-bg-card transition-all"
                 />
             </div>
 
@@ -152,7 +152,7 @@ export function VoiceEntryEditor({
                     <button
                         type="button"
                         onClick={onCancel}
-                        className="h-10 px-5 rounded-full border border-line bg-white text-sm font-medium hover:border-ink-2 transition-all"
+                        className="h-10 px-5 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all"
                     >
                         Cancel
                     </button>

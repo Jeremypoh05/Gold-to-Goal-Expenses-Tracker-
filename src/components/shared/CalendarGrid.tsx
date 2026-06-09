@@ -103,8 +103,12 @@ export function CalendarGrid({
                         background = 'var(--color-bg-1)';
                     }
 
+                    // FIX (dark mode): heat cells stay LIGHT in both themes, so their
+                    // text must be a fixed dark — the theme ink token would turn white
+                    // in dark and vanish. Empty/neutral cells use theme ink (they flip).
                     let textColor: string;
                     if (isToday) textColor = '#1a120a';
+                    else if (showSpend && spent > 0) textColor = '#3a2a14';
                     else if (isFuture) textColor = 'var(--color-ink-3)';
                     else textColor = 'var(--color-ink-0)';
 

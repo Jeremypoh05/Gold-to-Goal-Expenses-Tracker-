@@ -37,7 +37,7 @@ export function IncomeBreakdown({
 
     return (
         <div
-            className="glass rounded-3xl p-5 md:p-6 bg-white"
+            className="glass rounded-3xl p-5 md:p-6 bg-bg-card"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <div className="display text-[20px]">Income breakdown</div>

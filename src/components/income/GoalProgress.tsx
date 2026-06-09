@@ -27,7 +27,10 @@ export function GoalProgress({
 }: GoalProgressProps) {
     return (
         <div>
-            <div className="text-[11px] text-gold-900 font-semibold tracking-[0.1em] uppercase mb-2.5">
+            <div
+                className="text-[11px] font-semibold tracking-[0.1em] uppercase mb-2.5"
+                style={{ color: 'var(--color-on-soft)' }}
+            >
                 Progress to {formatMoney(goal).replace('.00', '')} goal
             </div>
 

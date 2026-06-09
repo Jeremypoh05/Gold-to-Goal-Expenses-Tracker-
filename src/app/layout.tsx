@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Geist, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+// ADDED (Dark mode): theme context wrapping the whole app (incl. future landing/auth).
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
-// 显示标题字体 (h1, hero text)
+// ADDED (Dark mode): runs before paint to set the .dark class from the saved
+// choice, else the OS preference — prevents a light flash (FOUC) on load.
+const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('honey-theme');var d=t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches;if(d)document.documentElement.classList.add('dark');}catch(e){}})();`;
+
+// title (h1, hero text)
 const plusJakartaSans = Plus_Jakarta_Sans({
   weight: ['500', '600', '700', '800'],
   subsets: ['latin'],
@@ -10,7 +16,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
   display: 'swap',
 });
 
-// UI 字体 (按钮、正文)
+// UI fonts (buttons, body text)
 const geist = Geist({
   weight: ['300', '400', '500', '600', '700'],
   subsets: ['latin'],
@@ -18,7 +24,7 @@ const geist = Geist({
   display: 'swap',
 });
 
-// 数字字体 (金额、表格数据)
+// number fonts (amounts, table data)
 const jetbrainsMono = JetBrains_Mono({
   weight: ['400', '500', '600'],
   subsets: ['latin'],
@@ -39,9 +45,14 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${plusJakartaSans.variable} ${geist.variable} ${jetbrainsMono.variable}`}    >
+      <head>
+        {/* ADDED (Dark mode): pre-paint theme init to avoid a light flash (FOUC) */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="antialiased">
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

@@ -123,7 +123,7 @@ function BonusForm({
                     value={label}
                     onChange={(e) => setLabel(e.target.value)}
                     placeholder="e.g. Q3 bonus"
-                    className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 text-[12px] md:text-[13px] outline-none focus:border-gold-400 focus:bg-white transition-all"
+                    className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 text-[12px] md:text-[13px] outline-none focus:border-gold-400 focus:bg-bg-card transition-all"
                 />
             </div>
 
@@ -145,7 +145,7 @@ function BonusForm({
                                 style={{
                                     background: isSelected
                                         ? 'linear-gradient(135deg, oklch(0.96 0.06 92), oklch(0.88 0.12 88))'
-                                        : '#fff',
+                                        : 'var(--color-bg-card)',
                                     border: isSelected
                                         ? '1px solid oklch(0.80 0.12 88)'
                                         : '1px solid var(--color-line-soft)',
@@ -164,7 +164,7 @@ function BonusForm({
             <div
                 className="mt-4 rounded-xl p-3 flex items-center gap-2.5"
                 style={{
-                    background: 'linear-gradient(135deg, oklch(0.97 0.04 92), #fff)',
+                    background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
                     border: '1px dashed oklch(0.85 0.10 88)',
                 }}
             >
@@ -192,7 +192,7 @@ function Footer({
             <button
                 type="button"
                 onClick={onClose}
-                className="h-10 px-5 rounded-full border border-line bg-white text-[13px] md:text-sm font-medium hover:border-ink-2 transition-all"
+                className="h-10 px-5 rounded-full border border-line bg-bg-card text-[13px] md:text-sm font-medium hover:border-ink-2 transition-all"
             >
                 Cancel
             </button>
@@ -269,7 +269,7 @@ function ModalContent({
                                     if (info.offset.y > 100 || info.velocity.y > 500) onClose();
                                 }}
                                 onClick={(e) => e.stopPropagation()}
-                                className="bg-white w-full rounded-t-[24px] relative overflow-hidden"
+                                className="bg-bg-card w-full rounded-t-[24px] relative overflow-hidden"
                                 style={{
                                     maxHeight: '92vh',
                                     overflowY: 'auto',
@@ -277,12 +277,12 @@ function ModalContent({
                                     boxShadow: '0 -20px 60px -10px rgba(60, 40, 10, 0.3)',
                                 }}
                             >
-                                <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-white z-10">
+                                <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-bg-card z-10">
                                     <div className="w-10 h-1 rounded-full bg-line" />
                                 </div>
                                 <div className="px-5 pb-3 pt-1 flex items-start gap-2">
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-[10px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                                        <div className="text-[10px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                                             Bonus
                                         </div>
                                         <h2 className="display mt-0.5" style={{ fontSize: 24, lineHeight: 1.1 }}>
@@ -329,7 +329,7 @@ function ModalContent({
                                 exit={{ opacity: 0, y: 20, scale: 0.96 }}
                                 transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
                                 onClick={(e) => e.stopPropagation()}
-                                className="bg-white rounded-[24px] shadow-2xl relative overflow-hidden"
+                                className="bg-bg-card rounded-[24px] shadow-2xl relative overflow-hidden"
                                 style={{ width: 'min(520px, 100%)', maxHeight: '92vh', overflowY: 'auto' }}
                             >
                                 <button
@@ -341,7 +341,7 @@ function ModalContent({
                                     <CloseIcon size={14} />
                                 </button>
                                 <div className="px-7 pt-7 pb-4">
-                                    <div className="text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                                    <div className="text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                                         Bonus
                                     </div>
                                     <h2 className="display mt-1" style={{ fontSize: 28, lineHeight: 1.1 }}>
