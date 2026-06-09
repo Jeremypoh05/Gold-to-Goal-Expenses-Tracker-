@@ -45,10 +45,10 @@ export function BottomTabBar() {
             <div
                 className="md:hidden fixed left-3.5 right-3.5 bottom-5 h-16 rounded-[28px] flex items-center justify-around z-30"
                 style={{
-                    background: 'rgba(255, 255, 255, 0.75)',
+                    background: 'var(--surface-glass-strong)',
                     backdropFilter: 'blur(24px) saturate(1.6)',
                     WebkitBackdropFilter: 'blur(24px) saturate(1.6)',
-                    border: '1px solid rgba(255, 255, 255, 0.8)',
+                    border: '1px solid var(--surface-glass-border)',
                     boxShadow: '0 12px 36px -8px rgba(60, 40, 10, 0.2)',
                 }}
             >

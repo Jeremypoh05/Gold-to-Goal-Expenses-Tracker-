@@ -8,6 +8,8 @@ export {
   CalendarIcon,
   WalletIcon,
   SettingsIcon,
+  SunIcon,
+  MoonIcon,
   ChevronIcon,
   PlusIcon,
   SparkleIcon,

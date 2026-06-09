@@ -4,6 +4,7 @@ import { ChevronIcon, PlusIcon, BellIcon } from '@/components/icons';
 import { MONTH_NAMES } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
 import { useAddModal } from './AddModalContext';
+import { ThemeToggle } from '@/components/theme/ThemeToggle'; // ADDED (Dark mode)
 
 interface TopBarProps {
     month: number;
@@ -43,7 +44,7 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
         <div
             className="border-b border-line-soft sticky top-0 z-30"
             style={{
-                background: 'rgba(255, 255, 255, 0.5)',
+                background: 'var(--surface-glass-soft)',
                 backdropFilter: 'blur(16px)',
                 WebkitBackdropFilter: 'blur(16px)',
             }}
@@ -72,22 +73,25 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
 
                     <button
                         onClick={openAddModal}
-                        className="w-10 h-10 flex items-center justify-center rounded-xl border border-line bg-white hover:border-ink-2 transition-all"
+                        className="w-10 h-10 flex items-center justify-center rounded-xl border border-line bg-bg-card hover:border-ink-2 transition-all"
                         aria-label="Add expense"
                     >
                         <PlusIcon size={18} />
                     </button>
 
+                    {/* ADDED (Dark mode): theme toggle (mobile header) */}
+                    <ThemeToggle size={40} />
+
                     <div className="relative">
                         <button
-                            className="w-10 h-10 flex items-center justify-center rounded-xl border border-line-soft bg-white text-ink-1 hover:bg-bg-2 transition-colors"
+                            className="w-10 h-10 flex items-center justify-center rounded-xl border border-line-soft bg-bg-card text-ink-1 hover:bg-bg-2 transition-colors"
                             aria-label="Notifications"
                         >
                             <BellIcon size={18} />
                         </button>
                         <div
                             className="absolute top-2 right-2 w-2 h-2 rounded-full bg-gold-500"
-                            style={{ border: '2px solid white' }}
+                            style={{ border: '2px solid var(--color-bg-card)' }}
                         />
                     </div>
                 </div>
@@ -168,7 +172,7 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
                     </div>
                     <input
                         placeholder="Search expenses, notes, categories…"
-                        className="border border-line bg-white py-[9px] pl-[34px] pr-3.5 rounded-[10px] text-[13px] w-[280px] outline-none focus:border-gold-400 transition-colors"
+                        className="border border-line bg-bg-card py-[9px] pl-[34px] pr-3.5 rounded-[10px] text-[13px] w-[280px] outline-none focus:border-gold-400 transition-colors"
                     />
                 </div>
 
@@ -188,6 +192,9 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
                     <span>New</span>
                 </button>
 
+                {/* ADDED (Dark mode): theme toggle (desktop) */}
+                <ThemeToggle size={36} />
+
                 <div className="relative">
                     <button
                         className="w-9 h-9 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
@@ -197,7 +204,7 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
                     </button>
                     <div
                         className="absolute top-[7px] right-[7px] w-[7px] h-[7px] rounded-full bg-gold-500"
-                        style={{ border: '2px solid rgba(255, 255, 255, 0.5)' }}
+                        style={{ border: '2px solid var(--color-bg-card)' }}
                     />
                 </div>
             </div>

@@ -37,7 +37,7 @@ export function VoiceLogsPanel() {
             {/* Header */}
             <div className="px-1 flex items-end gap-2">
                 <div className="flex-1">
-                    <div className="text-[10px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                    <div className="text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         Voice history
                     </div>
                     <div className="display text-[20px] mt-0.5">
@@ -66,7 +66,7 @@ export function VoiceLogsPanel() {
                             exit={{ opacity: 0, height: 0, marginBottom: -12, transition: { duration: 0.25 } }}
                             transition={{ duration: 0.4, delay: Math.min(i * 0.05, 0.3), ease: [0.16, 1, 0.3, 1] }}
                             className="rounded-2xl p-3.5"
-                            style={{ background: '#fff', border: '1px solid var(--color-line-soft)' }}
+                            style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-line-soft)' }}
                         >
                             {/* Top: lang + time + status */}
                             <div className="flex items-center gap-2 flex-wrap">
@@ -118,7 +118,7 @@ export function VoiceLogsPanel() {
                                         <button
                                             type="button"
                                             onClick={() => setEditingId(log.id)}
-                                            className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-medium border border-line bg-white hover:border-ink-2 transition-all"
+                                            className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-medium border border-line bg-bg-card hover:border-ink-2 transition-all"
                                         >
                                             <EditIcon size={13} /> Edit
                                         </button>
@@ -126,7 +126,7 @@ export function VoiceLogsPanel() {
                                             type="button"
                                             onClick={() => deleteLog(log.id)}
                                             aria-label="Delete entry"
-                                            className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-medium border border-line bg-white text-ink-1 hover:border-[oklch(0.7_0.15_25)] hover:text-[oklch(0.55_0.18_25)] transition-all"
+                                            className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-medium border border-line bg-bg-card text-ink-1 hover:border-[oklch(0.7_0.15_25)] hover:text-[oklch(0.55_0.18_25)] transition-all"
                                         >
                                             <TrashIcon size={13} /> Delete
                                         </button>

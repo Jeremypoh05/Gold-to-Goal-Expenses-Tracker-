@@ -59,7 +59,7 @@ function DaySwitcher({
             <span
                 className={cn(
                     'h-[30px] px-[14px] rounded-full text-xs font-medium inline-flex items-center',
-                    isToday ? 'bg-white text-ink-0 shadow-sm' : 'text-ink-1'
+                    isToday ? 'bg-bg-card text-ink-0 shadow-sm' : 'text-ink-1'
                 )}
             >
                 {isToday ? 'Today' : `Apr ${day}`}
@@ -310,7 +310,7 @@ function TodayByCategory({
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="rounded-[24px] bg-white p-5 md:p-6"
+            className="rounded-[24px] bg-bg-card p-5 md:p-6"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <div className="display text-[18px] mb-3">Today by category</div>
@@ -378,13 +378,13 @@ function AISummaryCard({
             transition={{ duration: 0.6, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
             className="rounded-[24px] p-5"
             style={{
-                background: 'linear-gradient(135deg, #fff, oklch(0.98 0.03 92))',
+                background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
                 border: '1px solid oklch(0.90 0.06 88)',
             }}
         >
             <div className="flex items-center gap-2 mb-2">
                 <SparkleIcon size={14} className="text-gold-600" />
-                <span className="text-[11px] font-semibold text-gold-900 uppercase tracking-[0.08em]">
+                <span className="text-[11px] font-semibold text-on-soft uppercase tracking-[0.08em]">
                     AI summary
                 </span>
             </div>
@@ -440,7 +440,7 @@ function TimelineEntry({
                         width: 10,
                         height: 10,
                         background: `oklch(0.78 0.12 ${CATEGORIES[cat].hue})`,
-                        border: '2px solid #fff',
+                        border: '2px solid var(--color-bg-card)',
                         boxShadow: '0 0 0 1px var(--color-line)',
                     }}
                 />
@@ -553,7 +553,7 @@ export default function DailyDetailPage() {
                 </button>
 
                 <div
-                    className="rounded-[20px] bg-white p-12 text-center"
+                    className="rounded-[20px] bg-bg-card p-12 text-center"
                     style={{ border: '1px solid var(--color-line-soft)' }}
                 >
                     <div className="display text-2xl mb-2">No expenses</div>
@@ -587,7 +587,7 @@ export default function DailyDetailPage() {
                         <span>Back to ledger</span>
                     </Link>
 
-                    <div className="text-[10px] md:text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                    <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         Daily detail · {isToday ? 'Today' : `Apr ${day}`}
                     </div>
 
@@ -611,7 +611,7 @@ export default function DailyDetailPage() {
                     <DaySwitcher day={day} prevDay={prevDay} nextDay={nextDay} />
 
                     <button
-                        className="h-10 px-3 md:px-4 rounded-full border border-line bg-white text-sm font-medium hover:border-ink-2 flex items-center gap-2 transition-all"
+                        className="h-10 px-3 md:px-4 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 flex items-center gap-2 transition-all"
                         aria-label="Jump to date"
                     >
                         <CalendarIcon size={14} />
@@ -629,7 +629,7 @@ export default function DailyDetailPage() {
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
-                    className="rounded-[24px] bg-white p-5 md:p-6"
+                    className="rounded-[24px] bg-bg-card p-5 md:p-6"
                     style={{ border: '1px solid var(--color-line-soft)' }}
                 >
                     <div className="flex items-baseline mb-4">

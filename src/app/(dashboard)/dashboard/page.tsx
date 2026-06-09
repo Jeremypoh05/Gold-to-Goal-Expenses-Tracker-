@@ -91,14 +91,22 @@ function MiniStat({
             }}
         >
             <div className="flex-1">
-                <div className="text-[11px] text-ink-2 uppercase tracking-[0.06em]">
+                {/* FIX (dark mode): the accent ministat bg stays LIGHT gold in both themes,
+                    so its text must be fixed dark (theme ink would turn white & vanish). */}
+                <div
+                    className="text-[11px] uppercase tracking-[0.06em]"
+                    style={{ color: accent ? 'var(--color-gold-900)' : 'var(--color-ink-2)' }}
+                >
                     {label}
                 </div>
-                <div className="mono text-sm font-semibold mt-0.5">
+                <div
+                    className="mono text-sm font-semibold mt-0.5"
+                    style={{ color: accent ? 'var(--color-gold-900)' : 'var(--color-ink-0)' }}
+                >
                     <AnimatedNumber value={value} format="money" duration={1800} delay={delay} />
                 </div>
             </div>
-            <div className="text-[10px] text-ink-2">{sub}</div>
+            <div className="text-[10px]" style={{ color: accent ? 'var(--color-gold-700)' : 'var(--color-ink-2)' }}>{sub}</div>
         </div>
     );
 }
@@ -127,7 +135,7 @@ function SegmentedControl({
                     className={cn(
                         'h-[30px] px-[14px] rounded-full text-xs font-medium cursor-pointer transition-all',
                         value === key
-                            ? 'bg-white text-ink-0 shadow-sm'
+                            ? 'bg-bg-card text-ink-0 shadow-sm'
                             : 'bg-transparent text-ink-1 hover:text-ink-0'
                     )}
                 >
@@ -154,7 +162,7 @@ function MobileTabs({
                     className={cn(
                         'flex-shrink-0 px-4 h-9 rounded-full text-sm font-medium cursor-pointer transition-all',
                         value === key
-                            ? 'bg-ink-0 text-white shadow-sm'
+                            ? 'bg-ink-0 text-bg-card shadow-sm'
                             : 'bg-bg-2 text-ink-1 hover:bg-bg-card'
                     )}
                 >
@@ -213,7 +221,7 @@ function FloatingVoiceButton() {
 //                 <div className="font-semibold text-ink-0 truncate">Amelia</div>
 //             </div>
 //             <button
-//                 className="w-10 h-10 rounded-xl border border-line-soft bg-white flex items-center justify-center flex-shrink-0 relative"
+//                 className="w-10 h-10 rounded-xl border border-line-soft bg-bg-card flex items-center justify-center flex-shrink-0 relative"
 //                 aria-label="Notifications"
 //             >
 //                 <BellIcon size={18} className="text-ink-1" />
@@ -417,10 +425,10 @@ function VoiceCTACard() {
             className="rounded-[24px] md:rounded-[32px] p-5 md:p-7 relative overflow-hidden flex flex-col justify-between"
             style={{
                 background: `
-          radial-gradient(ellipse at top left, rgba(255, 255, 255, 0.95) 0%, transparent 50%),
+          radial-gradient(ellipse at top left, rgba(255, 255, 255, 0.10) 0%, transparent 55%),
           linear-gradient(160deg,
-            #ffffff 0%,
-            oklch(0.98 0.015 80) 100%
+            var(--color-bg-card) 0%,
+            var(--color-bg-1) 100%
           )
         `,
                 border: '1px solid var(--color-line)',
@@ -515,7 +523,7 @@ function CategoriesCard({ delay = 0.15 }: { delay?: number }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-5 md:p-6 bg-white"
+            className="glass rounded-3xl p-5 md:p-6 bg-bg-card"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <CardHeader title="Categories" subtitle={`Where ${monthName} went`} />
@@ -579,7 +587,7 @@ function CalendarCard({ delay = 0.2 }: { delay?: number }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-5 md:p-6 bg-white"
+            className="glass rounded-3xl p-5 md:p-6 bg-bg-card"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <CardHeader
@@ -616,7 +624,7 @@ function NetSavingsCard({
             )}
             style={{
                 border: '1px solid var(--color-line-soft)',
-                background: 'linear-gradient(160deg, #fff, oklch(0.97 0.02 92))',
+                background: 'linear-gradient(160deg, var(--grad-soft-a), var(--grad-soft-b))',
             }}
         >
             {/* CHANGED (Phase 5): whole card now links to the Income page. This is the
@@ -679,7 +687,7 @@ function RecentTransactions({ filter, setFilter }: {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl bg-white overflow-hidden"
+            className="glass rounded-3xl bg-bg-card overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 md:p-5 md:px-6">
@@ -690,7 +698,7 @@ function RecentTransactions({ filter, setFilter }: {
                 <div className="hidden sm:block flex-1" />
                 <div className="flex items-center gap-2 flex-wrap">
                     <SegmentedControl value={filter} onChange={setFilter} />
-                    <button className="flex items-center gap-1.5 border border-line bg-white py-2 px-3 md:px-4 rounded-full text-sm hover:border-ink-2 transition-all">
+                    <button className="flex items-center gap-1.5 border border-line bg-bg-card py-2 px-3 md:px-4 rounded-full text-sm hover:border-ink-2 transition-all">
                         <span className="hidden sm:inline">View ledger</span>
                         <span className="sm:hidden">All</span>
                         <ChevronIcon direction="right" size={14} />

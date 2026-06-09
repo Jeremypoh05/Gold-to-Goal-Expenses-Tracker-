@@ -67,7 +67,7 @@ function TimeRangeSegment({
                     className={cn(
                         "h-[30px] px-[14px] rounded-full text-xs font-medium cursor-pointer transition-all",
                         value === key
-                            ? "bg-white text-ink-0 shadow-sm"
+                            ? "bg-bg-card text-ink-0 shadow-sm"
                             : "bg-transparent text-ink-1 hover:text-ink-0",
                     )}
                 >
@@ -111,7 +111,7 @@ function FilterChips({
                         style={{
                             background: isActive
                                 ? "linear-gradient(135deg, oklch(0.96 0.06 92), oklch(0.88 0.12 88))"
-                                : "#fff",
+                                : "var(--color-bg-card)",
                             border: isActive
                                 ? "1px solid oklch(0.80 0.12 88)"
                                 : "1px solid var(--color-line-soft)",
@@ -167,7 +167,7 @@ function DayCard({
                 delay: 0.15 + index * 0.04,
                 ease: [0.16, 1, 0.3, 1],
             }}
-            className="rounded-[20px] bg-white overflow-hidden"
+            className="rounded-[20px] bg-bg-card overflow-hidden"
             style={{ border: "1px solid var(--color-line-soft)" }}
         >
             {/* Day header (clickable → Daily Detail) */}
@@ -176,7 +176,7 @@ function DayCard({
                 className="block"
                 style={{
                     background: isToday
-                        ? "linear-gradient(90deg, oklch(0.97 0.04 92), #fff 50%)"
+                        ? "linear-gradient(90deg, var(--grad-soft-a), var(--color-bg-card) 50%)"
                         : "var(--color-bg-1)",
                     borderBottom: "1px solid var(--color-line-soft)",
                 }}
@@ -378,12 +378,15 @@ function PeriodTotalCard({
             transition={{ duration: 0.5, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
             className="rounded-[16px] px-5 py-4 flex items-center gap-4"
             style={{
-                background: "linear-gradient(135deg, oklch(0.97 0.04 92), #fff)",
+                background: "linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))",
                 border: "1px solid oklch(0.88 0.08 88)",
             }}
         >
             <div className="min-w-0 flex-1">
-                <div className="text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                <div
+                    className="text-[11px] uppercase tracking-[0.14em] font-semibold"
+                    style={{ color: 'var(--color-on-soft)' }}
+                >
                     Period total
                 </div>
                 <div className="text-[11px] md:text-xs text-ink-2 mt-0.5 truncate">
@@ -527,7 +530,7 @@ export default function LedgerPage() {
                 className="flex flex-col md:flex-row md:items-end gap-3"
             >
                 <div className="flex-1 min-w-0">
-                    <div className="text-[10px] md:text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                    <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         Ledger · {rangeDisplay}
                     </div>
                     <h1
@@ -638,7 +641,7 @@ export default function LedgerPage() {
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="rounded-[20px] bg-white p-12 text-center"
+                    className="rounded-[20px] bg-bg-card p-12 text-center"
                     style={{ border: "1px solid var(--color-line-soft)" }}
                 >
                     <div className="text-ink-2 text-sm">

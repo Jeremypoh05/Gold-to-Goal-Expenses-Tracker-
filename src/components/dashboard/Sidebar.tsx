@@ -37,7 +37,7 @@ export function Sidebar() {
         <aside
             className="w-[220px] h-screen flex flex-col px-[14px] py-5 border-r border-line-soft relative z-20"
             style={{
-                background: 'rgba(255, 255, 255, 0.55)',
+                background: 'var(--surface-glass-soft)',
                 backdropFilter: 'blur(20px)',
             }}
         >
@@ -72,7 +72,7 @@ export function Sidebar() {
                             className={cn(
                                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all',
                                 isActive
-                                    ? 'bg-white text-ink-0 shadow-sm'
+                                    ? 'bg-bg-card text-ink-0 shadow-sm'
                                     : 'bg-transparent text-ink-1 hover:bg-white/40'
                             )}
                         >
@@ -92,13 +92,13 @@ export function Sidebar() {
             <div
                 className="rounded-[18px] p-[14px] mb-2"
                 style={{
-                    background: 'linear-gradient(135deg, oklch(0.98 0.03 92), oklch(0.93 0.08 88))',
+                    background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
                     border: '1px solid oklch(0.88 0.08 88)',
                 }}
             >
                 <div className="flex items-center gap-1.5 mb-1.5">
                     <SparkleIcon size={14} className="text-gold-700" />
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-gold-900">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-on-soft">
                         AI tip
                     </span>
                 </div>

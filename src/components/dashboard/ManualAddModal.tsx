@@ -118,7 +118,7 @@ function FieldRow({
                 {label}
             </div>
             <button
-                className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 flex items-center gap-2 hover:bg-white transition-colors cursor-pointer text-left"
+                className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 flex items-center gap-2 hover:bg-bg-card transition-colors cursor-pointer text-left"
                 type="button"
             >
                 <span className="text-ink-1 flex-shrink-0">{icon}</span>
@@ -338,7 +338,7 @@ function NoteSection({ note, setNote }: Pick<ModalBodyProps, 'note' | 'setNote'>
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="What was this expense for?"
-                className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 text-[12px] md:text-[13px] outline-none focus:border-gold-400 focus:bg-white transition-all"
+                className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 text-[12px] md:text-[13px] outline-none focus:border-gold-400 focus:bg-bg-card transition-all"
             />
             {/* Tag suggestions */}
             <div className="flex gap-1.5 mt-2 flex-wrap">
@@ -381,7 +381,7 @@ function AISuggestCard({ isMobile }: { isMobile?: boolean }) {
             className="rounded-xl p-3 flex items-center gap-2.5"
             style={{
                 background:
-                    'linear-gradient(135deg, oklch(0.97 0.04 92), #fff)',
+                    'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
                 border: '1px dashed oklch(0.85 0.10 88)',
             }}
         >
@@ -395,7 +395,7 @@ function AISuggestCard({ isMobile }: { isMobile?: boolean }) {
             </div>
             <button
                 type="button"
-                className="px-3 h-7 rounded-full text-[10px] md:text-xs font-medium border border-line bg-white hover:border-ink-2 transition-all flex-shrink-0"
+                className="px-3 h-7 rounded-full text-[10px] md:text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all flex-shrink-0"
             >
                 Apply
             </button>
@@ -433,7 +433,7 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
                 exit={{ opacity: 0, y: 20, scale: 0.96 }}
                 transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white rounded-[24px] shadow-2xl relative overflow-hidden"
+                className="bg-bg-card rounded-[24px] shadow-2xl relative overflow-hidden"
                 style={{
                     width: 'min(680px, 100%)',
                     maxHeight: '92vh',
@@ -452,7 +452,7 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
 
                 {/* Header */}
                 <div className="px-7 pt-7 pb-4">
-                    <div className="text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                    <div className="text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         New expense
                     </div>
                     <h2
@@ -536,7 +536,7 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
                     <button
                         type="button"
                         onClick={onClose}
-                        className="h-10 px-5 rounded-full border border-line bg-white text-sm font-medium hover:border-ink-2 transition-all"
+                        className="h-10 px-5 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all"
                     >
                         Cancel
                     </button>
@@ -597,7 +597,7 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                     }
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white w-full rounded-t-[24px] relative overflow-hidden"
+                className="bg-bg-card w-full rounded-t-[24px] relative overflow-hidden"
                 style={{
                     maxHeight: '92vh',
                     overflowY: 'auto',
@@ -606,14 +606,14 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                 }}
             >
                 {/* Drag handle */}
-                <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-white z-10">
+                <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-bg-card z-10">
                     <div className="w-10 h-1 rounded-full bg-line" />
                 </div>
 
                 {/* Header */}
                 <div className="px-5 pb-3 pt-1 flex items-start gap-2">
                     <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                        <div className="text-[10px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                             New expense
                         </div>
                         <h2
@@ -695,7 +695,7 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                     <button
                         type="button"
                         onClick={onClose}
-                        className="h-10 px-4 rounded-full border border-line bg-white text-[13px] font-medium hover:border-ink-2 transition-all"
+                        className="h-10 px-4 rounded-full border border-line bg-bg-card text-[13px] font-medium hover:border-ink-2 transition-all"
                     >
                         Cancel
                     </button>

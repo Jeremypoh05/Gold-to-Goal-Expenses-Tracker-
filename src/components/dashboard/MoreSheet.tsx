@@ -82,7 +82,7 @@ export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => voi
                             if (info.offset.y > 100 || info.velocity.y > 500) onClose();
                         }}
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-white w-full rounded-t-[24px] relative overflow-hidden"
+                        className="bg-bg-card w-full rounded-t-[24px] relative overflow-hidden"
                         style={{
                             maxHeight: '80vh',
                             overflowY: 'auto',
@@ -91,13 +91,13 @@ export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => voi
                         }}
                     >
                         {/* Grab handle */}
-                        <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-white z-10">
+                        <div className="flex justify-center pt-2.5 pb-1 sticky top-0 bg-bg-card z-10">
                             <div className="w-10 h-1 rounded-full bg-line" />
                         </div>
 
                         {/* Header */}
                         <div className="px-5 pb-3 pt-1">
-                            <div className="text-[10px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                            <div className="text-[10px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                                 Menu
                             </div>
                             <h2 className="display mt-0.5" style={{ fontSize: 24, lineHeight: 1.1 }}>

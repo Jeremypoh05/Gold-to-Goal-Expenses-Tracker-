@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* ADDED (Dark mode): manual class strategy — `.dark` on <html> drives the theme.
+   Enables `dark:` utilities for the rare edge case; most theming is done by
+   overriding the design tokens under `.dark` (see the .dark block below). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ─────────────────────────────────────────────────────────────
    Honey Expense Tracker — Design System (Tailwind v4)
    Gold-yellow accent · cream base · soft glass · modern serif
@@ -31,6 +36,11 @@
   --color-gold-700: oklch(0.50 0.115 74);
   --color-gold-900: oklch(0.30 0.070 70);
 
+  /* ADDED (Dark mode): text that sits ON soft-gold surfaces (grad-gold-soft cards).
+     Light: deep gold (like gold-900). Dark: light gold — so eyebrow labels / accent
+     figures stay legible when those cards darken to deep amber. */
+  --color-on-soft: oklch(0.32 0.075 72);
+
   /* ===== Category hues ===== */
   --color-hue-food:   oklch(0.82 0.130 40);
   --color-hue-shop:   oklch(0.80 0.110 340);
@@ -57,6 +67,53 @@
   --shadow-md: 0 2px 6px rgba(60, 40, 10, 0.05), 0 10px 30px -12px rgba(60, 40, 10, 0.14);
   --shadow-lg: 0 4px 12px rgba(60, 40, 10, 0.06), 0 24px 60px -20px rgba(60, 40, 10, 0.22);
   --shadow-gold: 0 8px 24px -6px oklch(0.76 0.160 85 / 0.55);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ADDED (Dark mode): theme-aware surface tokens (light values here).
+   `.glass` and `.grad-gold-soft` read these so they flip with the theme.
+   The .dark block below overrides surfaces / ink / lines / shadows; the gold
+   accent + category hues stay constant (gold is gold in both themes).
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --surface-glass: rgba(255, 255, 255, 0.65);
+  --surface-glass-strong: rgba(255, 255, 255, 0.75);
+  --surface-glass-soft: rgba(255, 255, 255, 0.55);
+  --surface-glass-border: rgba(255, 255, 255, 0.7);
+  --grad-soft-a: oklch(0.98 0.025 92);
+  --grad-soft-b: oklch(0.94 0.060 88);
+}
+
+.dark {
+  /* Surfaces — warm charcoal-brown so gold stays cohesive */
+  --color-bg-0: oklch(0.17 0.012 70);
+  --color-bg-1: oklch(0.21 0.014 68);
+  --color-bg-2: oklch(0.26 0.016 66);
+  --color-bg-card: oklch(0.225 0.015 66);
+
+  /* Ink */
+  --color-ink-0: oklch(0.96 0.015 85);
+  --color-ink-1: oklch(0.82 0.018 82);
+  --color-ink-2: oklch(0.64 0.016 80);
+  --color-ink-3: oklch(0.48 0.014 78);
+  --color-line: oklch(0.34 0.016 70);
+  --color-line-soft: oklch(0.29 0.014 70);
+
+  /* Glass + soft-gold surfaces (translucent dark / deep amber) */
+  --surface-glass: rgba(40, 35, 28, 0.55);
+  --surface-glass-strong: rgba(48, 42, 33, 0.7);
+  --surface-glass-soft: rgba(36, 31, 25, 0.5);
+  --surface-glass-border: rgba(255, 235, 200, 0.08);
+  --grad-soft-a: oklch(0.30 0.055 80);
+  --grad-soft-b: oklch(0.26 0.075 72);
+
+  /* Text on soft-gold cards → light gold in dark so labels stay legible */
+  --color-on-soft: oklch(0.86 0.10 90);
+
+  /* Shadows deepen */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 235, 200, 0.05);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.35), 0 12px 32px -12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4), 0 28px 64px -20px rgba(0, 0, 0, 0.6);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -107,10 +164,11 @@ body {
 
 /* Glassmorphism card effect */
 @utility glass {
-  background: rgba(255, 255, 255, 0.65);
+  /* CHANGED (Dark mode): theme-aware surface tokens (see :root / .dark). */
+  background: var(--surface-glass);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--surface-glass-border);
   box-shadow: var(--shadow-md);
 }
 
@@ -123,9 +181,10 @@ body {
 }
 
 @utility grad-gold-soft {
+  /* CHANGED (Dark mode): theme-aware soft-gold (deep amber in dark). */
   background: linear-gradient(135deg,
-    oklch(0.98 0.025 92) 0%,
-    oklch(0.94 0.060 88) 100%);
+    var(--grad-soft-a) 0%,
+    var(--grad-soft-b) 100%);
 }
 
 /* Chip (small pill-shaped badge) */
@@ -172,6 +231,18 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.78 0.015 80);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ADDED (Dark mode): lighter thumb on dark surfaces */
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.40 0.014 75);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.48 0.014 75);
   border: 2px solid transparent;
   background-clip: padding-box;
 }

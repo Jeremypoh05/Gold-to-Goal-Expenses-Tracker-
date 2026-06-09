@@ -24,7 +24,7 @@ function StatCard({
             transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
             className="rounded-2xl p-4"
             style={{
-                background: '#fff',
+                background: 'var(--color-bg-card)',
                 border: '1px solid var(--color-line-soft)',
             }}
         >
@@ -52,7 +52,7 @@ export function MonthSummary() {
                 transition={{ duration: 0.4 }}
                 className="px-1"
             >
-                <div className="text-[10px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
+                <div className="text-[10px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                     {monthName} summary
                 </div>
                 <div className="display text-[20px] mt-0.5">Insights</div>
