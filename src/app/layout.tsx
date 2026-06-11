@@ -3,6 +3,8 @@ import { Plus_Jakarta_Sans, Geist, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 // ADDED (Dark mode): theme context wrapping the whole app (incl. future landing/auth).
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
+// ADDED (Phase 7 · Auth): Clerk provider, themed to follow the toggle.
+import { ClerkProviderThemed } from "@/components/auth/ClerkProviderThemed";
 
 // ADDED (Dark mode): runs before paint to set the .dark class from the saved
 // choice, else the OS preference — prevents a light flash (FOUC) on load.
@@ -52,7 +54,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="antialiased">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <ClerkProviderThemed>{children}</ClerkProviderThemed>
+        </ThemeProvider>
       </body>
     </html>
   );

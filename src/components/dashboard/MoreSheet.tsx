@@ -16,24 +16,28 @@ import {
     SettingsIcon,
     ChevronIcon,
 } from '@/components/icons';
+import { useClerk } from '@clerk/nextjs'; // ADDED (Phase 7): open account modal
 
 interface MoreItem {
     href: string;
     label: string;
     sub: string;
     Icon: React.ComponentType<{ size?: number; className?: string }>;
-    soon?: boolean; // not yet built (Phase 6/7) — shown disabled, no dead link
+    soon?: boolean; // not yet built — shown disabled, no dead link
+    action?: 'account'; // ADDED (Phase 7): opens Clerk's manage-account modal
 }
 
 const MORE_ITEMS: MoreItem[] = [
     { href: '/income', label: 'Income & savings', sub: 'Salary, bonuses, goals', Icon: WalletIcon },
     // CHANGED (Phase 6): Voice page now exists → live link (was "Soon").
     { href: '/voice', label: 'Voice log', sub: 'Talk to log · review entries', Icon: MicIcon },
-    { href: '/settings', label: 'Settings', sub: 'Account & preferences', Icon: SettingsIcon, soon: true },
+    // CHANGED (Phase 7): Settings now opens the Clerk account modal (was "Soon").
+    { href: '#account', label: 'Settings', sub: 'Account & preferences', Icon: SettingsIcon, action: 'account' },
 ];
 
 export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
     const pathname = usePathname();
+    const { openUserProfile } = useClerk(); // ADDED (Phase 7)
 
     // ESC closes
     useEffect(() => {
@@ -107,8 +111,8 @@ export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
                         {/* Destination rows */}
                         <div className="px-3 pb-2 flex flex-col gap-1">
-                            {MORE_ITEMS.map(({ href, label, sub, Icon, soon }) => {
-                                const isActive = !soon && pathname === href;
+                            {MORE_ITEMS.map(({ href, label, sub, Icon, soon, action }) => {
+                                const isActive = !soon && !action && pathname === href;
 
                                 const inner = (
                                     <>
@@ -138,6 +142,24 @@ export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => voi
                                         )}
                                     </>
                                 );
+
+                                // ADDED (Phase 7): account action opens Clerk's manage-account
+                                // modal instead of navigating.
+                                if (action === 'account') {
+                                    return (
+                                        <button
+                                            key={href}
+                                            type="button"
+                                            onClick={() => {
+                                                onClose();
+                                                openUserProfile();
+                                            }}
+                                            className="flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-colors active:bg-bg-1 text-left w-full"
+                                        >
+                                            {inner}
+                                        </button>
+                                    );
+                                }
 
                                 // Disabled (not-yet-built) rows render as a static div, not a link,
                                 // so we never navigate to a 404.

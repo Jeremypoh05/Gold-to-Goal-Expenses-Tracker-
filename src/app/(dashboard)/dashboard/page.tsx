@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link'; // ADDED (Phase 5): mobile entry point into the Income page
+import { WelcomeBanner } from '@/components/dashboard/WelcomeBanner'; // ADDED (Phase 7)
 import { motion } from 'framer-motion';
 import {
     CategoryTile,
@@ -523,7 +524,7 @@ function CategoriesCard({ delay = 0.15 }: { delay?: number }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-5 md:p-6 bg-bg-card"
+            className="glass rounded-3xl p-5 md:p-6 bg-bg-card min-w-0"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <CardHeader title="Categories" subtitle={`Where ${monthName} went`} />
@@ -587,7 +588,7 @@ function CalendarCard({ delay = 0.2 }: { delay?: number }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-5 md:p-6 bg-bg-card"
+            className="glass rounded-3xl p-5 md:p-6 bg-bg-card min-w-0"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <CardHeader
@@ -619,7 +620,7 @@ function NetSavingsCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
-                'glass rounded-3xl p-5 md:p-6',
+                'glass rounded-3xl p-5 md:p-6 min-w-0',
                 spanFull && 'md:col-span-2 lg:col-span-1'
             )}
             style={{
@@ -829,6 +830,11 @@ export default function DashboardPage() {
     return (
         <>
             <div className="px-4 md:px-8 py-5 md:py-7 pb-16 max-w-[1320px] mx-auto flex flex-col gap-4 md:gap-6">
+                {/* ADDED (Phase 7): one-time post-sign-up welcome (?welcome=1) */}
+                <Suspense fallback={null}>
+                    <WelcomeBanner />
+                </Suspense>
+
                 {/* ───────── Mobile-only greeting ───────── */}
                 {/* <div className="md:hidden">
                     <MobileGreetingHeader />
