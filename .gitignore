@@ -44,3 +44,6 @@ next-env.d.ts
 .claude/
 
 Notes.docx
+
+# Office temp/lock files
+~$*
