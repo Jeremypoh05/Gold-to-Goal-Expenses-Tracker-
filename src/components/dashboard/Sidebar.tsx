@@ -8,10 +8,21 @@ import {
     GridIcon,
     CalendarIcon,
     WalletIcon,
-    SettingsIcon,
     SparkleIcon,
 } from '@/components/icons';
 import { cn } from '@/lib/utils';
+// ADDED (Phase 7 · Auth): real user account row + explicit sign-out.
+import { UserButton, useUser, useClerk } from '@clerk/nextjs';
+
+// Small logout glyph (door + arrow) — kept local to the sidebar.
+function LogOutIcon({ size = 16 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+            <path d="M10 17l-5-5 5-5M4 12h11" />
+        </svg>
+    );
+}
 
 // ─────────────────────────────────────────────────────────────
 // Navigation item type
@@ -32,6 +43,8 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar() {
     const pathname = usePathname();
+    const { user } = useUser(); // ADDED (Phase 7): signed-in user
+    const { signOut } = useClerk(); // ADDED (Phase 7): explicit sign-out
 
     return (
         <aside
@@ -108,22 +121,31 @@ export function Sidebar() {
                 </p>
             </div>
 
-            {/* User profile */}
+            {/* Account — CHANGED (Phase 7): real Clerk user. Clicking the avatar opens
+                Clerk's menu (manage account + sign out). */}
             <div className="flex items-center gap-2.5 px-1.5 pt-3.5 pb-1 border-t border-line-soft">
-                <div
-                    className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center text-xs font-semibold"
-                    style={{
-                        background: 'oklch(0.85 0.10 40)',
-                        color: '#5a2a10',
-                    }}
-                >
-                    AC
-                </div>
+                <UserButton
+                    appearance={{ elements: { avatarBox: 'w-[30px] h-[30px]' } }}
+                />
                 <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium truncate">Amelia Chan</div>
-                    <div className="text-[10px] text-ink-2">Pro · Clerk auth</div>
+                    <div className="text-xs font-medium truncate">
+                        {user?.fullName ?? user?.firstName ?? 'Account'}
+                    </div>
+                    <div className="text-[10px] text-ink-2 truncate">
+                        {user?.primaryEmailAddress?.emailAddress ?? 'Manage account'}
+                    </div>
                 </div>
-                <SettingsIcon size={16} className="text-ink-2" />
+                {/* ADDED (Phase 7): explicit sign-out (the UserButton menu is the other path,
+                    but its avatar can collide with the dev-tools button in the corner). */}
+                <button
+                    type="button"
+                    onClick={() => signOut({ redirectUrl: '/sign-in' })}
+                    aria-label="Sign out"
+                    title="Sign out"
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-2 hover:text-ink-0 hover:bg-bg-2 transition-colors flex-shrink-0"
+                >
+                    <LogOutIcon size={16} />
+                </button>
             </div>
         </aside>
     );

@@ -215,6 +215,9 @@ function AmountSection({
                 style={{
                     fontSize: isMobile ? 'clamp(40px, 12vw, 56px)' : 64,
                     lineHeight: 1,
+                    // FIX (dark mode): the amount card stays light gold in both themes, so the
+                    // integer must be a fixed dark — theme ink would turn white & vanish here.
+                    color: '#2a1805',
                 }}
             >
                 <span

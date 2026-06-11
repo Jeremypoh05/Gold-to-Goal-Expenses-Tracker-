@@ -95,7 +95,8 @@ function BonusForm({
                 </div>
                 <div
                     className="display-number mt-1 select-none"
-                    style={{ fontSize: isMobile ? 'clamp(40px, 12vw, 56px)' : 60, lineHeight: 1 }}
+                    // FIX (dark mode): light-gold amount card → fixed dark integer.
+                    style={{ fontSize: isMobile ? 'clamp(40px, 12vw, 56px)' : 60, lineHeight: 1, color: '#2a1805' }}
                 >
                     <span style={{ fontSize: '0.4em', color: 'var(--color-gold-700)', marginRight: 4 }}>
                         S$

@@ -5,6 +5,7 @@ import { MONTH_NAMES } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
 import { useAddModal } from './AddModalContext';
 import { ThemeToggle } from '@/components/theme/ThemeToggle'; // ADDED (Dark mode)
+import { UserButton, useUser } from '@clerk/nextjs'; // ADDED (Phase 7 · Auth)
 
 interface TopBarProps {
     month: number;
@@ -35,7 +36,8 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
         today.getMonth() + 1 === month && today.getFullYear() === year;
 
     const todayBadge = `Today · ${MONTH_NAMES[today.getMonth()]} ${today.getDate()}`;
-    const greeting = useGreeting('Amelia');
+    const { user } = useUser(); // ADDED (Phase 7): real signed-in user
+    const greeting = useGreeting(user?.firstName ?? 'there');
 
     // Open modal when "+ New" / "+" is clicked
     const { open: openAddModal } = useAddModal();
@@ -53,21 +55,15 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
             <div className="md:hidden">
                 {/* Row 1 */}
                 <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-                    <div
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-semibold flex-shrink-0"
-                        style={{
-                            background: 'oklch(0.85 0.10 40)',
-                            color: '#5a2a10',
-                        }}
-                    >
-                        AC
-                    </div>
+                    {/* CHANGED (Phase 7): real account avatar (opens Clerk menu — the mobile
+                        path to manage account / sign out, since the sidebar is desktop-only). */}
+                    <UserButton appearance={{ elements: { avatarBox: 'w-10 h-10' } }} />
                     <div className="flex-1 min-w-0">
                         <div className="text-[11px] text-ink-2 leading-tight">
                             {greeting.emoji} {greeting.text.split(',')[0]}
                         </div>
                         <div className="text-[15px] font-semibold text-ink-0 truncate leading-tight">
-                            Amelia
+                            {user?.firstName ?? 'there'}
                         </div>
                     </div>
 
