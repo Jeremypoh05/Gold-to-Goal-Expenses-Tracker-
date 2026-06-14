@@ -47,3 +47,5 @@ Notes.docx
 
 # Office temp/lock files
 ~$*
+
+/src/generated/prisma
