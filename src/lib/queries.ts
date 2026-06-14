@@ -6,7 +6,6 @@ import "server-only";
 import { cache } from "react";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import { monthInfoFrom } from "@/lib/today";
 import { toUiExpense, toUiVoiceLog, toUiBonus } from "@/lib/expense-utils";
 import type { MonthInfo } from "@/types";
 
@@ -43,17 +42,37 @@ export interface DashboardData {
     monthlySalary: number;
     savingsGoal: number;
     saved: number;
+    monthlyBudget: number;
+    grossSalary: number;
+    deductions: number;
+    payDay: number;
+    payFrequency: string;
     bonuses: ReturnType<typeof toUiBonus>;
   };
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
+/**
+ * Build the dashboard payload for a specific month. Shared by the initial
+ * (current-month) layout fetch and the month-browsing server action.
+ * `current.day` is today's date only when viewing the actual current month
+ * (else 0, so "Today" highlighting never false-matches a past month).
+ */
+export async function getMonthDashboardData(
+  year: number,
+  month: number,
+): Promise<DashboardData> {
   const user = await getOrCreateUser();
 
   const now = new Date();
-  const current = monthInfoFrom(now);
-  const monthStart = new Date(current.year, current.month - 1, 1);
-  const monthEnd = new Date(current.year, current.month, 1);
+  const isCurrentMonth =
+    now.getFullYear() === year && now.getMonth() + 1 === month;
+  const current: MonthInfo = {
+    year,
+    month,
+    day: isCurrentMonth ? now.getDate() : 0,
+  };
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 1);
 
   const [rows, bonuses] = await Promise.all([
     prisma.expense.findMany({
@@ -72,7 +91,17 @@ export async function getDashboardData(): Promise<DashboardData> {
       monthlySalary: Number(user.monthlySalary),
       savingsGoal: Number(user.savingsGoal),
       saved: Number(user.saved),
+      monthlyBudget: Number(user.monthlyBudget),
+      grossSalary: Number(user.grossSalary),
+      deductions: Number(user.deductions),
+      payDay: user.payDay,
+      payFrequency: user.payFrequency,
       bonuses: toUiBonus(bonuses),
     },
   };
+}
+
+export function getDashboardData(): Promise<DashboardData> {
+  const now = new Date();
+  return getMonthDashboardData(now.getFullYear(), now.getMonth() + 1);
 }

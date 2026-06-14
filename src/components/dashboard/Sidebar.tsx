@@ -10,7 +10,11 @@ import {
     WalletIcon,
     SparkleIcon,
 } from '@/components/icons';
-import { cn } from '@/lib/utils';
+import { cn, formatMoney, MONTH_NAMES } from '@/lib/utils';
+import { CATEGORIES } from '@/data/categories';
+import { useExpenses } from '@/components/data/ExpensesContext';
+import { totalSpent, expensesByCategory } from '@/lib/expense-utils';
+import type { CategoryKey } from '@/types';
 // ADDED (Phase 7 · Auth): real user account row + explicit sign-out.
 import { UserButton, useUser, useClerk } from '@clerk/nextjs';
 
@@ -45,6 +49,15 @@ export function Sidebar() {
     const pathname = usePathname();
     const { user } = useUser(); // ADDED (Phase 7): signed-in user
     const { signOut } = useClerk(); // ADDED (Phase 7): explicit sign-out
+
+    // CHANGED (Phase 8.1): real, deterministic insight from this month's data
+    // (replaces the hardcoded "32% less … April" placeholder). True AI tips land in Phase 9.
+    const { current, expenses } = useExpenses();
+    const monthName = MONTH_NAMES[current.month - 1];
+    const total = totalSpent(expenses);
+    const topCat = (
+        Object.entries(expensesByCategory(expenses)) as [CategoryKey, number][]
+    ).sort((a, b) => b[1] - a[1])[0];
 
     return (
         <aside
@@ -116,8 +129,18 @@ export function Sidebar() {
                     </span>
                 </div>
                 <p className="text-xs leading-[1.4] text-ink-1 m-0">
-                    You spent <b>32% less</b> on Shopping this month. Keep going — you&apos;re
-                    on track to save <b>S$960</b> more in April.
+                    {topCat ? (
+                        <>
+                            Your top category in {monthName} is{' '}
+                            <b>{CATEGORIES[topCat[0]].label}</b> at{' '}
+                            <b>{formatMoney(topCat[1])}</b> —{' '}
+                            {Math.round((topCat[1] / total) * 100)}% of {formatMoney(total)}{' '}
+                            across {expenses.length}{' '}
+                            {expenses.length === 1 ? 'entry' : 'entries'}.
+                        </>
+                    ) : (
+                        <>No expenses logged yet in {monthName}. Tap <b>+</b> or the mic to start.</>
+                    )}
                 </p>
             </div>
 

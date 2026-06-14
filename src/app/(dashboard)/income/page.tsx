@@ -114,7 +114,29 @@ function BigStat({
 // Cards (responsive — reused by both desktop + mobile layouts)
 // ═══════════════════════════════════════════════════════════════
 
-function SalaryCard({ salary, delay = 0, onEdit }: { salary: number; delay?: number; onEdit: () => void }) {
+function ordinal(n: number): string {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function SalaryCard({
+    salary,
+    gross,
+    deductions,
+    payDay,
+    payFrequency,
+    delay = 0,
+    onEdit,
+}: {
+    salary: number;
+    gross: number;
+    deductions: number;
+    payDay: number;
+    payFrequency: string;
+    delay?: number;
+    onEdit: () => void;
+}) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -146,11 +168,11 @@ function SalaryCard({ salary, delay = 0, onEdit }: { salary: number; delay?: num
                 className="mt-5 pt-4 flex flex-col gap-3"
                 style={{ borderTop: '1px solid var(--color-line-soft)' }}
             >
-                {/* Static design values — these become editable fields once the DB lands (Phase 8). */}
-                <Field label="Gross monthly" value="S$ 8,500" />
-                <Field label="CPF / deductions" value="S$ 1,300" />
-                <Field label="Pay day" value="25th of every month" />
-                <Field label="Frequency" value="Monthly" />
+                {/* CHANGED (Phase 8.1): real, editable values (via the Edit → settings modal). */}
+                <Field label="Gross monthly" value={gross > 0 ? formatMoney(gross) : '—'} />
+                <Field label="CPF / deductions" value={deductions > 0 ? formatMoney(deductions) : '—'} />
+                <Field label="Pay day" value={payDay > 0 ? `${ordinal(payDay)} of every month` : '—'} />
+                <Field label="Frequency" value={payFrequency} />
             </div>
         </motion.div>
     );
@@ -388,7 +410,7 @@ export default function IncomePage() {
                 <div className="hidden md:flex md:flex-col md:gap-6">
                     {/* Row 1: Salary | Bonuses (1:1 with design) */}
                     <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-                        <SalaryCard salary={stats.monthlySalary} delay={0.05} onEdit={() => setSettingsOpen(true)} />
+                        <SalaryCard salary={stats.monthlySalary} gross={income.grossSalary} deductions={income.deductions} payDay={income.payDay} payFrequency={income.payFrequency} delay={0.05} onEdit={() => setSettingsOpen(true)} />
                         <BonusesCard
                             bonuses={bonuses}
                             total={stats.totalBonuses}
@@ -426,7 +448,7 @@ export default function IncomePage() {
 
                 {/* ═══════════ MOBILE (< md) — derived, content parity ═══════════ */}
                 <div className="md:hidden flex flex-col gap-5">
-                    <SalaryCard salary={stats.monthlySalary} delay={0.05} onEdit={() => setSettingsOpen(true)} />
+                    <SalaryCard salary={stats.monthlySalary} gross={income.grossSalary} deductions={income.deductions} payDay={income.payDay} payFrequency={income.payFrequency} delay={0.05} onEdit={() => setSettingsOpen(true)} />
                     <IncomeBreakdown
                         yearlySalary={stats.yearlySalary}
                         totalBonuses={stats.totalBonuses}
@@ -460,6 +482,11 @@ export default function IncomePage() {
                     monthlySalary: income.monthlySalary,
                     savingsGoal: income.savingsGoal,
                     saved: income.saved,
+                    monthlyBudget: income.monthlyBudget,
+                    grossSalary: income.grossSalary,
+                    deductions: income.deductions,
+                    payDay: income.payDay,
+                    payFrequency: income.payFrequency,
                 }}
                 onClose={() => setSettingsOpen(false)}
                 onSave={handleSaveSettings}

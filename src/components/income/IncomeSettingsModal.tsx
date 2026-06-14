@@ -13,6 +13,11 @@ export interface IncomeSettingsValue {
     monthlySalary: number;
     savingsGoal: number;
     saved: number;
+    monthlyBudget: number;
+    grossSalary: number;
+    deductions: number;
+    payDay: number;
+    payFrequency: string;
 }
 
 interface Props {
@@ -74,6 +79,11 @@ function Content({ initial, onClose, onSave }: Omit<Props, 'open'>) {
     const [salary, setSalary] = useState(String(initial.monthlySalary || ''));
     const [goal, setGoal] = useState(String(initial.savingsGoal || ''));
     const [saved, setSaved] = useState(String(initial.saved || ''));
+    const [budget, setBudget] = useState(String(initial.monthlyBudget || ''));
+    const [gross, setGross] = useState(String(initial.grossSalary || ''));
+    const [deductions, setDeductions] = useState(String(initial.deductions || ''));
+    const [payDay, setPayDay] = useState(String(initial.payDay || ''));
+    const [payFrequency, setPayFrequency] = useState(initial.payFrequency || 'Monthly');
 
     const num = (s: string) => {
         const n = parseFloat(s);
@@ -81,13 +91,22 @@ function Content({ initial, onClose, onSave }: Omit<Props, 'open'>) {
     };
 
     const handleSave = () => {
+        // payDay clamped to a valid day-of-month (1–31), 0 = unset.
+        const day = Math.min(31, Math.max(0, Math.round(num(payDay))));
         onSave({
             monthlySalary: num(salary),
             savingsGoal: num(goal),
             saved: num(saved),
+            monthlyBudget: num(budget),
+            grossSalary: num(gross),
+            deductions: num(deductions),
+            payDay: day,
+            payFrequency: payFrequency.trim() || 'Monthly',
         });
         onClose();
     };
+
+    const FREQUENCIES = ['Monthly', 'Bi-weekly', 'Weekly'];
 
     return (
         <motion.div
@@ -130,9 +149,59 @@ function Content({ initial, onClose, onSave }: Omit<Props, 'open'>) {
                 </div>
 
                 <div className="px-6 md:px-7 pb-2 flex flex-col gap-4">
-                    <MoneyField label="Monthly salary" value={salary} onChange={setSalary} hint="Take-home pay per month" />
-                    <MoneyField label="Savings goal" value={goal} onChange={setGoal} hint="Year-end net-savings target" />
-                    <MoneyField label="Saved so far" value={saved} onChange={setSaved} hint="Amount put aside year-to-date" />
+                    <MoneyField label="Monthly salary (take-home)" value={salary} onChange={setSalary} hint="Drives yearly income & net savings" />
+                    <div className="grid grid-cols-2 gap-3">
+                        <MoneyField label="Gross monthly" value={gross} onChange={setGross} />
+                        <MoneyField label="CPF / deductions" value={deductions} onChange={setDeductions} />
+                    </div>
+                    <MoneyField label="Monthly budget" value={budget} onChange={setBudget} hint="Powers the dashboard spend ring" />
+                    <div className="grid grid-cols-2 gap-3">
+                        <MoneyField label="Savings goal" value={goal} onChange={setGoal} />
+                        <MoneyField label="Saved so far" value={saved} onChange={setSaved} />
+                    </div>
+                    {/* Pay day + frequency */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
+                                Pay day
+                            </div>
+                            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-line bg-bg-1 focus-within:border-gold-400 focus-within:bg-bg-card transition-all">
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={payDay}
+                                    onChange={(e) => setPayDay(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+                                    placeholder="25"
+                                    className="flex-1 bg-transparent outline-none mono text-[15px] font-semibold min-w-0"
+                                    aria-label="Pay day of month"
+                                />
+                                <span className="text-ink-3 text-[11px]">of month</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
+                                Frequency
+                            </div>
+                            <div className="flex gap-1.5 flex-wrap">
+                                {FREQUENCIES.map((f) => (
+                                    <button
+                                        key={f}
+                                        type="button"
+                                        onClick={() => setPayFrequency(f)}
+                                        className="chip"
+                                        style={{
+                                            cursor: 'pointer',
+                                            background: f === payFrequency ? 'oklch(0.96 0.06 92)' : 'var(--color-bg-2)',
+                                            color: f === payFrequency ? 'var(--color-gold-900)' : 'var(--color-ink-1)',
+                                            border: f === payFrequency ? '1px solid oklch(0.85 0.10 88)' : '1px solid var(--color-line-soft)',
+                                        }}
+                                    >
+                                        {f}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="px-6 md:px-7 py-5 flex items-center gap-2.5">

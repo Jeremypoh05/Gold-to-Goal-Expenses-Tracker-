@@ -108,7 +108,8 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
 
                     <button
                         onClick={() => onMonthChange(1)}
-                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
+                        disabled={isCurrentMonth}
+                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                         aria-label="Next month"
                     >
                         <ChevronIcon direction="right" size={14} />
@@ -143,7 +144,8 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
 
                     <button
                         onClick={() => onMonthChange(1)}
-                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
+                        disabled={isCurrentMonth}
+                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                         aria-label="Next month"
                     >
                         <ChevronIcon direction="right" size={16} />
