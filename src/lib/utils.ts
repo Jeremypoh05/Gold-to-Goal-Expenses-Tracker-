@@ -44,6 +44,22 @@ export function formatMoney(n: number, currency: Currency = "SGD"): string {
   );
 }
 
+// ADDED (Phase 8): map the UI currency symbols used by the add/bonus modals
+// ('S$', 'MYR', '¥', '$') to the DB Currency enum the server actions expect.
+export function currencyFromSymbol(symbol: string): Currency {
+  switch (symbol) {
+    case "MYR":
+      return "MYR";
+    case "¥":
+      return "CNY";
+    case "$":
+      return "USD";
+    case "S$":
+    default:
+      return "SGD";
+  }
+}
+
 export const MONTH_NAMES = [
   "Jan",
   "Feb",

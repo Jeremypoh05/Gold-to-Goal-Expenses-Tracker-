@@ -7,19 +7,22 @@
 // Income-vs-Expenses viz, Savings insights panel, animated goal progress, interactive
 // Add Bonus. Light theme only (dark mode is a separate app-wide phase).
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { PlusIcon, SparkleIcon } from '@/components/icons';
+import { PlusIcon, SparkleIcon, EditIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import {
     GoalProgress,
     IncomeBreakdown,
     IncomeSummary,
     AddBonusModal,
+    IncomeSettingsModal,
     type NewBonus,
 } from '@/components/income';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { totalSpent } from '@/lib/expense-utils';
+import { addBonus, updateIncomeSettings } from '@/lib/actions';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import type { IncomeInfo } from '@/types';
 
@@ -111,7 +114,7 @@ function BigStat({
 // Cards (responsive — reused by both desktop + mobile layouts)
 // ═══════════════════════════════════════════════════════════════
 
-function SalaryCard({ salary, delay = 0 }: { salary: number; delay?: number }) {
+function SalaryCard({ salary, delay = 0, onEdit }: { salary: number; delay?: number; onEdit: () => void }) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -120,7 +123,18 @@ function SalaryCard({ salary, delay = 0 }: { salary: number; delay?: number }) {
             className="glass rounded-3xl p-6 md:p-7 bg-bg-card"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
-            <CardHeader title="Monthly salary" />
+            <CardHeader
+                title="Monthly salary"
+                right={
+                    <button
+                        type="button"
+                        onClick={onEdit}
+                        className="flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all"
+                    >
+                        <EditIcon size={13} /> Edit
+                    </button>
+                }
+            />
             <div className="mt-4 flex items-baseline gap-3 flex-wrap">
                 <div className="display-number" style={{ fontSize: 'clamp(40px, 7vw, 56px)', lineHeight: 1 }}>
                     <span style={{ fontSize: '0.42em', color: 'var(--color-ink-2)', marginRight: 4 }}>S$</span>
@@ -320,19 +334,34 @@ function useIncomeStats(
 
 export default function IncomePage() {
     const { current, expenses, income } = useExpenses();
+    const router = useRouter();
+    const [, startTransition] = useTransition();
 
-    // Bonuses live in page state so the interactive "Add bonus" updates the whole
-    // page (band, breakdown, insights) live. Non-persistent until Phase 8 DB.
-    const [bonuses, setBonuses] = useState<Bonus[]>(() => [...income.bonuses]);
+    // CHANGED (Phase 8): bonuses + settings are DB-backed. We read straight from the
+    // server-provided `income` (so the page stays in sync after refresh), and mutate
+    // through the server actions + router.refresh().
+    const bonuses = income.bonuses;
     const [addOpen, setAddOpen] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     const stats = useIncomeStats(bonuses, income, expenses, current);
 
     const handleAddBonus = (b: NewBonus) => {
-        // Insert keeping chronological (by month) order.
-        setBonuses((prev) =>
-            [...prev, b].sort((a, c) => a.month - c.month)
-        );
+        startTransition(async () => {
+            await addBonus({ month: b.month, amount: b.amt, label: b.label });
+            router.refresh();
+        });
+    };
+
+    const handleSaveSettings = (v: {
+        monthlySalary: number;
+        savingsGoal: number;
+        saved: number;
+    }) => {
+        startTransition(async () => {
+            await updateIncomeSettings(v);
+            router.refresh();
+        });
     };
 
     return (
@@ -359,7 +388,7 @@ export default function IncomePage() {
                 <div className="hidden md:flex md:flex-col md:gap-6">
                     {/* Row 1: Salary | Bonuses (1:1 with design) */}
                     <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-                        <SalaryCard salary={stats.monthlySalary} delay={0.05} />
+                        <SalaryCard salary={stats.monthlySalary} delay={0.05} onEdit={() => setSettingsOpen(true)} />
                         <BonusesCard
                             bonuses={bonuses}
                             total={stats.totalBonuses}
@@ -397,7 +426,7 @@ export default function IncomePage() {
 
                 {/* ═══════════ MOBILE (< md) — derived, content parity ═══════════ */}
                 <div className="md:hidden flex flex-col gap-5">
-                    <SalaryCard salary={stats.monthlySalary} delay={0.05} />
+                    <SalaryCard salary={stats.monthlySalary} delay={0.05} onEdit={() => setSettingsOpen(true)} />
                     <IncomeBreakdown
                         yearlySalary={stats.yearlySalary}
                         totalBonuses={stats.totalBonuses}
@@ -423,6 +452,18 @@ export default function IncomePage() {
 
             {/* Interactive Add Bonus modal / sheet */}
             <AddBonusModal open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAddBonus} />
+
+            {/* Income settings (salary / goal / saved) */}
+            <IncomeSettingsModal
+                open={settingsOpen}
+                initial={{
+                    monthlySalary: income.monthlySalary,
+                    savingsGoal: income.savingsGoal,
+                    saved: income.saved,
+                }}
+                onClose={() => setSettingsOpen(false)}
+                onSave={handleSaveSettings}
+            />
         </>
     );
 }

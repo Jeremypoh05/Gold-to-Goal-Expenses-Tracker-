@@ -17,7 +17,7 @@ import {
 } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
-import { CURRENT } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
 import { useVoice } from './VoiceContext';
 import { VoiceEntryEditor } from './VoiceEntryEditor';
 import type { VoiceLog } from '@/types';
@@ -30,6 +30,7 @@ const STATUS_STYLE: Record<VoiceLog['status'], { label: string; bg: string; colo
 
 export function VoiceLogsPanel() {
     const { logs, editLog, deleteLog, openModal } = useVoice();
+    const { current } = useExpenses();
     const [editingId, setEditingId] = useState<number | null>(null);
 
     return (
@@ -72,7 +73,7 @@ export function VoiceLogsPanel() {
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="chip" style={{ height: 20, fontSize: 10 }}>{log.lang}</span>
                                 <span className="text-[11px] text-ink-3 mono">
-                                    {log.time} · {MONTH_NAMES[CURRENT.month - 1]} {log.day}
+                                    {log.time} · {MONTH_NAMES[current.month - 1]} {log.day}
                                 </span>
                                 <div className="flex-1" />
                                 <span className="chip" style={{ height: 20, fontSize: 10, background: st.bg, color: st.color, border: 'none' }}>

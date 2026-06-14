@@ -7,7 +7,7 @@ import { cache } from "react";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { monthInfoFrom } from "@/lib/today";
-import { toUiExpense, toUiBonus } from "@/lib/expense-utils";
+import { toUiExpense, toUiVoiceLog, toUiBonus } from "@/lib/expense-utils";
 import type { MonthInfo } from "@/types";
 
 /**
@@ -37,6 +37,8 @@ export const getOrCreateUser = cache(async () => {
 export interface DashboardData {
   current: MonthInfo;
   expenses: ReturnType<typeof toUiExpense>[];
+  /** Voice-sourced expenses, in the richer VoiceLog shape (transcript/lang/status). */
+  voiceLogs: ReturnType<typeof toUiVoiceLog>[];
   income: {
     monthlySalary: number;
     savingsGoal: number;
@@ -64,6 +66,8 @@ export async function getDashboardData(): Promise<DashboardData> {
   return {
     current,
     expenses: rows.map(toUiExpense),
+    // Voice logs are the same rows where source = voice (single source of truth).
+    voiceLogs: rows.filter((r) => r.source === "voice").map(toUiVoiceLog),
     income: {
       monthlySalary: Number(user.monthlySalary),
       savingsGoal: Number(user.savingsGoal),

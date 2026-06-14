@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     CategoryTile,
@@ -9,8 +10,10 @@ import {
     SparkleIcon,
 } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
+import { createExpense, updateExpense } from '@/lib/actions';
+import { currencyFromSymbol } from '@/lib/utils';
 import { useAddModal } from './AddModalContext';
-import type { CategoryKey } from '@/types';
+import type { CategoryKey, Currency as CurrencyEnum, Expense } from '@/types';
 
 const CATEGORY_KEYS: CategoryKey[] = [
     'food',
@@ -407,14 +410,82 @@ function AISuggestCard({ isMobile }: { isMobile?: boolean }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Shared form state + submit (ADDED Phase 8) — used by both Desktop & Mobile
+// so the two layouts never drift. `save` persists via the createExpense server
+// action, then closes the modal and refreshes so the new row shows immediately.
+// ═══════════════════════════════════════════════════════════════
+
+function symbolFromCurrency(c: CurrencyEnum): Currency {
+    switch (c) {
+        case 'MYR':
+            return 'MYR';
+        case 'CNY':
+            return '¥';
+        default:
+            return 'S$'; // SGD/USD → S$ (manual modal offers S$/MYR/¥)
+    }
+}
+
+function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
+    const router = useRouter();
+    const [amount, setAmount] = useState(editTarget ? String(editTarget.amt) : '');
+    const [category, setCategory] = useState<CategoryKey>(editTarget?.cat ?? 'food');
+    const [currency, setCurrency] = useState<Currency>(
+        editTarget?.currency ? symbolFromCurrency(editTarget.currency) : 'S$',
+    );
+    const [note, setNote] = useState(editTarget?.note ?? '');
+    const [fixed, setFixed] = useState(editTarget?.fixed ?? false);
+    const [pending, startTransition] = useTransition();
+
+    const amt = parseFloat(amount);
+    const canSave = Number.isFinite(amt) && amt > 0 && !pending;
+
+    const save = () => {
+        if (!canSave) return;
+        startTransition(async () => {
+            const fields = {
+                amount: amt,
+                category,
+                currency: currencyFromSymbol(currency),
+                note: note.trim(),
+                fixed,
+            };
+            if (editTarget) {
+                await updateExpense(editTarget.id, fields);
+            } else {
+                await createExpense({ ...fields, source: 'manual' });
+            }
+            onClose();
+            router.refresh();
+        });
+    };
+
+    return {
+        amount, setAmount, category, setCategory, currency, setCurrency,
+        note, setNote, fixed, setFixed, pending, canSave, save,
+    };
+}
+
+/** "Today · Mon, Jun 14" + "13:02" labels from the real clock (display only). */
+function nowLabels() {
+    const now = new Date();
+    return {
+        date: `Today · ${now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`,
+        time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Desktop Modal (centered, fixed width)
 // ═══════════════════════════════════════════════════════════════
 
-function DesktopModal({ onClose }: { onClose: () => void }) {
-    const [amount, setAmount] = useState('12.80');
-    const [category, setCategory] = useState<CategoryKey>('food');
-    const [currency, setCurrency] = useState<Currency>('S$');
-    const [note, setNote] = useState('Lunch · chicken rice at Maxwell');
+function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
+    const {
+        amount, setAmount, category, setCategory, currency, setCurrency,
+        note, setNote, fixed, setFixed, pending, canSave, save,
+    } = useManualExpenseForm(onClose, editTarget);
+    const labels = nowLabels();
+    const isEdit = editTarget !== null;
 
     return (
         <motion.div
@@ -456,13 +527,13 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
                 {/* Header */}
                 <div className="px-7 pt-7 pb-4">
                     <div className="text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
-                        New expense
+                        {isEdit ? 'Edit expense' : 'New expense'}
                     </div>
                     <h2
                         className="display mt-1"
                         style={{ fontSize: 30, lineHeight: 1.1 }}
                     >
-                        Log something by hand
+                        {isEdit ? 'Update this entry' : 'Log something by hand'}
                     </h2>
                     <div className="text-[12px] text-ink-2 mt-1">
                         Or press{' '}
@@ -492,12 +563,12 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
                 <div className="px-7 pt-5 grid grid-cols-2 gap-3">
                     <FieldRow
                         label="Date"
-                        value="Today · Thu, Apr 23"
+                        value={labels.date}
                         icon={<CalendarIcon size={14} />}
                     />
                     <FieldRow
                         label="Time"
-                        value="13:02"
+                        value={labels.time}
                         icon={<ClockIcon size={14} />}
                         mono
                     />
@@ -531,6 +602,8 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
                     <label className="flex items-center gap-2 text-[12px] text-ink-1 cursor-pointer">
                         <input
                             type="checkbox"
+                            checked={fixed}
+                            onChange={(e) => setFixed(e.target.checked)}
                             className="w-4 h-4 cursor-pointer accent-gold-500"
                         />
                         Recurring
@@ -545,7 +618,9 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
                     </button>
                     <button
                         type="button"
-                        className="h-10 px-5 rounded-full text-sm font-semibold flex items-center gap-2 hover:brightness-[1.03] transition-all"
+                        onClick={save}
+                        disabled={!canSave}
+                        className="h-10 px-5 rounded-full text-sm font-semibold flex items-center gap-2 hover:brightness-[1.03] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{
                             background:
                                 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))',
@@ -554,7 +629,7 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
                         }}
                     >
                         <CheckIcon size={14} />
-                        Save expense
+                        {pending ? 'Saving…' : 'Save expense'}
                     </button>
                 </div>
             </motion.div>
@@ -566,11 +641,13 @@ function DesktopModal({ onClose }: { onClose: () => void }) {
 // Mobile Modal (bottom sheet)
 // ═══════════════════════════════════════════════════════════════
 
-function MobileModal({ onClose }: { onClose: () => void }) {
-    const [amount, setAmount] = useState('12.80');
-    const [category, setCategory] = useState<CategoryKey>('food');
-    const [currency, setCurrency] = useState<Currency>('S$');
-    const [note, setNote] = useState('Lunch · chicken rice at Maxwell');
+function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
+    const {
+        amount, setAmount, category, setCategory, currency, setCurrency,
+        note, setNote, fixed, setFixed, pending, canSave, save,
+    } = useManualExpenseForm(onClose, editTarget);
+    const labels = nowLabels();
+    const isEdit = editTarget !== null;
 
     return (
         <motion.div
@@ -617,13 +694,13 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                 <div className="px-5 pb-3 pt-1 flex items-start gap-2">
                     <div className="flex-1 min-w-0">
                         <div className="text-[10px] text-on-soft uppercase tracking-[0.14em] font-semibold">
-                            New expense
+                            {isEdit ? 'Edit expense' : 'New expense'}
                         </div>
                         <h2
                             className="display mt-0.5"
                             style={{ fontSize: 24, lineHeight: 1.1 }}
                         >
-                            Log by hand
+                            {isEdit ? 'Update entry' : 'Log by hand'}
                         </h2>
                         <div className="text-[11px] text-ink-2 mt-0.5">
                             Or tap the orb to talk instead
@@ -659,12 +736,12 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                 <div className="px-4 pt-4 flex flex-col gap-2.5">
                     <FieldRow
                         label="Date"
-                        value="Today · Thu, Apr 23"
+                        value={labels.date}
                         icon={<CalendarIcon size={14} />}
                     />
                     <FieldRow
                         label="Time"
-                        value="13:02"
+                        value={labels.time}
                         icon={<ClockIcon size={14} />}
                         mono
                     />
@@ -690,6 +767,8 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                     <label className="flex items-center gap-1.5 text-[11px] text-ink-1 cursor-pointer">
                         <input
                             type="checkbox"
+                            checked={fixed}
+                            onChange={(e) => setFixed(e.target.checked)}
                             className="w-4 h-4 cursor-pointer accent-gold-500"
                         />
                         Recurring
@@ -704,7 +783,9 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                     </button>
                     <button
                         type="button"
-                        className="h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 hover:brightness-[1.03] transition-all"
+                        onClick={save}
+                        disabled={!canSave}
+                        className="h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 hover:brightness-[1.03] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{
                             background:
                                 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))',
@@ -713,7 +794,7 @@ function MobileModal({ onClose }: { onClose: () => void }) {
                         }}
                     >
                         <CheckIcon size={14} />
-                        Save
+                        {pending ? 'Saving…' : 'Save'}
                     </button>
                 </div>
             </motion.div>
@@ -726,7 +807,7 @@ function MobileModal({ onClose }: { onClose: () => void }) {
 // ═══════════════════════════════════════════════════════════════
 
 export function ManualAddModal() {
-    const { isOpen, close } = useAddModal();
+    const { isOpen, close, editTarget } = useAddModal();
 
     // ESC key closes the modal
     useEffect(() => {
@@ -756,11 +837,11 @@ export function ManualAddModal() {
                 <>
                     {/* Mobile version (< md) */}
                     <div className="md:hidden">
-                        <MobileModal onClose={close} />
+                        <MobileModal onClose={close} editTarget={editTarget} />
                     </div>
                     {/* Desktop version (md+) */}
                     <div className="hidden md:block">
-                        <DesktopModal onClose={close} />
+                        <DesktopModal onClose={close} editTarget={editTarget} />
                     </div>
                 </>
             )}
