@@ -30,6 +30,7 @@ export function toUiExpense(row: DbExpense): Expense {
     note: row.note,
     voice: row.source === "voice",
     fixed: row.fixed,
+    currency: row.currency,
   };
 }
 

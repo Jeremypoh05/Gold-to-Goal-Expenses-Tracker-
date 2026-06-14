@@ -1,21 +1,21 @@
 'use client';
 
-// ADDED (Phase 6.1): single shared voice store + modal/toast state.
-// The Voice modal (triggered from anywhere) and the /voice history page both
-// read/write through this one provider, so capture / edit / delete stay
-// consistent app-wide. This is the "single source of truth" shape — Phase 8
-// swaps the in-memory list for DB queries (voice log = expense where
-// source='voice'), at which point ledger ↔ voice are literally the same record.
-
+// CHANGED (Phase 8): the voice store is now DB-backed. `logs` come from the
+// server (ExpensesProvider → voice-sourced expenses); add/edit/delete call the
+// server actions and then router.refresh() so the list reconciles to DB truth.
+// A voice log IS an Expense with source='voice' — ledger ↔ voice are the same record.
+// Modal + toast remain local UI state.
 import {
     createContext,
     useContext,
     useRef,
     useState,
+    useTransition,
     type ReactNode,
 } from 'react';
-import { INITIAL_VOICE_LOGS } from '@/data/voiceSamples';
-import { CURRENT } from '@/data/sampleExpenses';
+import { useRouter } from 'next/navigation';
+import { useExpenses } from '@/components/data/ExpensesContext';
+import { createExpense, updateExpense, deleteExpense } from '@/lib/actions';
 import type { VoiceLog, CategoryKey, Currency } from '@/types';
 
 /** A freshly captured entry (before id/time/day are assigned). */
@@ -47,6 +47,8 @@ interface VoiceContextValue {
     closeModal: () => void;
     toast: ToastData | null;
     dismissToast: () => void;
+    /** True while a mutation is in flight (server action + refresh). */
+    isPending: boolean;
 }
 
 const VoiceContext = createContext<VoiceContextValue | null>(null);
@@ -54,17 +56,17 @@ const VoiceContext = createContext<VoiceContextValue | null>(null);
 const TOAST_MS = 5000;
 
 export function VoiceProvider({ children }: { children: ReactNode }) {
-    const [logs, setLogs] = useState<VoiceLog[]>(() => [...INITIAL_VOICE_LOGS]);
+    const router = useRouter();
+    const { voiceLogs } = useExpenses(); // server truth (voice-sourced expenses)
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [toast, setToast] = useState<ToastData | null>(null);
+    const [isPending, startTransition] = useTransition();
 
-    const nextId = useRef(900); // local id source; DB assigns real ids in Phase 8
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const showToast = (t: ToastData) => {
         if (toastTimer.current) clearTimeout(toastTimer.current);
         setToast(t);
-        // setState inside a timer callback is fine (not a synchronous effect body)
         toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
     };
 
@@ -74,34 +76,40 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     };
 
     const addLog = (entry: NewVoiceLog) => {
-        const now = new Date();
-        const time = `${String(now.getHours()).padStart(2, '0')}:${String(
-            now.getMinutes()
-        ).padStart(2, '0')}`;
-        const log: VoiceLog = {
-            id: (nextId.current += 1),
-            lang: entry.lang,
-            transcript: entry.transcript,
-            cat: entry.cat,
-            amt: entry.amt,
-            currency: entry.currency,
-            note: entry.note,
-            time,
-            day: CURRENT.day,
-            status: entry.status,
-        };
-        setLogs((prev) => [log, ...prev]);
         showToast({ amt: entry.amt, currency: entry.currency });
+        startTransition(async () => {
+            await createExpense({
+                amount: entry.amt,
+                category: entry.cat,
+                currency: entry.currency,
+                note: entry.note,
+                source: 'voice',
+                transcript: entry.transcript,
+                lang: entry.lang,
+                voiceStatus: entry.status,
+            });
+            router.refresh();
+        });
     };
 
     const editLog = (id: number, patch: VoiceLogPatch) => {
-        setLogs((prev) =>
-            prev.map((l) => (l.id === id ? { ...l, ...patch, status: 'edited' } : l))
-        );
+        startTransition(async () => {
+            await updateExpense(id, {
+                ...(patch.amt !== undefined && { amount: patch.amt }),
+                ...(patch.cat !== undefined && { category: patch.cat }),
+                ...(patch.currency !== undefined && { currency: patch.currency }),
+                ...(patch.note !== undefined && { note: patch.note }),
+                voiceStatus: 'edited',
+            });
+            router.refresh();
+        });
     };
 
     const deleteLog = (id: number) => {
-        setLogs((prev) => prev.filter((l) => l.id !== id));
+        startTransition(async () => {
+            await deleteExpense(id);
+            router.refresh();
+        });
     };
 
     const openModal = () => setIsModalOpen(true);
@@ -110,7 +118,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     return (
         <VoiceContext.Provider
             value={{
-                logs,
+                logs: voiceLogs,
                 addLog,
                 editLog,
                 deleteLog,
@@ -119,6 +127,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
                 closeModal,
                 toast,
                 dismissToast,
+                isPending,
             }}
         >
             {children}

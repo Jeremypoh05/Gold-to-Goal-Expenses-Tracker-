@@ -68,7 +68,7 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
                     </div>
 
                     <button
-                        onClick={openAddModal}
+                        onClick={() => openAddModal()}
                         className="w-10 h-10 flex items-center justify-center rounded-xl border border-line bg-bg-card hover:border-ink-2 transition-all"
                         aria-label="Add expense"
                     >
@@ -174,7 +174,7 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
 
                 {/* "+ New" — opens modal */}
                 <button
-                    onClick={openAddModal}
+                    onClick={() => openAddModal()}
                     className="shine-wrap flex items-center gap-2 h-10 px-[18px] rounded-full text-sm font-semibold transition-all hover:brightness-[1.03] hover:scale-[1.02]"
                     style={{
                         background:

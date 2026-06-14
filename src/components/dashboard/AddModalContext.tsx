@@ -1,13 +1,17 @@
 'use client';
 
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import type { Expense } from '@/types';
 
 // ─────────────────────────────────────────────────────────────
 // Context type
+// CHANGED (Phase 8): `open` can carry an existing expense → the modal opens in
+// edit mode (pre-filled, saves via updateExpense). No arg → fresh "new expense".
 // ─────────────────────────────────────────────────────────────
 interface AddModalContextValue {
     isOpen: boolean;
-    open: () => void;
+    editTarget: Expense | null;
+    open: (expense?: Expense) => void;
     close: () => void;
 }
 
@@ -18,12 +22,16 @@ const AddModalContext = createContext<AddModalContextValue | null>(null);
 // ─────────────────────────────────────────────────────────────
 export function AddModalProvider({ children }: { children: ReactNode }) {
     const [isOpen, setIsOpen] = useState(false);
+    const [editTarget, setEditTarget] = useState<Expense | null>(null);
 
-    const open = () => setIsOpen(true);
+    const open = (expense?: Expense) => {
+        setEditTarget(expense ?? null);
+        setIsOpen(true);
+    };
     const close = () => setIsOpen(false);
 
     return (
-        <AddModalContext.Provider value={{ isOpen, open, close }}>
+        <AddModalContext.Provider value={{ isOpen, editTarget, open, close }}>
             {children}
         </AddModalContext.Provider>
     );

@@ -27,6 +27,7 @@ export interface Expense {
   note: string;
   voice?: boolean; // Was this logged via voice?
   fixed?: boolean; // Is this a recurring fixed expense?
+  currency?: Currency; // ADDED (Phase 8): carried so edits round-trip the right currency
 }
 
 export interface MonthInfo {

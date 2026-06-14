@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
     CategoryTile,
@@ -20,6 +21,7 @@ import { useExpenses } from "@/components/data/ExpensesContext";
 import { formatMoney, MONTH_NAMES, WEEKDAYS_SHORT, cn } from "@/lib/utils";
 import type { Expense, CategoryKey } from "@/types";
 import { useAddModal } from '@/components/dashboard/AddModalContext';
+import { deleteExpense } from '@/lib/actions';
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -153,11 +155,21 @@ function DayCard({
     index: number;
 }) {
     const { current } = useExpenses();
+    const { open: openEdit } = useAddModal();
+    const router = useRouter();
+    const [pendingId, startTransition] = useTransition();
     const dayTotal = entries.reduce((a, b) => a + b.amt, 0);
     const voiceCount = entries.filter((e) => e.voice).length;
     const date = new Date(current.year, current.month - 1, day);
     const weekday = WEEKDAYS_SHORT[date.getDay()];
     const isToday = day === current.day;
+
+    const handleDelete = (id: number) => {
+        startTransition(async () => {
+            await deleteExpense(id);
+            router.refresh();
+        });
+    };
 
     return (
         <motion.div
@@ -292,13 +304,16 @@ function DayCard({
                                 <td>
                                     <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button
+                                            onClick={() => openEdit(t)}
                                             className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors"
                                             aria-label="Edit"
                                         >
                                             <EditIcon size={12} className="text-ink-2" />
                                         </button>
                                         <button
-                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors"
+                                            onClick={() => handleDelete(t.id)}
+                                            disabled={pendingId}
+                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors disabled:opacity-40"
                                             aria-label="Delete"
                                         >
                                             <TrashIcon size={12} className="text-ink-2" />
@@ -578,7 +593,7 @@ export default function LedgerPage() {
                     </button>
 
                     <button
-                        onClick={openAddModal}
+                        onClick={() => openAddModal()}
                         className="shine-wrap h-10 px-4 md:px-5 rounded-full text-sm font-semibold flex items-center gap-2 transition-all hover:scale-[1.02]"
                         style={{
                             background:
