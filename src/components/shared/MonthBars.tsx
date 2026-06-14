@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { CURRENT, SAMPLE_EXPENSES } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
 import { daysInMonth } from '@/lib/utils';
 
 interface MonthBarsProps {
@@ -20,10 +20,11 @@ export function MonthBars({
     mini = false,
     animated = true,
 }: MonthBarsProps) {
-    const days = daysInMonth(CURRENT.year, CURRENT.month);
+    const { current, expenses } = useExpenses();
+    const days = daysInMonth(current.year, current.month);
 
     const byDay = Array.from({ length: days }, (_, i) =>
-        SAMPLE_EXPENSES.filter((t) => t.day === i + 1).reduce((a, b) => a + b.amt, 0)
+        expenses.filter((t) => t.day === i + 1).reduce((a, b) => a + b.amt, 0)
     );
 
     const max = Math.max(...byDay, 1);
@@ -33,7 +34,7 @@ export function MonthBars({
         <svg width={width} height={height} style={{ display: 'block' }}>
             {byDay.map((v, i) => {
                 const h = Math.max(3, (v / max) * (height - 14));
-                const isToday = i + 1 === CURRENT.day;
+                const isToday = i + 1 === current.day;
                 const x = i * (barW + 3);
                 return (
                     <g key={i}>

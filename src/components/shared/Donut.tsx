@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { CATEGORIES } from '@/data/categories';
-import { EXPENSES_BY_CATEGORY } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
+import { expensesByCategory } from '@/lib/expense-utils';
 import type { CategoryKey } from '@/types';
 import { AnimatedHeroAmount } from './AnimatedNumber';
 
@@ -43,6 +44,7 @@ export function Donut({
     centerSub = 'of S$3,500 budget',
     centerValue,
 }: DonutProps) {
+    const { expenses } = useExpenses();
     const [progress, setProgress] = useState(animated ? 0 : 1);
 
     // Trigger animation on mount
@@ -75,7 +77,7 @@ export function Donut({
 
     const arr: DonutData[] =
         data ??
-        (Object.entries(EXPENSES_BY_CATEGORY) as [CategoryKey, number][]).map(
+        (Object.entries(expensesByCategory(expenses)) as [CategoryKey, number][]).map(
             ([k, v]) => ({ k, v })
         );
 
@@ -84,7 +86,7 @@ export function Donut({
     const c = 2 * Math.PI * r;
 
     const segments: Segment[] = arr.reduce<Segment[]>((acc, d) => {
-        const length = (d.v / total) * c;
+        const length = total > 0 ? (d.v / total) * c : 0;
         const previous = acc[acc.length - 1];
         const offset = previous ? previous.offset + previous.length : 0;
         acc.push({ data: d, length, offset });

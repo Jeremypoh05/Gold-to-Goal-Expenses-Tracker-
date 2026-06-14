@@ -1,6 +1,6 @@
 'use client';
 
-import { CURRENT, SAMPLE_EXPENSES } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
 import { daysInMonth } from '@/lib/utils';
 
 interface CalendarGridProps {
@@ -20,11 +20,15 @@ interface CalendarGridProps {
  */
 export function CalendarGrid({
     showSpend = true,
-    month = CURRENT.month,
-    year = CURRENT.year,
-    today = CURRENT.day,
+    month: monthProp,
+    year: yearProp,
+    today: todayProp,
     gap = 6,
 }: CalendarGridProps) {
+    const { current, expenses } = useExpenses();
+    const month = monthProp ?? current.month;
+    const year = yearProp ?? current.year;
+    const today = todayProp ?? current.day;
     const days = daysInMonth(year, month);
     const firstDow = new Date(year, month - 1, 1).getDay(); // 0 = Sunday
 
@@ -37,7 +41,7 @@ export function CalendarGrid({
 
     // Sum spending per day (pre-computed, no mutation in render)
     // Sum spending per day (pre-computed, no mutation in render)
-    const byDay: Record<number, number> = SAMPLE_EXPENSES.reduce<Record<number, number>>((acc, t) => {
+    const byDay: Record<number, number> = expenses.reduce<Record<number, number>>((acc, t) => {
         acc[t.day] = (acc[t.day] ?? 0) + t.amt;
         return acc;
     }, {});

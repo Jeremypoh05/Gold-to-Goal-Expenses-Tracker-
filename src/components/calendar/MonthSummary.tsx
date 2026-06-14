@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import { CategoryTile, MicIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { CATEGORIES } from '@/data/categories';
-import { getMonthStats, CURRENT } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
+import { getMonthStats } from '@/lib/expense-utils';
 import { formatMoney, MONTH_NAMES, WEEKDAYS_SHORT } from '@/lib/utils';
 import type { CategoryKey } from '@/types';
 
@@ -37,10 +38,11 @@ function StatCard({
 }
 
 export function MonthSummary() {
-    const stats = getMonthStats();
-    const date = new Date(CURRENT.year, CURRENT.month - 1, stats.topDay);
+    const { current, expenses } = useExpenses();
+    const stats = getMonthStats(expenses);
+    const date = new Date(current.year, current.month - 1, stats.topDay);
     const weekday = WEEKDAYS_SHORT[date.getDay()];
-    const monthName = MONTH_NAMES[CURRENT.month - 1];
+    const monthName = MONTH_NAMES[current.month - 1];
     const topCat = stats.topCategory as CategoryKey;
 
     return (
