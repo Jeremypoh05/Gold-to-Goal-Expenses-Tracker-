@@ -9,6 +9,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { toUiExpense } from "@/lib/expense-utils";
+import { getMonthDashboardData } from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
 
 const DASHBOARD_ROUTES = [
@@ -126,6 +127,11 @@ export interface IncomeSettingsInput {
   monthlySalary?: number;
   savingsGoal?: number;
   saved?: number;
+  monthlyBudget?: number;
+  grossSalary?: number;
+  deductions?: number;
+  payDay?: number;
+  payFrequency?: string;
 }
 
 export async function updateIncomeSettings(input: IncomeSettingsInput) {
@@ -138,7 +144,26 @@ export async function updateIncomeSettings(input: IncomeSettingsInput) {
       }),
       ...(input.savingsGoal !== undefined && { savingsGoal: input.savingsGoal }),
       ...(input.saved !== undefined && { saved: input.saved }),
+      ...(input.monthlyBudget !== undefined && {
+        monthlyBudget: input.monthlyBudget,
+      }),
+      ...(input.grossSalary !== undefined && { grossSalary: input.grossSalary }),
+      ...(input.deductions !== undefined && { deductions: input.deductions }),
+      ...(input.payDay !== undefined && { payDay: input.payDay }),
+      ...(input.payFrequency !== undefined && {
+        payFrequency: input.payFrequency,
+      }),
     },
   });
   revalidateDashboard();
+}
+
+/**
+ * Read-only fetch of a given month's dashboard data — used by the client to
+ * browse past months without a full navigation. Auth is enforced inside
+ * getMonthDashboardData via getOrCreateUser.
+ */
+export async function fetchMonthData(year: number, month: number) {
+  await requireUserId();
+  return getMonthDashboardData(year, month);
 }

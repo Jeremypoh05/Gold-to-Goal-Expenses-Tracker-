@@ -56,9 +56,16 @@ model User {
   currency      Currency @default(SGD) // preferred display currency
 
   // Income page (was SAMPLE_INCOME + the goal constants)
-  monthlySalary Decimal  @default(0) @db.Decimal(12, 2)
+  monthlySalary Decimal  @default(0) @db.Decimal(12, 2) // take-home
   savingsGoal   Decimal  @default(0) @db.Decimal(12, 2)
   saved         Decimal  @default(0) @db.Decimal(12, 2)
+  monthlyBudget Decimal  @default(0) @db.Decimal(12, 2) // ADDED (Phase 8.1): dashboard spend budget
+
+  // ADDED (Phase 8.1): salary detail fields (were hardcoded on the Salary card)
+  grossSalary   Decimal  @default(0) @db.Decimal(12, 2)
+  deductions    Decimal  @default(0) @db.Decimal(12, 2) // CPF / other deductions
+  payDay        Int      @default(25) // day of month
+  payFrequency  String   @default("Monthly")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

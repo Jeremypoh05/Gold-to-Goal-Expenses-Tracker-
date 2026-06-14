@@ -41,7 +41,7 @@ export function Donut({
     data,
     animated = true,
     centerLabel = 'Spent',
-    centerSub = 'of S$3,500 budget',
+    centerSub = 'this month',
     centerValue,
 }: DonutProps) {
     const { expenses } = useExpenses();

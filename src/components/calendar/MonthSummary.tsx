@@ -122,7 +122,7 @@ export function MonthSummary() {
                     />
                 </div>
                 <div className="text-[11px] text-ink-2 mt-1.5">
-                    {stats.voiceCount} of 24 logged via voice
+                    {stats.voiceCount} of {expenses.length} logged via voice
                 </div>
             </StatCard>
 

@@ -24,7 +24,7 @@ import {
     totalSpent,
     getIncomeStats,
 } from '@/lib/expense-utils';
-import { formatMoney, MONTH_NAMES, cn } from '@/lib/utils';
+import { formatMoney, MONTH_NAMES, cn, daysInMonth } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
 import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open the voice modal
 import type { CategoryKey } from '@/types';
@@ -243,10 +243,13 @@ function HeroSpendCard() {
     const { current, expenses, income } = useExpenses();
     const total = totalSpent(expenses);
     const monthName = MONTH_NAMES[current.month - 1];
-    const budget = income.monthlySalary;
+    const budget = income.monthlyBudget;
+    const hasBudget = budget > 0;
     const spentLeft = budget - total;
-    const dailyAvg = total / current.day;
-    const budgetPct = budget > 0 ? (total / budget) * 100 : 0;
+    // current.day is 0 when viewing a past month → divide by that month's full days.
+    const days = current.day > 0 ? current.day : daysInMonth(current.year, current.month);
+    const dailyAvg = total / Math.max(days, 1);
+    const budgetPct = hasBudget ? (total / budget) * 100 : 0;
 
     return (
         <motion.div
@@ -355,7 +358,13 @@ function HeroSpendCard() {
 
                 <div className="flex flex-wrap gap-x-4 gap-y-1 md:gap-6 mt-2.5 text-xs" style={{ color: 'var(--color-gold-900)' }}>
                     <div>
-                        <b className="mono">{formatMoney(spentLeft)}</b> left · budget {formatMoney(budget)}
+                        {hasBudget ? (
+                            <>
+                                <b className="mono">{formatMoney(spentLeft)}</b> left · budget {formatMoney(budget)}
+                            </>
+                        ) : (
+                            <>No budget set · <span className="opacity-70">set one in Income</span></>
+                        )}
                     </div>
                     <div className="mono opacity-60 hidden md:inline">—</div>
                     <div>
@@ -550,11 +559,11 @@ function CategoriesCard({ delay = 0.15 }: { delay?: number }) {
                                 >
                                     <CategoryTile kind={k} size={30} variant="filled" />
                                     <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between text-xs">
-                                            <span className="font-medium">
+                                        <div className="flex justify-between items-baseline gap-2 text-xs">
+                                            <span className="font-medium truncate min-w-0">
                                                 {CATEGORIES[k].label}
                                             </span>
-                                            <span className="mono">{formatMoney(v)}</span>
+                                            <span className="mono flex-shrink-0">{formatMoney(v)}</span>
                                         </div>
                                         <div className="h-[3px] bg-bg-2 rounded-[3px] mt-1 overflow-hidden">
                                             <motion.div
@@ -671,12 +680,18 @@ function NetSavingsCard({
                     <AnimatedNumber value={stats.saved} format="integer" duration={2000} delay={delay * 1000} />
                 </div>
                 <div className="text-xs text-ink-1 mt-1.5">
-                    <span className="text-gold-700 font-semibold">+ S$4,680</span> vs last year
+                    {stats.goal > 0 ? (
+                        <>
+                            <span className="text-gold-700 font-semibold">{Math.round(stats.goalProgressPct)}%</span> of your S${stats.goal.toLocaleString('en-SG')} goal
+                        </>
+                    ) : (
+                        <span className="text-ink-2">Set a savings goal in Income</span>
+                    )}
                 </div>
                 <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
-                    <MiniStat label="Income" value={stats.yearlyIncome} sub="salary × 12" delay={500} />
-                    <MiniStat label="Bonuses" value={stats.totalBonuses} sub="2 × Q1, Q2" delay={650} />
-                    <MiniStat label="Expenses" value={stats.yearlyExpenses} sub="YTD total" delay={800} />
+                    <MiniStat label="Income" value={stats.yearlyIncome} sub="salary × 12 + bonuses" delay={500} />
+                    <MiniStat label="Bonuses" value={stats.totalBonuses} sub={`${income.bonuses.length} ${income.bonuses.length === 1 ? 'bonus' : 'bonuses'}`} delay={650} />
+                    <MiniStat label="Expenses" value={stats.yearlyExpenses} sub="projected yearly" delay={800} />
                     <MiniStat label="Goal" value={stats.goal} sub="year-end" accent delay={950} />
                 </div>
             </Link>
