@@ -18,12 +18,12 @@ import {
     AnimatedHeroAmount,
 } from '@/components/shared/AnimatedNumber';
 import { CATEGORIES } from '@/data/categories';
+import { useExpenses } from '@/components/data/ExpensesContext';
 import {
-    SAMPLE_EXPENSES,
-    EXPENSES_BY_CATEGORY,
-    TOTAL_SPENT,
-    CURRENT,
-} from '@/data/sampleExpenses';
+    expensesByCategory,
+    totalSpent,
+    getIncomeStats,
+} from '@/lib/expense-utils';
 import { formatMoney, MONTH_NAMES, cn } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
 import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open the voice modal
@@ -240,10 +240,13 @@ function FloatingVoiceButton() {
 // ═══════════════════════════════════════════════════════════════
 
 function HeroSpendCard() {
-    const monthName = MONTH_NAMES[CURRENT.month - 1];
-    const spentLeft = 3500 - TOTAL_SPENT;
-    const dailyAvg = TOTAL_SPENT / CURRENT.day;
-    const budgetPct = (TOTAL_SPENT / 3500) * 100;
+    const { current, expenses, income } = useExpenses();
+    const total = totalSpent(expenses);
+    const monthName = MONTH_NAMES[current.month - 1];
+    const budget = income.monthlySalary;
+    const spentLeft = budget - total;
+    const dailyAvg = total / current.day;
+    const budgetPct = budget > 0 ? (total / budget) * 100 : 0;
 
     return (
         <motion.div
@@ -342,7 +345,7 @@ function HeroSpendCard() {
                     }}
                 >
                     <AnimatedHeroAmount
-                        value={TOTAL_SPENT}
+                        value={total}
                         duration={1800}
                         delay={300}
                         symbolSize="0.45em"
@@ -352,7 +355,7 @@ function HeroSpendCard() {
 
                 <div className="flex flex-wrap gap-x-4 gap-y-1 md:gap-6 mt-2.5 text-xs" style={{ color: 'var(--color-gold-900)' }}>
                     <div>
-                        <b className="mono">{formatMoney(spentLeft)}</b> left · budget S$3,500
+                        <b className="mono">{formatMoney(spentLeft)}</b> left · budget {formatMoney(budget)}
                     </div>
                     <div className="mono opacity-60 hidden md:inline">—</div>
                     <div>
@@ -517,7 +520,9 @@ function VoiceCTACard() {
 // ═══════════════════════════════════════════════════════════════
 
 function CategoriesCard({ delay = 0.15 }: { delay?: number }) {
-    const monthName = MONTH_NAMES[CURRENT.month - 1];
+    const { current, expenses } = useExpenses();
+    const total = totalSpent(expenses);
+    const monthName = MONTH_NAMES[current.month - 1];
 
     return (
         <motion.div
@@ -530,11 +535,11 @@ function CategoriesCard({ delay = 0.15 }: { delay?: number }) {
             <CardHeader title="Categories" subtitle={`Where ${monthName} went`} />
             <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row gap-4 items-center mt-4">                <Donut size={160} thickness={20} />
                 <div className="flex-1 w-full flex flex-col gap-2.5 min-w-0">
-                    {(Object.entries(EXPENSES_BY_CATEGORY) as [CategoryKey, number][])
+                    {(Object.entries(expensesByCategory(expenses)) as [CategoryKey, number][])
                         .sort((a, b) => b[1] - a[1])
                         .slice(0, 5)
                         .map(([k, v], i) => {
-                            const pct = (v / TOTAL_SPENT) * 100;
+                            const pct = total > 0 ? (v / total) * 100 : 0;
                             return (
                                 <motion.div
                                     key={k}
@@ -581,7 +586,8 @@ function CategoriesCard({ delay = 0.15 }: { delay?: number }) {
 // ═══════════════════════════════════════════════════════════════
 
 function CalendarCard({ delay = 0.2 }: { delay?: number }) {
-    const monthName = MONTH_NAMES[CURRENT.month - 1];
+    const { current } = useExpenses();
+    const monthName = MONTH_NAMES[current.month - 1];
 
     return (
         <motion.div
@@ -614,6 +620,15 @@ function NetSavingsCard({
     delay?: number;
     spanFull?: boolean;
 }) {
+    const { current, expenses, income } = useExpenses();
+    const stats = getIncomeStats({
+        monthlySalary: income.monthlySalary,
+        savingsGoal: income.savingsGoal,
+        saved: income.saved,
+        bonuses: income.bonuses,
+        projectedYearlyExpenses: totalSpent(expenses) * 12,
+        month: current.month,
+    });
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -653,16 +668,16 @@ function NetSavingsCard({
                     >
                         S$
                     </span>
-                    <AnimatedNumber value={42360} format="integer" duration={2000} delay={delay * 1000} />
+                    <AnimatedNumber value={stats.saved} format="integer" duration={2000} delay={delay * 1000} />
                 </div>
                 <div className="text-xs text-ink-1 mt-1.5">
                     <span className="text-gold-700 font-semibold">+ S$4,680</span> vs last year
                 </div>
                 <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
-                    <MiniStat label="Income" value={86400} sub="salary × 12" delay={500} />
-                    <MiniStat label="Bonuses" value={10000} sub="2 × Q1, Q2" delay={650} />
-                    <MiniStat label="Expenses" value={44040} sub="YTD total" delay={800} />
-                    <MiniStat label="Goal" value={60000} sub="year-end" accent delay={950} />
+                    <MiniStat label="Income" value={stats.yearlyIncome} sub="salary × 12" delay={500} />
+                    <MiniStat label="Bonuses" value={stats.totalBonuses} sub="2 × Q1, Q2" delay={650} />
+                    <MiniStat label="Expenses" value={stats.yearlyExpenses} sub="YTD total" delay={800} />
+                    <MiniStat label="Goal" value={stats.goal} sub="year-end" accent delay={950} />
                 </div>
             </Link>
         </motion.div>
@@ -677,7 +692,8 @@ function RecentTransactions({ filter, setFilter }: {
     filter: FilterMode;
     setFilter: (v: FilterMode) => void;
 }) {
-    const filteredExpenses = SAMPLE_EXPENSES.filter((t) => {
+    const { expenses } = useExpenses();
+    const filteredExpenses = expenses.filter((t) => {
         if (filter === 'voice') return t.voice === true;
         if (filter === 'manual') return !t.voice;
         return true;

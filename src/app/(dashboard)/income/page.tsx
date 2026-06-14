@@ -18,12 +18,8 @@ import {
     AddBonusModal,
     type NewBonus,
 } from '@/components/income';
-import {
-    SAMPLE_INCOME,
-    PROJECTED_YEARLY_EXPENSES,
-    SAVINGS_GOAL,
-    CURRENT,
-} from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
+import { totalSpent } from '@/lib/expense-utils';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import type { IncomeInfo } from '@/types';
 
@@ -261,25 +257,30 @@ function StatBand({
 // so the stat band, breakdown, and insights all update when a bonus is added.
 // ═══════════════════════════════════════════════════════════════
 
-function useIncomeStats(bonuses: Bonus[]) {
+function useIncomeStats(
+    bonuses: Bonus[],
+    income: ReturnType<typeof useExpenses>['income'],
+    expenses: ReturnType<typeof useExpenses>['expenses'],
+    current: ReturnType<typeof useExpenses>['current'],
+) {
     return useMemo(() => {
-        const monthlySalary = SAMPLE_INCOME.salary;
+        const monthlySalary = income.monthlySalary;
         const yearlySalary = monthlySalary * 12;
         const totalBonuses = bonuses.reduce((a, b) => a + b.amt, 0);
         const yearlyIncome = yearlySalary + totalBonuses;
-        const yearlyExpenses = PROJECTED_YEARLY_EXPENSES;
+        const yearlyExpenses = totalSpent(expenses) * 12;
         const netSavings = yearlyIncome - yearlyExpenses;
-        const savingsRate = (netSavings / yearlyIncome) * 100;
+        const savingsRate = yearlyIncome > 0 ? (netSavings / yearlyIncome) * 100 : 0;
 
-        const goal = SAVINGS_GOAL;
-        const saved = SAMPLE_INCOME.saved;
+        const goal = income.savingsGoal;
+        const saved = income.saved;
         const toGo = Math.max(0, goal - saved);
-        const goalProgressPct = (saved / goal) * 100;
+        const goalProgressPct = goal > 0 ? (saved / goal) * 100 : 0;
 
         const monthlyNetSavings = netSavings / 12;
         const monthsToGoal =
             monthlyNetSavings > 0 ? Math.ceil(toGo / monthlyNetSavings) : 0;
-        const monthsLeft = Math.max(0, 12 - CURRENT.month);
+        const monthsLeft = Math.max(0, 12 - current.month);
         const projectedYearEnd = Math.round(saved + monthlyNetSavings * monthsLeft);
 
         const biggestBonus =
@@ -303,7 +304,14 @@ function useIncomeStats(bonuses: Bonus[]) {
             monthsToGoal,
             biggestBonus,
         };
-    }, [bonuses]);
+    }, [
+        bonuses,
+        income.monthlySalary,
+        income.savingsGoal,
+        income.saved,
+        expenses,
+        current.month,
+    ]);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -311,12 +319,14 @@ function useIncomeStats(bonuses: Bonus[]) {
 // ═══════════════════════════════════════════════════════════════
 
 export default function IncomePage() {
+    const { current, expenses, income } = useExpenses();
+
     // Bonuses live in page state so the interactive "Add bonus" updates the whole
     // page (band, breakdown, insights) live. Non-persistent until Phase 8 DB.
-    const [bonuses, setBonuses] = useState<Bonus[]>(() => [...SAMPLE_INCOME.bonuses]);
+    const [bonuses, setBonuses] = useState<Bonus[]>(() => [...income.bonuses]);
     const [addOpen, setAddOpen] = useState(false);
 
-    const stats = useIncomeStats(bonuses);
+    const stats = useIncomeStats(bonuses, income, expenses, current);
 
     const handleAddBonus = (b: NewBonus) => {
         // Insert keeping chronological (by month) order.
@@ -335,7 +345,7 @@ export default function IncomePage() {
                     transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
                 >
                     <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
-                        Income · {MONTH_NAMES[CURRENT.month - 1]} {CURRENT.year}
+                        Income · {MONTH_NAMES[current.month - 1]} {current.year}
                     </div>
                     <h1 className="display mt-0.5 md:mt-1" style={{ fontSize: 'clamp(28px, 5vw, 40px)', lineHeight: 1.05 }}>
                         Income &amp; savings

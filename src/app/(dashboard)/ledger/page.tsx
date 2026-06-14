@@ -16,7 +16,7 @@ import {
 } from "@/components/icons";
 import { AnimatedNumber } from "@/components/shared/AnimatedNumber";
 import { CATEGORIES } from "@/data/categories";
-import { SAMPLE_EXPENSES, CURRENT } from "@/data/sampleExpenses";
+import { useExpenses } from "@/components/data/ExpensesContext";
 import { formatMoney, MONTH_NAMES, WEEKDAYS_SHORT, cn } from "@/lib/utils";
 import type { Expense, CategoryKey } from "@/types";
 import { useAddModal } from '@/components/dashboard/AddModalContext';
@@ -152,11 +152,12 @@ function DayCard({
     entries: Expense[];
     index: number;
 }) {
+    const { current } = useExpenses();
     const dayTotal = entries.reduce((a, b) => a + b.amt, 0);
     const voiceCount = entries.filter((e) => e.voice).length;
-    const date = new Date(CURRENT.year, CURRENT.month - 1, day);
+    const date = new Date(current.year, current.month - 1, day);
     const weekday = WEEKDAYS_SHORT[date.getDay()];
-    const isToday = day === CURRENT.day;
+    const isToday = day === current.day;
 
     return (
         <motion.div
@@ -364,12 +365,13 @@ function PeriodTotalCard({
     total: number;
     filterLabel: string;
 }) {
+    const { current } = useExpenses();
     const rangeLabel =
         range === "day"
             ? "today"
             : range === "week"
                 ? "this week"
-                : `${MONTH_NAMES[CURRENT.month - 1]} ${CURRENT.year}`;
+                : `${MONTH_NAMES[current.month - 1]} ${current.year}`;
 
     return (
         <motion.div
@@ -411,8 +413,9 @@ export default function LedgerPage() {
     const [range, setRange] = useState<TimeRange>("month");
     const [filter, setFilter] = useState<FilterId>("all");
     const { open: openAddModal } = useAddModal();
+    const { current, expenses } = useExpenses();
 
-    const monthName = MONTH_NAMES[CURRENT.month - 1];
+    const monthName = MONTH_NAMES[current.month - 1];
 
     // For now, we always view current month.
     // TODO Phase 4: This will become URL-based and respect TopBar month selection.
@@ -423,21 +426,21 @@ export default function LedgerPage() {
     // The filter chips will count from THIS base set
     // ═══════════════════════════════════════════════════════════
     const baseExpensesForRange = useMemo(() => {
-        let result = SAMPLE_EXPENSES;
+        let result = expenses;
 
         if (range === "day") {
-            result = result.filter((t) => t.day === CURRENT.day);
+            result = result.filter((t) => t.day === current.day);
         } else if (range === "week") {
-            const todayDate = new Date(CURRENT.year, CURRENT.month - 1, CURRENT.day);
+            const todayDate = new Date(current.year, current.month - 1, current.day);
             const todayDow = todayDate.getDay();
-            const weekStart = CURRENT.day - todayDow;
+            const weekStart = current.day - todayDow;
             const weekEnd = weekStart + 6;
             result = result.filter((t) => t.day >= weekStart && t.day <= weekEnd);
         }
         // 'month' - no time filter
 
         return result;
-    }, [range]);
+    }, [range, expenses, current]);
 
     // ═══════════════════════════════════════════════════════════
     // QUICK FIX 1: Counts now reflect the time-range base
@@ -518,7 +521,7 @@ export default function LedgerPage() {
             ? "Today"
             : range === "week"
                 ? "This week"
-                : `${monthName} ${CURRENT.year}`;
+                : `${monthName} ${current.year}`;
 
     return (
         <div className="px-4 md:px-8 py-5 md:py-7 pb-16 max-w-[1320px] mx-auto flex flex-col gap-5 md:gap-6">

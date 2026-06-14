@@ -15,12 +15,12 @@ import {
 } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { CATEGORIES } from '@/data/categories';
+import { useExpenses } from '@/components/data/ExpensesContext';
 import {
-    CURRENT,
     getExpensesForDay,
     getAllExpenseDays,
     getHourlyBuckets,
-} from '@/data/sampleExpenses';
+} from '@/lib/expense-utils';
 import { formatMoney, MONTH_NAMES, cn } from '@/lib/utils';
 import type { CategoryKey } from '@/types';
 
@@ -37,7 +37,8 @@ function DaySwitcher({
     prevDay: number | null;
     nextDay: number | null;
 }) {
-    const isToday = day === CURRENT.day;
+    const { current } = useExpenses();
+    const isToday = day === current.day;
 
     return (
         <div className="flex bg-bg-2 p-[3px] rounded-full gap-[2px]">
@@ -487,6 +488,7 @@ function TimelineEntry({
 export default function DailyDetailPage() {
     const params = useParams();
     const router = useRouter();
+    const { current, expenses } = useExpenses();
 
     // Parse day from URL
     const dayParam = Array.isArray(params.day) ? params.day[0] : params.day;
@@ -495,12 +497,12 @@ export default function DailyDetailPage() {
     // Validate day
     const isValidDay = !isNaN(day) && day >= 1 && day <= 31;
     const dayExpenses = useMemo(
-        () => (isValidDay ? getExpensesForDay(day) : []),
-        [day, isValidDay]
+        () => (isValidDay ? getExpensesForDay(expenses, day) : []),
+        [day, isValidDay, expenses]
     );
 
     // Navigation: previous / next day with data
-    const allDays = useMemo(() => getAllExpenseDays(), []);
+    const allDays = useMemo(() => getAllExpenseDays(expenses), [expenses]);
     const currentIdx = allDays.indexOf(day);
     const prevDay = currentIdx > 0 ? allDays[currentIdx - 1] : null;
     const nextDay =
@@ -526,19 +528,19 @@ export default function DailyDetailPage() {
     );
 
     const hourBuckets = useMemo(
-        () => (isValidDay ? getHourlyBuckets(day) : []),
-        [day, isValidDay]
+        () => (isValidDay ? getHourlyBuckets(expenses, day) : []),
+        [day, isValidDay, expenses]
     );
 
     // Date display
     const date = isValidDay
-        ? new Date(CURRENT.year, CURRENT.month - 1, day)
+        ? new Date(current.year, current.month - 1, day)
         : null;
     const weekdayFull = date
         ? date.toLocaleDateString('en-US', { weekday: 'long' })
         : '';
-    const monthName = MONTH_NAMES[CURRENT.month - 1];
-    const isToday = day === CURRENT.day;
+    const monthName = MONTH_NAMES[current.month - 1];
+    const isToday = day === current.day;
 
     // Invalid day → show error
     if (!isValidDay || dayExpenses.length === 0) {

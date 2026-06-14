@@ -20,7 +20,8 @@ import {
 } from '@floating-ui/react';
 import { ArrowIcon } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
-import { getDayPreview, CURRENT } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
+import { getDayPreview } from '@/lib/expense-utils';
 import { formatMoney, WEEKDAYS_SHORT } from '@/lib/utils';
 
 const TOOLTIP_BG = 'oklch(0.20 0.015 75)';
@@ -63,13 +64,14 @@ export function DayPreviewCard({
         setBoundaryEl(containerRef?.current ?? null);
     }, [containerRef]);
 
-    const preview = getDayPreview(day);
-    const date = new Date(CURRENT.year, CURRENT.month - 1, day);
+    const { current, expenses } = useExpenses();
+    const preview = getDayPreview(expenses, day);
+    const date = new Date(current.year, current.month - 1, day);
     const weekday = [
         'Sunday', 'Monday', 'Tuesday', 'Wednesday',
         'Thursday', 'Friday', 'Saturday',
     ][date.getDay()];
-    const isToday = day === CURRENT.day;
+    const isToday = day === current.day;
 
     // Memoize middleware to avoid recreating on every render
     const isMobile = useIsMobile()

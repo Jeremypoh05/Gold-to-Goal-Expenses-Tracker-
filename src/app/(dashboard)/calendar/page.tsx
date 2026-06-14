@@ -9,7 +9,7 @@ import {
 } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { CATEGORIES } from '@/data/categories';
-import { SAMPLE_EXPENSES, CURRENT } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
 import { MONTH_NAMES, cn } from '@/lib/utils';
 import type { CategoryKey } from '@/types';
 import {
@@ -140,29 +140,30 @@ function ViewModeToggle({
 // ═══════════════════════════════════════════════════════════════
 
 export default function CalendarPage() {
+    const { current, expenses } = useExpenses();
     const [viewMode, setViewMode] = useState<CalendarViewMode>('heat');
     const [filter, setFilter] = useState<FilterId>('all');
 
-    const monthName = MONTH_NAMES[CURRENT.month - 1];
+    const monthName = MONTH_NAMES[current.month - 1];
 
     // Apply filter
     const filteredExpenses = useMemo(() => {
-        if (filter === 'all') return SAMPLE_EXPENSES;
-        if (filter === 'voice') return SAMPLE_EXPENSES.filter((t) => t.voice);
-        return SAMPLE_EXPENSES.filter((t) => t.cat === filter);
-    }, [filter]);
+        if (filter === 'all') return expenses;
+        if (filter === 'voice') return expenses.filter((t) => t.voice);
+        return expenses.filter((t) => t.cat === filter);
+    }, [filter, expenses]);
 
     // Filter definitions with dynamic counts
     const filters: FilterDef[] = useMemo(() => {
         const countCat = (cat: CategoryKey) =>
-            SAMPLE_EXPENSES.filter((t) => t.cat === cat).length;
+            expenses.filter((t) => t.cat === cat).length;
 
         return [
-            { id: 'all', label: 'All', count: SAMPLE_EXPENSES.length },
+            { id: 'all', label: 'All', count: expenses.length },
             {
                 id: 'voice',
                 label: 'Voice',
-                count: SAMPLE_EXPENSES.filter((t) => t.voice).length,
+                count: expenses.filter((t) => t.voice).length,
                 icon: <MicIcon size={11} />,
             },
             { id: 'food', label: 'Food', count: countCat('food') },
@@ -172,7 +173,7 @@ export default function CalendarPage() {
             { id: 'ent', label: 'Entertainment', count: countCat('ent') },
             { id: 'health', label: 'Health', count: countCat('health') },
         ];
-    }, []);
+    }, [expenses]);
 
     // Effective filter (fallback to 'all' if 0 count)
     const effectiveFilter: FilterId = useMemo(() => {
@@ -195,7 +196,7 @@ export default function CalendarPage() {
             >
                 <div className="flex-1 min-w-0">
                     <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
-                        Calendar · {monthName} {CURRENT.year}
+                        Calendar · {monthName} {current.year}
                     </div>
                     <h1
                         className="display mt-0.5 md:mt-1"

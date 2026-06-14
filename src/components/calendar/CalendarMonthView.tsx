@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CategoryIcon } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
-import { CURRENT, getDayCategoryBreakdown } from '@/data/sampleExpenses';
+import { useExpenses } from '@/components/data/ExpensesContext';
+import { getDayCategoryBreakdown } from '@/lib/expense-utils';
 import { daysInMonth, cn } from '@/lib/utils';
 import type { Expense, CategoryKey } from '@/types';
 import { DayPreviewCard } from './DayPreviewCard';
@@ -300,6 +301,7 @@ export function CalendarMonthView({
     viewMode,
     filteredExpenses,
 }: CalendarMonthViewProps) {
+    const { current, expenses } = useExpenses();
     const router = useRouter();
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -370,8 +372,8 @@ export function CalendarMonthView({
 
     const activePreview = pinned ?? hovered;
 
-    const days = daysInMonth(CURRENT.year, CURRENT.month);
-    const firstDow = new Date(CURRENT.year, CURRENT.month - 1, 1).getDay();
+    const days = daysInMonth(current.year, current.month);
+    const firstDow = new Date(current.year, current.month - 1, 1).getDay();
 
     const cells: (number | null)[] = useMemo(() => {
         const result: (number | null)[] = [];
@@ -411,9 +413,9 @@ export function CalendarMonthView({
                     if (d === null) return <div key={i} />;
                     const spent = byDay[d] ?? 0;
                     const intensity = Math.min(1, spent / maxSpend);
-                    const isToday = d === CURRENT.day;
-                    const isFuture = d > CURRENT.day;
-                    const topCategories = getDayCategoryBreakdown(d);
+                    const isToday = d === current.day;
+                    const isFuture = d > current.day;
+                    const topCategories = getDayCategoryBreakdown(expenses, d);
                     const isPreviewing = pinned?.day === d;
 
                     return (
