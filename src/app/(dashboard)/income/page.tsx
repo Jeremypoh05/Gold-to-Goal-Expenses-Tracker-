@@ -8,7 +8,6 @@
 // Add Bonus. Light theme only (dark mode is a separate app-wide phase).
 
 import { useState, useMemo, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { PlusIcon, SparkleIcon, EditIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
@@ -355,13 +354,12 @@ function useIncomeStats(
 // ═══════════════════════════════════════════════════════════════
 
 export default function IncomePage() {
-    const { current, expenses, income } = useExpenses();
-    const router = useRouter();
+    const { current, expenses, income, refresh } = useExpenses();
     const [, startTransition] = useTransition();
 
     // CHANGED (Phase 8): bonuses + settings are DB-backed. We read straight from the
     // server-provided `income` (so the page stays in sync after refresh), and mutate
-    // through the server actions + router.refresh().
+    // through the server actions + refresh().
     const bonuses = income.bonuses;
     const [addOpen, setAddOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -371,7 +369,7 @@ export default function IncomePage() {
     const handleAddBonus = (b: NewBonus) => {
         startTransition(async () => {
             await addBonus({ month: b.month, amount: b.amt, label: b.label });
-            router.refresh();
+            refresh();
         });
     };
 
@@ -382,7 +380,7 @@ export default function IncomePage() {
     }) => {
         startTransition(async () => {
             await updateIncomeSettings(v);
-            router.refresh();
+            refresh();
         });
     };
 

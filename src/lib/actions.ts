@@ -3,8 +3,8 @@
 // ADDED (Phase 8): server actions — the only way the client mutates data.
 // Every action re-checks auth() (Server Actions are reachable by direct POST, so we
 // never trust the client) and scopes writes to the signed-in user. After a write we
-// revalidatePath the dashboard routes; client handlers also call router.refresh() so
-// the layout re-fetches and the context updates immediately.
+// revalidatePath the dashboard routes; client handlers also call the ExpensesProvider's
+// refresh() (which re-fetches the viewed month via fetchMonthData) so the UI updates.
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
