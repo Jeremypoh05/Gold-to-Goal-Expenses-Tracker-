@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
     CategoryTile,
@@ -154,9 +153,8 @@ function DayCard({
     entries: Expense[];
     index: number;
 }) {
-    const { current } = useExpenses();
+    const { current, refresh } = useExpenses();
     const { open: openEdit } = useAddModal();
-    const router = useRouter();
     const [pendingId, startTransition] = useTransition();
     const dayTotal = entries.reduce((a, b) => a + b.amt, 0);
     const voiceCount = entries.filter((e) => e.voice).length;
@@ -167,7 +165,7 @@ function DayCard({
     const handleDelete = (id: number) => {
         startTransition(async () => {
             await deleteExpense(id);
-            router.refresh();
+            refresh();
         });
     };
 

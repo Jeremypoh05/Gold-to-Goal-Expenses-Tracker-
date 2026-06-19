@@ -4,14 +4,9 @@ import { ChevronIcon, PlusIcon, BellIcon } from '@/components/icons';
 import { MONTH_NAMES } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
 import { useAddModal } from './AddModalContext';
+import { useExpenses } from '@/components/data/ExpensesContext'; // ADDED (Phase 8.1): month browsing
 import { ThemeToggle } from '@/components/theme/ThemeToggle'; // ADDED (Dark mode)
 import { UserButton, useUser } from '@clerk/nextjs'; // ADDED (Phase 7 · Auth)
-
-interface TopBarProps {
-    month: number;
-    year: number;
-    onMonthChange: (delta: number) => void;
-}
 
 function SearchIcon({ size = 14 }: { size?: number }) {
     return (
@@ -30,12 +25,15 @@ function SearchIcon({ size = 14 }: { size?: number }) {
     );
 }
 
-export function TopBar({ month, year, onMonthChange }: TopBarProps) {
-    const today = new Date();
-    const isCurrentMonth =
-        today.getMonth() + 1 === month && today.getFullYear() === year;
+export function TopBar() {
+    // CHANGED (Phase 8.1): month/year + browsing come from the ExpensesProvider.
+    const { current, canGoNext, goToMonth } = useExpenses();
+    const month = current.month;
+    const year = current.year;
+    // Viewing the real current month iff the server stamped today's date (>0).
+    const isCurrentMonth = current.day > 0;
 
-    const todayBadge = `Today · ${MONTH_NAMES[today.getMonth()]} ${today.getDate()}`;
+    const todayBadge = `Today · ${MONTH_NAMES[month - 1]} ${current.day}`;
     const { user } = useUser(); // ADDED (Phase 7): real signed-in user
     const greeting = useGreeting(user?.firstName ?? 'there');
 
@@ -95,7 +93,7 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
                 {/* Row 2 */}
                 <div className="flex items-center gap-2 px-4 pb-3">
                     <button
-                        onClick={() => onMonthChange(-1)}
+                        onClick={() => goToMonth(-1)}
                         className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
                         aria-label="Previous month"
                     >
@@ -107,8 +105,8 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
                     </div>
 
                     <button
-                        onClick={() => onMonthChange(1)}
-                        disabled={isCurrentMonth}
+                        onClick={() => goToMonth(1)}
+                        disabled={!canGoNext}
                         className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                         aria-label="Next month"
                     >
@@ -131,7 +129,7 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
             <div className="hidden md:flex items-center gap-3 px-8 py-[18px]">
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={() => onMonthChange(-1)}
+                        onClick={() => goToMonth(-1)}
                         className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
                         aria-label="Previous month"
                     >
@@ -143,8 +141,8 @@ export function TopBar({ month, year, onMonthChange }: TopBarProps) {
                     </div>
 
                     <button
-                        onClick={() => onMonthChange(1)}
-                        disabled={isCurrentMonth}
+                        onClick={() => goToMonth(1)}
+                        disabled={!canGoNext}
                         className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                         aria-label="Next month"
                     >

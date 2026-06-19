@@ -2,7 +2,7 @@
 
 // CHANGED (Phase 8): the voice store is now DB-backed. `logs` come from the
 // server (ExpensesProvider → voice-sourced expenses); add/edit/delete call the
-// server actions and then router.refresh() so the list reconciles to DB truth.
+// server actions and then refresh() so the list reconciles to DB truth.
 // A voice log IS an Expense with source='voice' — ledger ↔ voice are the same record.
 // Modal + toast remain local UI state.
 import {
@@ -13,7 +13,6 @@ import {
     useTransition,
     type ReactNode,
 } from 'react';
-import { useRouter } from 'next/navigation';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/actions';
 import type { VoiceLog, CategoryKey, Currency } from '@/types';
@@ -56,8 +55,7 @@ const VoiceContext = createContext<VoiceContextValue | null>(null);
 const TOAST_MS = 5000;
 
 export function VoiceProvider({ children }: { children: ReactNode }) {
-    const router = useRouter();
-    const { voiceLogs } = useExpenses(); // server truth (voice-sourced expenses)
+    const { voiceLogs, refresh } = useExpenses(); // server truth (voice-sourced expenses)
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [toast, setToast] = useState<ToastData | null>(null);
     const [isPending, startTransition] = useTransition();
@@ -88,7 +86,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
                 lang: entry.lang,
                 voiceStatus: entry.status,
             });
-            router.refresh();
+            refresh();
         });
     };
 
@@ -101,14 +99,14 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
                 ...(patch.note !== undefined && { note: patch.note }),
                 voiceStatus: 'edited',
             });
-            router.refresh();
+            refresh();
         });
     };
 
     const deleteLog = (id: number) => {
         startTransition(async () => {
             await deleteExpense(id);
-            router.refresh();
+            refresh();
         });
     };
 

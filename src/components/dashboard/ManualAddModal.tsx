@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     CategoryTile,
@@ -12,6 +11,7 @@ import {
 import { CATEGORIES } from '@/data/categories';
 import { createExpense, updateExpense } from '@/lib/actions';
 import { currencyFromSymbol } from '@/lib/utils';
+import { useExpenses } from '@/components/data/ExpensesContext';
 import { useAddModal } from './AddModalContext';
 import type { CategoryKey, Currency as CurrencyEnum, Expense } from '@/types';
 
@@ -427,7 +427,7 @@ function symbolFromCurrency(c: CurrencyEnum): Currency {
 }
 
 function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
-    const router = useRouter();
+    const { refresh } = useExpenses();
     const [amount, setAmount] = useState(editTarget ? String(editTarget.amt) : '');
     const [category, setCategory] = useState<CategoryKey>(editTarget?.cat ?? 'food');
     const [currency, setCurrency] = useState<Currency>(
@@ -456,7 +456,7 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
                 await createExpense({ ...fields, source: 'manual' });
             }
             onClose();
-            router.refresh();
+            refresh();
         });
     };
 
