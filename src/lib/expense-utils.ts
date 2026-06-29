@@ -6,6 +6,7 @@
 import type {
   Expense as DbExpense,
   Bonus as DbBonus,
+  SalaryPeriod as DbSalaryPeriod,
 } from "@/generated/prisma/client";
 import type { Expense, VoiceLog, CategoryKey } from "@/types";
 
@@ -232,4 +233,134 @@ export function toUiBonus(rows: DbBonus[]) {
   return rows
     .map((b) => ({ month: b.month, amt: Number(b.amount), label: b.label }))
     .sort((a, b) => a.month - b.month);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADDED (Phase 9): time-aware salary — effective-dated periods.
+// ─────────────────────────────────────────────────────────────
+
+/** Map a DB SalaryPeriod row to the UI shape (Decimal → number). */
+export function toUiSalaryPeriod(row: DbSalaryPeriod) {
+  return {
+    id: row.id,
+    year: row.effectiveYear,
+    month: row.effectiveMonth,
+    monthlySalary: Number(row.monthlySalary),
+    grossSalary: Number(row.grossSalary),
+    deductions: Number(row.deductions),
+    label: row.label,
+  };
+}
+export type UiSalaryPeriod = ReturnType<typeof toUiSalaryPeriod>;
+
+/**
+ * The salary in effect for a given calendar month = the latest period whose
+ * (year, month) is on or before it. Returns null when the month is before the
+ * very first period (i.e. the user hadn't started earning yet → 0 income).
+ */
+export function activeSalaryForMonth(
+  periods: UiSalaryPeriod[],
+  year: number,
+  month: number,
+): UiSalaryPeriod | null {
+  const onOrBefore = periods.filter(
+    (p) => p.year < year || (p.year === year && p.month <= month),
+  );
+  if (onOrBefore.length === 0) return null;
+  return onOrBefore.reduce((best, p) =>
+    p.year > best.year || (p.year === best.year && p.month > best.month)
+      ? p
+      : best,
+  );
+}
+
+export interface YearIncomeInput {
+  year: number;
+  /** Viewing the actual current year (so only elapsed months are "actual"). */
+  isCurrentYear: boolean;
+  /** Current month 1–12 when viewing this year; 12 for a past year. */
+  currentMonth: number;
+  periods: UiSalaryPeriod[];
+  /** Real expense total per month, index 0 = Jan … 11 = Dec. */
+  monthlyExpenseTotals: number[];
+  bonuses: { month: number; amt: number; label: string }[];
+  savingsGoal: number;
+  saved: number;
+}
+
+/**
+ * Real, time-aware income/expense/savings figures for a year (replaces the old
+ * "current-month salary × 12" assumption). Distinguishes ACTUAL (year-to-date,
+ * only elapsed months) from PROJECTED (full year, future months use the salary
+ * active then + average spend).
+ */
+export function computeYearIncomeStats(input: YearIncomeInput) {
+  const { year, isCurrentYear, periods, monthlyExpenseTotals, bonuses } = input;
+  const elapsed = isCurrentYear ? Math.max(1, input.currentMonth) : 12;
+
+  // Salary active in each of the 12 months (0 before the first period).
+  const salaryByMonth = Array.from(
+    { length: 12 },
+    (_, i) => activeSalaryForMonth(periods, year, i + 1)?.monthlySalary ?? 0,
+  );
+
+  const totalBonuses = bonuses.reduce((a, b) => a + b.amt, 0);
+  const bonusesYTD = bonuses
+    .filter((b) => b.month <= elapsed)
+    .reduce((a, b) => a + b.amt, 0);
+
+  const salaryYTD = salaryByMonth
+    .slice(0, elapsed)
+    .reduce((a, v) => a + v, 0);
+  const salaryAnnual = salaryByMonth.reduce((a, v) => a + v, 0);
+
+  const actualIncomeYTD = salaryYTD + bonusesYTD;
+  const projectedAnnualIncome = salaryAnnual + totalBonuses;
+
+  const actualExpensesYTD = monthlyExpenseTotals
+    .slice(0, elapsed)
+    .reduce((a, v) => a + v, 0);
+  const avgMonthlyExpense = actualExpensesYTD / Math.max(elapsed, 1);
+  const projectedAnnualExpenses =
+    actualExpensesYTD + avgMonthlyExpense * (12 - elapsed);
+
+  const netSavings = projectedAnnualIncome - projectedAnnualExpenses;
+  const savingsRate =
+    projectedAnnualIncome > 0 ? (netSavings / projectedAnnualIncome) * 100 : 0;
+
+  const goal = input.savingsGoal;
+  const saved = input.saved;
+  const toGo = Math.max(0, goal - saved);
+  const goalProgressPct = goal > 0 ? Math.min(100, (saved / goal) * 100) : 0;
+
+  const monthlyNetSavings = netSavings / 12;
+  const monthsToGoal =
+    monthlyNetSavings > 0 ? Math.ceil(toGo / monthlyNetSavings) : 0;
+  const monthsLeft = Math.max(0, 12 - elapsed);
+  const projectedYearEnd = Math.round(saved + monthlyNetSavings * monthsLeft);
+
+  const biggestBonus =
+    bonuses.length > 0
+      ? bonuses.reduce((max, b) => (b.amt > max.amt ? b : max), bonuses[0])
+      : { label: "—", amt: 0, month: 1 };
+
+  return {
+    actualIncomeYTD,
+    projectedAnnualIncome,
+    actualExpensesYTD,
+    projectedAnnualExpenses,
+    salaryAnnual,
+    totalBonuses,
+    netSavings,
+    savingsRate,
+    goal,
+    saved,
+    toGo,
+    goalProgressPct,
+    monthlyNetSavings,
+    monthsToGoal,
+    projectedYearEnd,
+    biggestBonus,
+    elapsed,
+  };
 }

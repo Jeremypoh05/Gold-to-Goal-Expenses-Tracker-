@@ -9,7 +9,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { toUiExpense } from "@/lib/expense-utils";
-import { getMonthDashboardData } from "@/lib/queries";
+import { getMonthDashboardData, getYearSummary } from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
 
 const DASHBOARD_ROUTES = [
@@ -166,4 +166,90 @@ export async function updateIncomeSettings(input: IncomeSettingsInput) {
 export async function fetchMonthData(year: number, month: number) {
   await requireUserId();
   return getMonthDashboardData(year, month);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADDED (Phase 9): time-aware salary periods + the year rollup the Income page
+// reads. A "period" = this salary, effective from this month onward.
+// ─────────────────────────────────────────────────────────────
+
+/** Read-only year rollup for the Income page (salary timeline + spend + goal). */
+export async function fetchYearSummary(year: number) {
+  await requireUserId();
+  return getYearSummary(year);
+}
+
+export interface SalaryPeriodInput {
+  effectiveYear: number;
+  effectiveMonth: number; // 1–12
+  monthlySalary: number;
+  grossSalary?: number;
+  deductions?: number;
+  label?: string;
+}
+
+/** Add (or overwrite) the salary effective from a given month — one per month. */
+export async function addSalaryPeriod(input: SalaryPeriodInput) {
+  const userId = await requireUserId();
+  const month = Math.min(12, Math.max(1, Math.round(input.effectiveMonth)));
+  await prisma.salaryPeriod.upsert({
+    where: {
+      userId_effectiveYear_effectiveMonth: {
+        userId,
+        effectiveYear: input.effectiveYear,
+        effectiveMonth: month,
+      },
+    },
+    update: {
+      monthlySalary: input.monthlySalary,
+      grossSalary: input.grossSalary ?? 0,
+      deductions: input.deductions ?? 0,
+      label: input.label ?? null,
+    },
+    create: {
+      userId,
+      effectiveYear: input.effectiveYear,
+      effectiveMonth: month,
+      monthlySalary: input.monthlySalary,
+      grossSalary: input.grossSalary ?? 0,
+      deductions: input.deductions ?? 0,
+      label: input.label ?? null,
+    },
+  });
+  revalidateDashboard();
+}
+
+/** Edit an existing salary period by id (ownership-checked). */
+export async function updateSalaryPeriod(
+  id: number,
+  input: Partial<SalaryPeriodInput>,
+) {
+  const userId = await requireUserId();
+  const owned = await prisma.salaryPeriod.findFirst({ where: { id, userId } });
+  if (!owned) throw new Error("Salary period not found");
+  await prisma.salaryPeriod.update({
+    where: { id },
+    data: {
+      ...(input.effectiveYear !== undefined && {
+        effectiveYear: input.effectiveYear,
+      }),
+      ...(input.effectiveMonth !== undefined && {
+        effectiveMonth: Math.min(12, Math.max(1, Math.round(input.effectiveMonth))),
+      }),
+      ...(input.monthlySalary !== undefined && {
+        monthlySalary: input.monthlySalary,
+      }),
+      ...(input.grossSalary !== undefined && { grossSalary: input.grossSalary }),
+      ...(input.deductions !== undefined && { deductions: input.deductions }),
+      ...(input.label !== undefined && { label: input.label }),
+    },
+  });
+  revalidateDashboard();
+}
+
+/** Remove a salary period (ownership-checked). */
+export async function deleteSalaryPeriod(id: number) {
+  const userId = await requireUserId();
+  await prisma.salaryPeriod.deleteMany({ where: { id, userId } });
+  revalidateDashboard();
 }
