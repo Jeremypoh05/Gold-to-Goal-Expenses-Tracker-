@@ -198,7 +198,7 @@ function DayCard({
                             className="display"
                             style={{ fontSize: "clamp(20px, 2.5vw, 26px)", lineHeight: 1 }}
                         >
-                            Apr {day}
+                            {MONTH_NAMES[current.month - 1]} {day}
                         </div>
                         <div className="text-[11px] md:text-xs text-ink-2 uppercase tracking-[0.08em] font-medium">
                             {weekday}

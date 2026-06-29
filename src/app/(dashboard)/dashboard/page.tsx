@@ -240,9 +240,17 @@ function FloatingVoiceButton() {
 // ═══════════════════════════════════════════════════════════════
 
 function HeroSpendCard() {
-    const { current, expenses, income } = useExpenses();
+    const { current, expenses, income, prevMonthTotal } = useExpenses();
     const total = totalSpent(expenses);
     const monthName = MONTH_NAMES[current.month - 1];
+    // CHANGED (Phase 8.2): real month-over-month delta (was a hardcoded "12.4% vs Mar").
+    // Only shown once there's a prior month to compare against.
+    const prevMonthName = MONTH_NAMES[(current.month + 10) % 12];
+    const hasComparison = prevMonthTotal > 0;
+    const momPct = hasComparison
+        ? ((total - prevMonthTotal) / prevMonthTotal) * 100
+        : 0;
+    const momDown = momPct <= 0; // spending down vs last month = the good direction
     const budget = income.monthlyBudget;
     const hasBudget = budget > 0;
     const spentLeft = budget - total;
@@ -324,18 +332,20 @@ function HeroSpendCard() {
                     <div className="text-[10px] md:text-[11px] text-gold-900 uppercase tracking-[0.14em] font-semibold">
                         {monthName} spend
                     </div>
-                    <div
-                        className="chip"
-                        style={{
-                            background: 'rgba(255,255,255,0.7)',
-                            color: 'var(--color-gold-900)',
-                            backdropFilter: 'blur(8px)',
-                        }}
-                    >
-                        <ArrowIcon direction="down" size={12} className="text-gold-700" />
-                        <span className="mono">12.4%</span>
-                        <span className="ml-1">vs Mar</span>
-                    </div>
+                    {hasComparison && (
+                        <div
+                            className="chip"
+                            style={{
+                                background: 'rgba(255,255,255,0.7)',
+                                color: 'var(--color-gold-900)',
+                                backdropFilter: 'blur(8px)',
+                            }}
+                        >
+                            <ArrowIcon direction={momDown ? 'down' : 'up'} size={12} className="text-gold-700" />
+                            <span className="mono">{Math.abs(momPct).toFixed(1)}%</span>
+                            <span className="ml-1">vs {prevMonthName}</span>
+                        </div>
+                    )}
                 </div>
 
                 {/* Big animated number */}
@@ -707,7 +717,8 @@ function RecentTransactions({ filter, setFilter }: {
     filter: FilterMode;
     setFilter: (v: FilterMode) => void;
 }) {
-    const { expenses } = useExpenses();
+    const { current, expenses } = useExpenses();
+    const monthName = MONTH_NAMES[current.month - 1]; // CHANGED (Phase 8.2): was hardcoded "Apr"
     const filteredExpenses = expenses.filter((t) => {
         if (filter === 'voice') return t.voice === true;
         if (filter === 'manual') return !t.voice;
@@ -794,7 +805,7 @@ function RecentTransactions({ filter, setFilter }: {
                                     </span>
                                 </td>
                                 <td className="mono text-sm text-ink-2" style={{ whiteSpace: 'nowrap' }}>
-                                    Apr {String(t.day).padStart(2, '0')}
+                                    {monthName} {String(t.day).padStart(2, '0')}
                                 </td>
                                 <td className="hidden lg:table-cell">
                                     {t.voice ? (
@@ -837,7 +848,7 @@ function RecentTransactions({ filter, setFilter }: {
                                     </span>
                                 )}
                                 {t.voice && <span>·</span>}
-                                <span>Apr {String(t.day).padStart(2, '0')}</span>
+                                <span>{monthName} {String(t.day).padStart(2, '0')}</span>
                                 <span>·</span>
                                 <span className="mono">{t.time}</span>
                             </div>
