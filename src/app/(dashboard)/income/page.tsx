@@ -7,7 +7,7 @@
 // Income-vs-Expenses viz, Savings insights panel, animated goal progress, interactive
 // Add Bonus. Light theme only (dark mode is a separate app-wide phase).
 
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useTransition, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { PlusIcon, SparkleIcon, EditIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
@@ -17,11 +17,20 @@ import {
     IncomeSummary,
     AddBonusModal,
     IncomeSettingsModal,
+    SalaryTimelineModal,
     type NewBonus,
+    type SalaryPeriodForm,
 } from '@/components/income';
 import { useExpenses } from '@/components/data/ExpensesContext';
-import { totalSpent } from '@/lib/expense-utils';
-import { addBonus, updateIncomeSettings } from '@/lib/actions';
+import { computeYearIncomeStats } from '@/lib/expense-utils';
+import type { YearSummary } from '@/lib/queries';
+import {
+    addBonus,
+    updateIncomeSettings,
+    fetchYearSummary,
+    addSalaryPeriod,
+    deleteSalaryPeriod,
+} from '@/lib/actions';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import type { IncomeInfo } from '@/types';
 
@@ -255,9 +264,11 @@ function BonusesCard({
 
 function StatBand({
     stats,
+    onEditGoal,
     delay = 0,
 }: {
-    stats: ReturnType<typeof useIncomeStats>;
+    stats: ReturnType<typeof computeYearIncomeStats>;
+    onEditGoal: () => void;
     delay?: number;
 }) {
     return (
@@ -268,13 +279,27 @@ function StatBand({
             className="glass grad-gold-soft rounded-3xl p-6 md:p-8"
             style={{ border: '1px solid oklch(0.88 0.08 88)' }}
         >
+            {/* CHANGED (Phase 9): real actual-vs-projected numbers. The main figure is
+                the full-year projection; the sub-line shows what's actually banked so far. */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
-                <BigStat label="Yearly income" value={stats.yearlyIncome} sub="salary + bonuses" delay={300} />
-                <BigStat label="Yearly expenses" value={stats.yearlyExpenses} sub="projected" delay={400} />
-                <BigStat label="Net savings" value={stats.netSavings} sub="target" accent delay={500} />
+                <BigStat label="Income" value={stats.projectedAnnualIncome} sub={`${formatMoney(stats.actualIncomeYTD)} so far · est. year`} delay={300} />
+                <BigStat label="Expenses" value={stats.projectedAnnualExpenses} sub={`${formatMoney(stats.actualExpensesYTD)} so far · est. year`} delay={400} />
+                <BigStat label="Net savings" value={stats.netSavings} sub="projected year" accent delay={500} />
                 <BigStat label="Savings rate" value={stats.savingsRate} percent sub="of income" delay={600} />
             </div>
             <div className="mt-7">
+                <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] uppercase tracking-[0.1em] font-semibold text-on-soft">
+                        Savings goal
+                    </span>
+                    <button
+                        type="button"
+                        onClick={onEditGoal}
+                        className="flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium border border-line bg-bg-card/70 hover:border-ink-2 transition-all"
+                    >
+                        <EditIcon size={12} /> {stats.goal > 0 ? 'Edit goal' : 'Set goal'}
+                    </button>
+                </div>
                 <GoalProgress
                     saved={stats.saved}
                     goal={stats.goal}
@@ -288,99 +313,97 @@ function StatBand({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Live stats hook — recomputes from the current (possibly user-added) bonuses
-// so the stat band, breakdown, and insights all update when a bonus is added.
-// ═══════════════════════════════════════════════════════════════
-
-function useIncomeStats(
-    bonuses: Bonus[],
-    income: ReturnType<typeof useExpenses>['income'],
-    expenses: ReturnType<typeof useExpenses>['expenses'],
-    current: ReturnType<typeof useExpenses>['current'],
-) {
-    return useMemo(() => {
-        const monthlySalary = income.monthlySalary;
-        const yearlySalary = monthlySalary * 12;
-        const totalBonuses = bonuses.reduce((a, b) => a + b.amt, 0);
-        const yearlyIncome = yearlySalary + totalBonuses;
-        const yearlyExpenses = totalSpent(expenses) * 12;
-        const netSavings = yearlyIncome - yearlyExpenses;
-        const savingsRate = yearlyIncome > 0 ? (netSavings / yearlyIncome) * 100 : 0;
-
-        const goal = income.savingsGoal;
-        const saved = income.saved;
-        const toGo = Math.max(0, goal - saved);
-        const goalProgressPct = goal > 0 ? (saved / goal) * 100 : 0;
-
-        const monthlyNetSavings = netSavings / 12;
-        const monthsToGoal =
-            monthlyNetSavings > 0 ? Math.ceil(toGo / monthlyNetSavings) : 0;
-        const monthsLeft = Math.max(0, 12 - current.month);
-        const projectedYearEnd = Math.round(saved + monthlyNetSavings * monthsLeft);
-
-        const biggestBonus =
-            bonuses.length > 0
-                ? bonuses.reduce((max, b) => (b.amt > max.amt ? b : max), bonuses[0])
-                : { label: '—', amt: 0, month: 1 };
-
-        return {
-            monthlySalary,
-            yearlySalary,
-            totalBonuses,
-            yearlyIncome,
-            yearlyExpenses,
-            netSavings,
-            savingsRate,
-            goal,
-            saved,
-            toGo,
-            goalProgressPct,
-            projectedYearEnd,
-            monthsToGoal,
-            biggestBonus,
-        };
-    }, [
-        bonuses,
-        income.monthlySalary,
-        income.savingsGoal,
-        income.saved,
-        expenses,
-        current.month,
-    ]);
-}
-
-// ═══════════════════════════════════════════════════════════════
 // Page
 // ═══════════════════════════════════════════════════════════════
 
 export default function IncomePage() {
-    const { current, expenses, income, refresh } = useExpenses();
-    const [, startTransition] = useTransition();
+    const { current, income, refresh } = useExpenses();
+    const [pending, startTransition] = useTransition();
 
-    // CHANGED (Phase 8): bonuses + settings are DB-backed. We read straight from the
-    // server-provided `income` (so the page stays in sync after refresh), and mutate
-    // through the server actions + refresh().
+    const year = current.year;
+    // CHANGED (Phase 9): income figures now come from a real full-year rollup
+    // (salary timeline + per-month spend), fetched on mount + after mutations,
+    // instead of "current-month salary × 12". Bonuses still ride the month
+    // context (kept in sync by refresh()).
+    const [summary, setSummary] = useState<YearSummary | null>(null);
+
+    const loadSummary = useCallback(() => {
+        startTransition(async () => {
+            setSummary(await fetchYearSummary(year));
+        });
+    }, [year]);
+
+    useEffect(() => {
+        loadSummary();
+    }, [loadSummary]);
+
     const bonuses = income.bonuses;
     const [addOpen, setAddOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [salaryOpen, setSalaryOpen] = useState(false);
 
-    const stats = useIncomeStats(bonuses, income, expenses, current);
+    // Compute from the server summary; fall back to a zero/loading shape so the
+    // page renders instantly before the fetch resolves.
+    const stats = useMemo(
+        () =>
+            computeYearIncomeStats(
+                summary ?? {
+                    year,
+                    isCurrentYear: current.day > 0,
+                    currentMonth: current.month,
+                    periods: [],
+                    monthlyExpenseTotals: Array(12).fill(0),
+                    bonuses,
+                    savingsGoal: income.savingsGoal,
+                    saved: income.saved,
+                },
+            ),
+        [summary, year, current.day, current.month, bonuses, income.savingsGoal, income.saved],
+    );
+
+    const refreshAll = () => {
+        refresh();
+        loadSummary();
+    };
 
     const handleAddBonus = (b: NewBonus) => {
         startTransition(async () => {
             await addBonus({ month: b.month, amount: b.amt, label: b.label });
-            refresh();
+            refreshAll();
         });
     };
 
     const handleSaveSettings = (v: {
-        monthlySalary: number;
         savingsGoal: number;
         saved: number;
+        monthlyBudget: number;
+        payDay: number;
+        payFrequency: string;
     }) => {
         startTransition(async () => {
             await updateIncomeSettings(v);
-            refresh();
+            refreshAll();
+        });
+    };
+
+    const handleSaveSalary = (v: SalaryPeriodForm) => {
+        startTransition(async () => {
+            await addSalaryPeriod({
+                effectiveYear: v.effectiveYear,
+                effectiveMonth: v.effectiveMonth,
+                monthlySalary: v.monthlySalary,
+                grossSalary: v.grossSalary,
+                deductions: v.deductions,
+                label: v.label || undefined,
+            });
+            refreshAll();
+        });
+    };
+
+    const handleDeleteSalary = (id: number) => {
+        startTransition(async () => {
+            await deleteSalaryPeriod(id);
+            refreshAll();
         });
     };
 
@@ -408,7 +431,7 @@ export default function IncomePage() {
                 <div className="hidden md:flex md:flex-col md:gap-6">
                     {/* Row 1: Salary | Bonuses (1:1 with design) */}
                     <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-                        <SalaryCard salary={stats.monthlySalary} gross={income.grossSalary} deductions={income.deductions} payDay={income.payDay} payFrequency={income.payFrequency} delay={0.05} onEdit={() => setSettingsOpen(true)} />
+                        <SalaryCard salary={income.monthlySalary} gross={income.grossSalary} deductions={income.deductions} payDay={income.payDay} payFrequency={income.payFrequency} delay={0.05} onEdit={() => setSalaryOpen(true)} />
                         <BonusesCard
                             bonuses={bonuses}
                             total={stats.totalBonuses}
@@ -418,7 +441,7 @@ export default function IncomePage() {
                     </div>
 
                     {/* Row 2: Full-width stat band + goal (1:1 with design) */}
-                    <StatBand stats={stats} delay={0.15} />
+                    <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.15} />
 
                     {/* Row 3: Bonus features — breakdown viz + savings insights */}
                     <div className="grid gap-6 grid-cols-1 lg:[grid-template-columns:1.4fr_1fr] items-start">
@@ -428,10 +451,10 @@ export default function IncomePage() {
                             transition={{ duration: 0.6, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
                         >
                             <IncomeBreakdown
-                                yearlySalary={stats.yearlySalary}
+                                yearlySalary={stats.salaryAnnual}
                                 totalBonuses={stats.totalBonuses}
-                                yearlyIncome={stats.yearlyIncome}
-                                yearlyExpenses={stats.yearlyExpenses}
+                                yearlyIncome={stats.projectedAnnualIncome}
+                                yearlyExpenses={stats.projectedAnnualExpenses}
                                 netSavings={stats.netSavings}
                             />
                         </motion.div>
@@ -446,15 +469,15 @@ export default function IncomePage() {
 
                 {/* ═══════════ MOBILE (< md) — derived, content parity ═══════════ */}
                 <div className="md:hidden flex flex-col gap-5">
-                    <SalaryCard salary={stats.monthlySalary} gross={income.grossSalary} deductions={income.deductions} payDay={income.payDay} payFrequency={income.payFrequency} delay={0.05} onEdit={() => setSettingsOpen(true)} />
+                    <SalaryCard salary={income.monthlySalary} gross={income.grossSalary} deductions={income.deductions} payDay={income.payDay} payFrequency={income.payFrequency} delay={0.05} onEdit={() => setSalaryOpen(true)} />
                     <IncomeBreakdown
-                        yearlySalary={stats.yearlySalary}
+                        yearlySalary={stats.salaryAnnual}
                         totalBonuses={stats.totalBonuses}
-                        yearlyIncome={stats.yearlyIncome}
-                        yearlyExpenses={stats.yearlyExpenses}
+                        yearlyIncome={stats.projectedAnnualIncome}
+                        yearlyExpenses={stats.projectedAnnualExpenses}
                         netSavings={stats.netSavings}
                     />
-                    <StatBand stats={stats} delay={0.1} />
+                    <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.1} />
                     <BonusesCard
                         bonuses={bonuses}
                         total={stats.totalBonuses}
@@ -473,21 +496,29 @@ export default function IncomePage() {
             {/* Interactive Add Bonus modal / sheet */}
             <AddBonusModal open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAddBonus} />
 
-            {/* Income settings (salary / goal / saved) */}
+            {/* Goal / budget / pay settings (salary itself lives in the timeline) */}
             <IncomeSettingsModal
                 open={settingsOpen}
                 initial={{
-                    monthlySalary: income.monthlySalary,
                     savingsGoal: income.savingsGoal,
                     saved: income.saved,
                     monthlyBudget: income.monthlyBudget,
-                    grossSalary: income.grossSalary,
-                    deductions: income.deductions,
                     payDay: income.payDay,
                     payFrequency: income.payFrequency,
                 }}
                 onClose={() => setSettingsOpen(false)}
                 onSave={handleSaveSettings}
+            />
+
+            {/* ADDED (Phase 9): time-aware salary timeline */}
+            <SalaryTimelineModal
+                open={salaryOpen}
+                periods={summary?.periods ?? []}
+                defaultYear={year}
+                pending={pending}
+                onClose={() => setSalaryOpen(false)}
+                onSave={handleSaveSalary}
+                onDelete={handleDeleteSalary}
             />
         </>
     );

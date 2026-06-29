@@ -6,7 +6,14 @@ import "server-only";
 import { cache } from "react";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import { toUiExpense, toUiVoiceLog, toUiBonus } from "@/lib/expense-utils";
+import {
+  toUiExpense,
+  toUiVoiceLog,
+  toUiBonus,
+  toUiSalaryPeriod,
+  activeSalaryForMonth,
+  type UiSalaryPeriod,
+} from "@/lib/expense-utils";
 import type { MonthInfo } from "@/types";
 
 /**
@@ -79,7 +86,7 @@ export async function getMonthDashboardData(
   // ADDED (Phase 8.2): the prior calendar month, for the month-over-month delta.
   const prevMonthStart = new Date(year, month - 2, 1);
 
-  const [rows, bonuses, prevAgg] = await Promise.all([
+  const [rows, bonuses, prevAgg, periods] = await Promise.all([
     prisma.expense.findMany({
       where: { userId: user.id, spentAt: { gte: monthStart, lt: monthEnd } },
       orderBy: { spentAt: "desc" },
@@ -92,7 +99,12 @@ export async function getMonthDashboardData(
         spentAt: { gte: prevMonthStart, lt: monthStart },
       },
     }),
+    prisma.salaryPeriod.findMany({ where: { userId: user.id } }),
   ]);
+
+  // CHANGED (Phase 9): salary/gross/deductions now come from the SalaryPeriod
+  // active in the viewing month (was the deprecated flat User.monthlySalary).
+  const active = activeSalaryForMonth(periods.map(toUiSalaryPeriod), year, month);
 
   return {
     current,
@@ -101,16 +113,73 @@ export async function getMonthDashboardData(
     voiceLogs: rows.filter((r) => r.source === "voice").map(toUiVoiceLog),
     prevMonthTotal: Number(prevAgg._sum.amount ?? 0),
     income: {
-      monthlySalary: Number(user.monthlySalary),
+      monthlySalary: active?.monthlySalary ?? 0,
       savingsGoal: Number(user.savingsGoal),
       saved: Number(user.saved),
       monthlyBudget: Number(user.monthlyBudget),
-      grossSalary: Number(user.grossSalary),
-      deductions: Number(user.deductions),
+      grossSalary: active?.grossSalary ?? 0,
+      deductions: active?.deductions ?? 0,
       payDay: user.payDay,
       payFrequency: user.payFrequency,
       bonuses: toUiBonus(bonuses),
     },
+  };
+}
+
+/** ADDED (Phase 9): full-year rollup for the Income page — salary timeline,
+ *  per-month expense totals, bonuses, and goal settings. The client computes
+ *  actual-vs-projected figures from this via computeYearIncomeStats. */
+export interface YearSummary {
+  year: number;
+  isCurrentYear: boolean;
+  currentMonth: number;
+  periods: UiSalaryPeriod[];
+  monthlyExpenseTotals: number[];
+  bonuses: ReturnType<typeof toUiBonus>;
+  savingsGoal: number;
+  saved: number;
+  monthlyBudget: number;
+  payDay: number;
+  payFrequency: string;
+}
+
+export async function getYearSummary(year: number): Promise<YearSummary> {
+  const user = await getOrCreateUser();
+  const now = new Date();
+  const isCurrentYear = now.getFullYear() === year;
+  const currentMonth = isCurrentYear ? now.getMonth() + 1 : 12;
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year + 1, 0, 1);
+
+  const [periods, rows, bonuses] = await Promise.all([
+    prisma.salaryPeriod.findMany({
+      where: { userId: user.id },
+      orderBy: [{ effectiveYear: "asc" }, { effectiveMonth: "asc" }],
+    }),
+    prisma.expense.findMany({
+      where: { userId: user.id, spentAt: { gte: yearStart, lt: yearEnd } },
+      select: { spentAt: true, amount: true },
+    }),
+    prisma.bonus.findMany({ where: { userId: user.id } }),
+  ]);
+
+  const monthlyExpenseTotals = Array(12).fill(0) as number[];
+  for (const r of rows) {
+    monthlyExpenseTotals[r.spentAt.getMonth()] += Number(r.amount);
+  }
+
+  return {
+    year,
+    isCurrentYear,
+    currentMonth,
+    periods: periods.map(toUiSalaryPeriod),
+    monthlyExpenseTotals,
+    bonuses: toUiBonus(bonuses),
+    savingsGoal: Number(user.savingsGoal),
+    saved: Number(user.saved),
+    monthlyBudget: Number(user.monthlyBudget),
+    payDay: user.payDay,
+    payFrequency: user.payFrequency,
   };
 }
 

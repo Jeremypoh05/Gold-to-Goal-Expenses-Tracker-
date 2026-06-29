@@ -9,13 +9,13 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// CHANGED (Phase 9): salary/gross/deductions moved to the SalaryTimelineModal
+// (time-aware periods). This modal now only handles the per-user goal, budget,
+// and pay-schedule settings.
 export interface IncomeSettingsValue {
-    monthlySalary: number;
     savingsGoal: number;
     saved: number;
     monthlyBudget: number;
-    grossSalary: number;
-    deductions: number;
     payDay: number;
     payFrequency: string;
 }
@@ -76,12 +76,9 @@ function MoneyField({
 }
 
 function Content({ initial, onClose, onSave }: Omit<Props, 'open'>) {
-    const [salary, setSalary] = useState(String(initial.monthlySalary || ''));
     const [goal, setGoal] = useState(String(initial.savingsGoal || ''));
     const [saved, setSaved] = useState(String(initial.saved || ''));
     const [budget, setBudget] = useState(String(initial.monthlyBudget || ''));
-    const [gross, setGross] = useState(String(initial.grossSalary || ''));
-    const [deductions, setDeductions] = useState(String(initial.deductions || ''));
     const [payDay, setPayDay] = useState(String(initial.payDay || ''));
     const [payFrequency, setPayFrequency] = useState(initial.payFrequency || 'Monthly');
 
@@ -94,12 +91,9 @@ function Content({ initial, onClose, onSave }: Omit<Props, 'open'>) {
         // payDay clamped to a valid day-of-month (1–31), 0 = unset.
         const day = Math.min(31, Math.max(0, Math.round(num(payDay))));
         onSave({
-            monthlySalary: num(salary),
             savingsGoal: num(goal),
             saved: num(saved),
             monthlyBudget: num(budget),
-            grossSalary: num(gross),
-            deductions: num(deductions),
             payDay: day,
             payFrequency: payFrequency.trim() || 'Monthly',
         });
@@ -141,19 +135,14 @@ function Content({ initial, onClose, onSave }: Omit<Props, 'open'>) {
                         Income settings
                     </div>
                     <h2 className="display mt-1" style={{ fontSize: 26, lineHeight: 1.1 }}>
-                        Salary &amp; savings
+                        Goal &amp; budget
                     </h2>
                     <div className="text-[12px] text-ink-2 mt-1">
-                        These drive your yearly income, net savings, and goal progress.
+                        Your savings goal, monthly budget, and pay schedule. (Salary lives in the timeline.)
                     </div>
                 </div>
 
                 <div className="px-6 md:px-7 pb-2 flex flex-col gap-4">
-                    <MoneyField label="Monthly salary (take-home)" value={salary} onChange={setSalary} hint="Drives yearly income & net savings" />
-                    <div className="grid grid-cols-2 gap-3">
-                        <MoneyField label="Gross monthly" value={gross} onChange={setGross} />
-                        <MoneyField label="CPF / deductions" value={deductions} onChange={setDeductions} />
-                    </div>
                     <MoneyField label="Monthly budget" value={budget} onChange={setBudget} hint="Powers the dashboard spend ring" />
                     <div className="grid grid-cols-2 gap-3">
                         <MoneyField label="Savings goal" value={goal} onChange={setGoal} />

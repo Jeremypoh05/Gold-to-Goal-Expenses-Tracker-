@@ -56,15 +56,20 @@ model User {
   currency      Currency @default(SGD) // preferred display currency
 
   // Income page (was SAMPLE_INCOME + the goal constants)
-  monthlySalary Decimal  @default(0) @db.Decimal(12, 2) // take-home
+  // DEPRECATED (Phase 9): monthlySalary/grossSalary/deductions moved to the
+  // time-aware SalaryPeriod model so salary can start mid-year and change over
+  // time. Columns kept (not dropped) so the init migration can backfill the
+  // first period from them; reads now go through SalaryPeriod. Safe to drop in a
+  // later cleanup migration once no code references them.
+  monthlySalary Decimal  @default(0) @db.Decimal(12, 2) // take-home — DEPRECATED, see SalaryPeriod
   savingsGoal   Decimal  @default(0) @db.Decimal(12, 2)
   saved         Decimal  @default(0) @db.Decimal(12, 2)
   monthlyBudget Decimal  @default(0) @db.Decimal(12, 2) // ADDED (Phase 8.1): dashboard spend budget
 
-  // ADDED (Phase 8.1): salary detail fields (were hardcoded on the Salary card)
+  // DEPRECATED (Phase 9): per-period now (see SalaryPeriod).
   grossSalary   Decimal  @default(0) @db.Decimal(12, 2)
   deductions    Decimal  @default(0) @db.Decimal(12, 2) // CPF / other deductions
-  payDay        Int      @default(25) // day of month
+  payDay        Int      @default(25) // day of month — still per-user (rarely changes)
   payFrequency  String   @default("Monthly")
 
   createdAt     DateTime @default(now())
@@ -72,6 +77,32 @@ model User {
 
   expenses      Expense[]
   bonuses       Bonus[]
+  salaryPeriods SalaryPeriod[]
+}
+
+/// ADDED (Phase 9): time-aware salary. One row per "this salary, effective from
+/// this month onward". The active salary for any calendar month is the latest
+/// period whose (effectiveYear, effectiveMonth) is <= that month. Periods have no
+/// end date — each runs until the next one begins; the latest runs indefinitely.
+/// This models a mid-year start (no period before the start month = 0 income there)
+/// and any number of raises. gross/deductions ride along with each period.
+model SalaryPeriod {
+  id             Int      @id @default(autoincrement())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  effectiveYear  Int      // e.g. 2026
+  effectiveMonth Int      // 1–12; period takes effect on the 1st of this month
+  monthlySalary  Decimal  @db.Decimal(12, 2) // take-home for this period
+  grossSalary    Decimal  @default(0) @db.Decimal(12, 2)
+  deductions     Decimal  @default(0) @db.Decimal(12, 2) // CPF / other
+  label          String?  // "Joined", "Raise", "Promotion"…
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, effectiveYear, effectiveMonth]) // one salary change per month
+  @@index([userId])
 }
 
 /// The ledger. Voice logs live here too (source = voice).
