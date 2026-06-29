@@ -21,7 +21,7 @@ import {
     getAllExpenseDays,
     getHourlyBuckets,
 } from '@/lib/expense-utils';
-import { formatMoney, MONTH_NAMES, cn } from '@/lib/utils';
+import { formatMoney, MONTH_NAMES, cn, daysInMonth } from '@/lib/utils';
 import type { CategoryKey } from '@/types';
 
 // ═══════════════════════════════════════════════════════════════
@@ -38,6 +38,7 @@ function DaySwitcher({
     nextDay: number | null;
 }) {
     const { current } = useExpenses();
+    const monthName = MONTH_NAMES[current.month - 1]; // CHANGED (Phase 8.2): was hardcoded "Apr"
     const isToday = day === current.day;
 
     return (
@@ -48,7 +49,7 @@ function DaySwitcher({
                     className="h-[30px] px-[12px] rounded-full text-xs font-medium text-ink-1 hover:text-ink-0 inline-flex items-center gap-1 transition-colors"
                 >
                     <ChevronIcon direction="left" size={12} />
-                    <span className="hidden sm:inline">Apr {prevDay}</span>
+                    <span className="hidden sm:inline">{monthName} {prevDay}</span>
                 </Link>
             ) : (
                 <span className="h-[30px] px-[12px] rounded-full text-xs font-medium text-ink-3 inline-flex items-center gap-1 cursor-not-allowed opacity-40">
@@ -63,7 +64,7 @@ function DaySwitcher({
                     isToday ? 'bg-bg-card text-ink-0 shadow-sm' : 'text-ink-1'
                 )}
             >
-                {isToday ? 'Today' : `Apr ${day}`}
+                {isToday ? 'Today' : `${monthName} ${day}`}
             </span>
 
             {nextDay !== null ? (
@@ -71,7 +72,7 @@ function DaySwitcher({
                     href={`/ledger/${nextDay}`}
                     className="h-[30px] px-[12px] rounded-full text-xs font-medium text-ink-1 hover:text-ink-0 inline-flex items-center gap-1 transition-colors"
                 >
-                    <span className="hidden sm:inline">Apr {nextDay}</span>
+                    <span className="hidden sm:inline">{monthName} {nextDay}</span>
                     <ChevronIcon direction="right" size={12} />
                 </Link>
             ) : (
@@ -193,17 +194,19 @@ function TodayStatsCard({
     total,
     entriesCount,
     voiceCount,
-    dailyBudget = 116,
-    dailyAvg = 68.8,
+    dailyBudget,
+    dailyAvg,
 }: {
     total: number;
     entriesCount: number;
     voiceCount: number;
-    dailyBudget?: number;
-    dailyAvg?: number;
+    // CHANGED (Phase 8.2): now derived from real data (was hardcoded 116 / 68.8).
+    dailyBudget: number;
+    dailyAvg: number;
 }) {
     const diff = dailyAvg - total;
-    const budgetPct = Math.min(100, (total / dailyBudget) * 100);
+    const hasBudget = dailyBudget > 0;
+    const budgetPct = hasBudget ? Math.min(100, (total / dailyBudget) * 100) : 0;
 
     return (
         <motion.div
@@ -283,7 +286,7 @@ function TodayStatsCard({
                 </div>
                 <div className="flex justify-between mt-1 text-[9px] text-gold-900" style={{ opacity: 0.7 }}>
                     <span>S$0</span>
-                    <span>daily budget S${dailyBudget}</span>
+                    <span>{hasBudget ? `daily budget S$${Math.round(dailyBudget)}` : 'no budget set'}</span>
                 </div>
             </div>
         </motion.div>
@@ -357,19 +360,22 @@ function TodayByCategory({
 
 function AISummaryCard({
     total,
-    dailyAvg = 68.8,
-    monthAvg = 2380,
+    dailyAvg,
+    monthAvg,
+    monthName,
 }: {
     total: number;
-    dailyAvg?: number;
-    monthAvg?: number;
+    // CHANGED (Phase 8.2): derived from real month data (was hardcoded 68.8 / 2380 / "April").
+    dailyAvg: number;
+    monthAvg: number;
+    monthName: string;
 }) {
     const diff = dailyAvg - total;
     const isUnder = diff > 0;
 
     // Generate contextual summary
     const summary = isUnder
-        ? `Today was a light day. You're ${formatMoney(diff)} under your daily average. If you keep this pace, April ends at ~${formatMoney(monthAvg)} — well under budget.`
+        ? `Today was a light day. You're ${formatMoney(diff)} under your daily average. If you keep this pace, ${monthName} ends at ~${formatMoney(monthAvg)}.`
         : `Today was a busier day. You're ${formatMoney(Math.abs(diff))} over your daily average. Consider lighter days ahead to stay on budget.`;
 
     return (
@@ -488,7 +494,7 @@ function TimelineEntry({
 export default function DailyDetailPage() {
     const params = useParams();
     const router = useRouter();
-    const { current, expenses } = useExpenses();
+    const { current, expenses, income } = useExpenses();
 
     // Parse day from URL
     const dayParam = Array.isArray(params.day) ? params.day[0] : params.day;
@@ -542,6 +548,19 @@ export default function DailyDetailPage() {
     const monthName = MONTH_NAMES[current.month - 1];
     const isToday = day === current.day;
 
+    // CHANGED (Phase 8.2): real daily budget / average / month projection, derived from
+    // the viewing month's expenses + the user's budget (was hardcoded 116 / 68.8 / 2380).
+    const daysThisMonth = daysInMonth(current.year, current.month);
+    // Days the average should divide by: elapsed days for the current month, else the
+    // whole month for a past month.
+    const daysElapsed = current.day > 0 ? current.day : daysThisMonth;
+    const monthTotal = expenses.reduce((a, b) => a + b.amt, 0);
+    const dailyAvg = monthTotal / Math.max(daysElapsed, 1);
+    const dailyBudget =
+        income.monthlyBudget > 0 ? income.monthlyBudget / daysThisMonth : 0;
+    // Projected month-end if the current pace holds (= actual total for a past month).
+    const monthAvg = dailyAvg * daysThisMonth;
+
     // Invalid day → show error
     if (!isValidDay || dayExpenses.length === 0) {
         return (
@@ -562,7 +581,7 @@ export default function DailyDetailPage() {
                     <div className="text-ink-2 text-sm">
                         {!isValidDay
                             ? `Day ${dayParam} doesn't exist.`
-                            : `No entries logged for Apr ${day}.`}
+                            : `No entries logged for ${monthName} ${day}.`}
                     </div>
                 </div>
             </div>
@@ -590,7 +609,7 @@ export default function DailyDetailPage() {
                     </Link>
 
                     <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
-                        Daily detail · {isToday ? 'Today' : `Apr ${day}`}
+                        Daily detail · {isToday ? 'Today' : `${monthName} ${day}`}
                     </div>
 
                     <h1
@@ -668,12 +687,19 @@ export default function DailyDetailPage() {
                         total={total}
                         entriesCount={dayExpenses.length}
                         voiceCount={voiceCount}
+                        dailyBudget={dailyBudget}
+                        dailyAvg={dailyAvg}
                     />
                     <TodayByCategory
                         byCat={byCat}
                         entriesCount={entriesCountByCat}
                     />
-                    <AISummaryCard total={total} />
+                    <AISummaryCard
+                        total={total}
+                        dailyAvg={dailyAvg}
+                        monthAvg={monthAvg}
+                        monthName={monthName}
+                    />
                 </div>
             </div>
         </div>

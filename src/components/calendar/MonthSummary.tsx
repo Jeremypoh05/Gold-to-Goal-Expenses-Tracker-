@@ -64,7 +64,7 @@ export function MonthSummary() {
             <StatCard label="Top spending day" delay={0.1}>
                 <div className="flex items-baseline gap-2">
                     <div className="display text-[22px] leading-none">
-                        Apr {stats.topDay}
+                        {monthName} {stats.topDay}
                     </div>
                     <div className="text-[11px] text-ink-2">{weekday}</div>
                 </div>

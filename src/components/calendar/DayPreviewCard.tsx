@@ -22,7 +22,7 @@ import { ArrowIcon } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { getDayPreview } from '@/lib/expense-utils';
-import { formatMoney, WEEKDAYS_SHORT } from '@/lib/utils';
+import { formatMoney, WEEKDAYS_SHORT, MONTH_NAMES } from '@/lib/utils';
 
 const TOOLTIP_BG = 'oklch(0.20 0.015 75)';
 
@@ -67,6 +67,7 @@ export function DayPreviewCard({
     const { current, expenses } = useExpenses();
     const preview = getDayPreview(expenses, day);
     const date = new Date(current.year, current.month - 1, day);
+    const monthName = MONTH_NAMES[current.month - 1]; // CHANGED (Phase 8.2): was hardcoded "Apr"
     const weekday = [
         'Sunday', 'Monday', 'Tuesday', 'Wednesday',
         'Thursday', 'Friday', 'Saturday',
@@ -148,7 +149,7 @@ export function DayPreviewCard({
                         }}
                     >
                         <div className="text-[11px] mono opacity-60">
-                            Apr {day} · {WEEKDAYS_SHORT[date.getDay()]}
+                            {monthName} {day} · {WEEKDAYS_SHORT[date.getDay()]}
                         </div>
                         <div className="text-xs mt-0.5 opacity-80">No expenses logged</div>
                     </div>
@@ -222,7 +223,7 @@ export function DayPreviewCard({
                         )}
 
                         <div className="text-[11px] mono opacity-60">
-                            Apr {day} · {weekday}
+                            {monthName} {day} · {weekday}
                         </div>
                         <div className="flex items-baseline gap-2 mt-0.5">
                             <span className="text-base font-semibold mono">

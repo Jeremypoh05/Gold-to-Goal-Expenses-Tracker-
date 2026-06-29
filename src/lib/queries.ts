@@ -38,6 +38,9 @@ export interface DashboardData {
   expenses: ReturnType<typeof toUiExpense>[];
   /** Voice-sourced expenses, in the richer VoiceLog shape (transcript/lang/status). */
   voiceLogs: ReturnType<typeof toUiVoiceLog>[];
+  // ADDED (Phase 8.2): previous month's total spend, so the hero can show a REAL
+  // month-over-month % instead of a hardcoded figure. 0 when there's no prior data.
+  prevMonthTotal: number;
   income: {
     monthlySalary: number;
     savingsGoal: number;
@@ -73,13 +76,22 @@ export async function getMonthDashboardData(
   };
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 1);
+  // ADDED (Phase 8.2): the prior calendar month, for the month-over-month delta.
+  const prevMonthStart = new Date(year, month - 2, 1);
 
-  const [rows, bonuses] = await Promise.all([
+  const [rows, bonuses, prevAgg] = await Promise.all([
     prisma.expense.findMany({
       where: { userId: user.id, spentAt: { gte: monthStart, lt: monthEnd } },
       orderBy: { spentAt: "desc" },
     }),
     prisma.bonus.findMany({ where: { userId: user.id } }),
+    prisma.expense.aggregate({
+      _sum: { amount: true },
+      where: {
+        userId: user.id,
+        spentAt: { gte: prevMonthStart, lt: monthStart },
+      },
+    }),
   ]);
 
   return {
@@ -87,6 +99,7 @@ export async function getMonthDashboardData(
     expenses: rows.map(toUiExpense),
     // Voice logs are the same rows where source = voice (single source of truth).
     voiceLogs: rows.filter((r) => r.source === "voice").map(toUiVoiceLog),
+    prevMonthTotal: Number(prevAgg._sum.amount ?? 0),
     income: {
       monthlySalary: Number(user.monthlySalary),
       savingsGoal: Number(user.savingsGoal),
