@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Plus_Jakarta_Sans, Geist, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 // ADDED (Dark mode): theme context wrapping the whole app (incl. future landing/auth).
@@ -49,11 +50,12 @@ export default function RootLayout({
       lang="en"
       suppressHydrationWarning
       className={`${plusJakartaSans.variable} ${geist.variable} ${jetbrainsMono.variable}`}    >
-      <head>
-        {/* ADDED (Dark mode): pre-paint theme init to avoid a light flash (FOUC) */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-      </head>
       <body className="antialiased">
+        {/* ADDED (Dark mode): pre-paint theme init to avoid a light flash (FOUC).
+            CHANGED: use next/script (beforeInteractive → injected into <head>, runs
+            before hydration) instead of a raw <script>, which React 19 warns about
+            and won't execute on client navigation. */}
+        <Script id="honey-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <ThemeProvider>
           <ClerkProviderThemed>{children}</ClerkProviderThemed>
         </ThemeProvider>
