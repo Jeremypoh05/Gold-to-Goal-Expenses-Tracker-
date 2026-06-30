@@ -1,15 +1,11 @@
 import type { Metadata } from "next";
-import Script from "next/script";
+import { cookies } from "next/headers";
 import { Plus_Jakarta_Sans, Geist, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 // ADDED (Dark mode): theme context wrapping the whole app (incl. future landing/auth).
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 // ADDED (Phase 7 · Auth): Clerk provider, themed to follow the toggle.
 import { ClerkProviderThemed } from "@/components/auth/ClerkProviderThemed";
-
-// ADDED (Dark mode): runs before paint to set the .dark class from the saved
-// choice, else the OS preference — prevents a light flash (FOUC) on load.
-const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('honey-theme');var d=t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches;if(d)document.documentElement.classList.add('dark');}catch(e){}})();`;
 
 // title (h1, hero text)
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -40,22 +36,23 @@ export const metadata: Metadata = {
   description: "AI-powered voice expense tracking. Speak naturally to log expenses.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // CHANGED (Dark mode): theme is read from a cookie and baked into the SSR HTML
+  // here — no pre-paint inline <script>. React 19 flags inline scripts rendered in
+  // the component tree, and this also rules out any flash-of-wrong-theme for
+  // returning users (the right class is in the first byte of HTML). First-time
+  // visitors with no cookie get their OS preference applied on mount by ThemeProvider.
+  const isDark = (await cookies()).get("honey-theme")?.value === "dark";
   return (
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${plusJakartaSans.variable} ${geist.variable} ${jetbrainsMono.variable}`}    >
+      className={`${plusJakartaSans.variable} ${geist.variable} ${jetbrainsMono.variable}${isDark ? " dark" : ""}`}    >
       <body className="antialiased">
-        {/* ADDED (Dark mode): pre-paint theme init to avoid a light flash (FOUC).
-            CHANGED: use next/script (beforeInteractive → injected into <head>, runs
-            before hydration) instead of a raw <script>, which React 19 warns about
-            and won't execute on client navigation. */}
-        <Script id="honey-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <ThemeProvider>
           <ClerkProviderThemed>{children}</ClerkProviderThemed>
         </ThemeProvider>
