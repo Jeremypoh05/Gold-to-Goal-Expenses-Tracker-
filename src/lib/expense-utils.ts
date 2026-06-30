@@ -304,6 +304,14 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
     (_, i) => activeSalaryForMonth(periods, year, i + 1)?.monthlySalary ?? 0,
   );
 
+  // Bonus total per month (index 0 = Jan) for the per-month income series.
+  const bonusByMonth = Array(12).fill(0) as number[];
+  for (const b of bonuses) {
+    if (b.month >= 1 && b.month <= 12) bonusByMonth[b.month - 1] += b.amt;
+  }
+  // Income each month = salary active that month + any bonuses that month.
+  const monthlyIncome = salaryByMonth.map((s, i) => s + bonusByMonth[i]);
+
   const totalBonuses = bonuses.reduce((a, b) => a + b.amt, 0);
   const bonusesYTD = bonuses
     .filter((b) => b.month <= elapsed)
@@ -362,5 +370,8 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
     projectedYearEnd,
     biggestBonus,
     elapsed,
+    // Per-month series (index 0 = Jan) for the monthly flow chart.
+    monthlyIncome,
+    monthlyExpenses: monthlyExpenseTotals,
   };
 }

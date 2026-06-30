@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PlusIcon, EditIcon } from '@/components/icons';
+import { PlusIcon, EditIcon, ChevronIcon } from '@/components/icons';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import type { UiSalaryPeriod } from '@/lib/expense-utils';
 
@@ -74,6 +74,117 @@ const num = (s: string) => {
     const n = parseFloat(s);
     return Number.isFinite(n) && n >= 0 ? n : 0;
 };
+
+// CHANGED (Phase 9): modern month picker — a popover with a 3×4 month grid,
+// replacing the native <select>.
+function MonthGridDropdown({
+    value,
+    onChange,
+}: {
+    value: number; // 1–12
+    onChange: (m: number) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div className="relative">
+            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
+                Effective month
+            </div>
+            <button
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border bg-bg-1 hover:bg-bg-card transition-all"
+                style={{ borderColor: open ? 'oklch(0.82 0.12 88)' : 'var(--color-line)' }}
+                aria-haspopup="listbox"
+                aria-expanded={open}
+            >
+                <span className="text-[14px] font-medium">{MONTH_NAMES[value - 1]}</span>
+                <ChevronIcon direction={open ? 'up' : 'down'} size={14} className="text-ink-2" />
+            </button>
+            <AnimatePresence>
+                {open && (
+                    <>
+                        <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+                        <motion.div
+                            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                            className="absolute z-20 mt-2 left-0 right-0 p-2 rounded-2xl bg-bg-card grid grid-cols-3 gap-1.5"
+                            style={{ border: '1px solid var(--color-line)', boxShadow: '0 16px 40px -12px rgba(0,0,0,0.3)' }}
+                            role="listbox"
+                        >
+                            {MONTH_NAMES.map((m, i) => {
+                                const sel = value === i + 1;
+                                return (
+                                    <button
+                                        key={m}
+                                        type="button"
+                                        onClick={() => {
+                                            onChange(i + 1);
+                                            setOpen(false);
+                                        }}
+                                        className="h-9 rounded-lg text-[12px] font-medium transition-all hover:brightness-[1.05]"
+                                        style={
+                                            sel
+                                                ? {
+                                                      background:
+                                                          'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))',
+                                                      color: '#1a120a',
+                                                  }
+                                                : { background: 'var(--color-bg-1)', color: 'var(--color-ink-1)' }
+                                        }
+                                        role="option"
+                                        aria-selected={sel}
+                                    >
+                                        {m.slice(0, 3)}
+                                    </button>
+                                );
+                            })}
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+// CHANGED (Phase 9): year stepper, replacing the native text input.
+function YearStepper({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (v: string) => void;
+}) {
+    const y = Math.round(num(value)) || new Date().getFullYear();
+    return (
+        <div>
+            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
+                Year
+            </div>
+            <div className="flex items-center rounded-xl border border-line bg-bg-1 overflow-hidden h-[44px]">
+                <button
+                    type="button"
+                    onClick={() => onChange(String(y - 1))}
+                    className="px-3.5 h-full text-ink-1 hover:bg-bg-2 transition-colors text-lg leading-none"
+                    aria-label="Previous year"
+                >
+                    −
+                </button>
+                <span className="flex-1 text-center mono text-[15px] font-semibold">{y}</span>
+                <button
+                    type="button"
+                    onClick={() => onChange(String(y + 1))}
+                    className="px-3.5 h-full text-ink-1 hover:bg-bg-2 transition-colors text-lg leading-none"
+                    aria-label="Next year"
+                >
+                    +
+                </button>
+            </div>
+        </div>
+    );
+}
 
 function Content({
     periods,
@@ -221,34 +332,11 @@ function Content({
                         {editingId !== null ? 'Edit salary' : 'Add a salary change'}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
-                                Effective month
-                            </div>
-                            <select
-                                value={effMonth}
-                                onChange={(e) => setEffMonth(e.target.value)}
-                                className="w-full px-3 py-2.5 rounded-xl border border-line bg-bg-1 outline-none text-[14px] font-medium focus:border-gold-400"
-                                aria-label="Effective month"
-                            >
-                                {MONTH_NAMES.map((m, i) => (
-                                    <option key={m} value={i + 1}>{m}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
-                                Year
-                            </div>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={effYear}
-                                onChange={(e) => setEffYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                                className="w-full px-3 py-2.5 rounded-xl border border-line bg-bg-1 outline-none mono text-[15px] font-semibold focus:border-gold-400"
-                                aria-label="Effective year"
-                            />
-                        </div>
+                        <MonthGridDropdown
+                            value={Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1))}
+                            onChange={(m) => setEffMonth(String(m))}
+                        />
+                        <YearStepper value={effYear} onChange={setEffYear} />
                     </div>
                     <MoneyField label="Monthly salary (take-home)" value={salary} onChange={setSalary} />
                     <div className="grid grid-cols-2 gap-3">
