@@ -18,6 +18,7 @@ import {
     AddBonusModal,
     IncomeSettingsModal,
     SalaryTimelineModal,
+    MonthlyFlowChart,
     type NewBonus,
     type SalaryPeriodForm,
 } from '@/components/income';
@@ -443,6 +444,9 @@ export default function IncomePage() {
                     {/* Row 2: Full-width stat band + goal (1:1 with design) */}
                     <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.15} />
 
+                    {/* Row 2.5 (Phase 9): interactive monthly income-vs-spent chart */}
+                    <MonthlyFlowChart income={stats.monthlyIncome} expenses={stats.monthlyExpenses} elapsed={stats.elapsed} delay={0.18} />
+
                     {/* Row 3: Bonus features — breakdown viz + savings insights */}
                     <div className="grid gap-6 grid-cols-1 lg:[grid-template-columns:1.4fr_1fr] items-start">
                         <motion.div
@@ -478,6 +482,7 @@ export default function IncomePage() {
                         netSavings={stats.netSavings}
                     />
                     <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.1} />
+                    <MonthlyFlowChart income={stats.monthlyIncome} expenses={stats.monthlyExpenses} elapsed={stats.elapsed} delay={0.12} />
                     <BonusesCard
                         bonuses={bonuses}
                         total={stats.totalBonuses}
