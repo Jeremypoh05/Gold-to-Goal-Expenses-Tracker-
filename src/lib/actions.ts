@@ -253,3 +253,68 @@ export async function deleteSalaryPeriod(id: number) {
   await prisma.salaryPeriod.deleteMany({ where: { id, userId } });
   revalidateDashboard();
 }
+
+// ─────────────────────────────────────────────────────────────
+// ADDED (Phase 9): custom recurring income sources (freelance, dividends…).
+// Each contributes monthlyAmount to every month on/after its effective date.
+// ─────────────────────────────────────────────────────────────
+
+export interface IncomeSourceInput {
+  label: string;
+  emoji?: string;
+  monthlyAmount: number;
+  effectiveYear: number;
+  effectiveMonth: number; // 1–12
+  active?: boolean;
+}
+
+export async function addIncomeSource(input: IncomeSourceInput) {
+  const userId = await requireUserId();
+  await prisma.incomeSource.create({
+    data: {
+      userId,
+      label: input.label.trim() || "Income",
+      emoji: input.emoji || "💰",
+      monthlyAmount: input.monthlyAmount,
+      effectiveYear: input.effectiveYear,
+      effectiveMonth: Math.min(12, Math.max(1, Math.round(input.effectiveMonth))),
+      active: input.active ?? true,
+    },
+  });
+  revalidateDashboard();
+}
+
+/** Edit an income source by id (ownership-checked). */
+export async function updateIncomeSource(
+  id: number,
+  input: Partial<IncomeSourceInput>,
+) {
+  const userId = await requireUserId();
+  const owned = await prisma.incomeSource.findFirst({ where: { id, userId } });
+  if (!owned) throw new Error("Income source not found");
+  await prisma.incomeSource.update({
+    where: { id },
+    data: {
+      ...(input.label !== undefined && { label: input.label.trim() || "Income" }),
+      ...(input.emoji !== undefined && { emoji: input.emoji || "💰" }),
+      ...(input.monthlyAmount !== undefined && {
+        monthlyAmount: input.monthlyAmount,
+      }),
+      ...(input.effectiveYear !== undefined && {
+        effectiveYear: input.effectiveYear,
+      }),
+      ...(input.effectiveMonth !== undefined && {
+        effectiveMonth: Math.min(12, Math.max(1, Math.round(input.effectiveMonth))),
+      }),
+      ...(input.active !== undefined && { active: input.active }),
+    },
+  });
+  revalidateDashboard();
+}
+
+/** Remove an income source (ownership-checked). */
+export async function deleteIncomeSource(id: number) {
+  const userId = await requireUserId();
+  await prisma.incomeSource.deleteMany({ where: { id, userId } });
+  revalidateDashboard();
+}

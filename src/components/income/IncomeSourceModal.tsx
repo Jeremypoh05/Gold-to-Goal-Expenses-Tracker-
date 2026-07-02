@@ -1,91 +1,127 @@
 'use client';
 
-// ADDED (Phase 9): manage the time-aware salary timeline. Each entry is "this
-// salary, effective from this month onward" — so a mid-year start and any number
-// of raises are just rows. Tapping a row loads it into the form; saving the same
-// month upserts (server action addSalaryPeriod), a different month adds a change.
-// Mirrors the app's modal pattern (mobile sheet / desktop centered, ESC + backdrop,
-// body-scroll lock). Mounts fresh per open.
+// ADDED (Phase 9): manage custom recurring income beyond salary — freelance,
+// dividends, rental, etc. Each source contributes its monthly amount to every
+// month on/after its start, until paused. Mirrors the SalaryTimelineModal pattern
+// (mobile sheet / desktop centered, ESC + backdrop, body-scroll lock, shared
+// modern pickers) with an emoji picker so each stream gets a friendly glyph.
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PlusIcon, EditIcon } from '@/components/icons';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
-import type { UiSalaryPeriod } from '@/lib/expense-utils';
+import type { UiIncomeSource } from '@/lib/expense-utils';
 import { CloseIcon, MoneyField, MonthGridDropdown, YearStepper, num } from './pickers';
 
-export interface SalaryPeriodForm {
+// Curated, platform-friendly glyphs for income streams.
+const EMOJI_CHOICES = [
+    '💰', '💵', '🪙', '📈', '🏦', '💳', '🎁', '🏠',
+    '🚗', '💻', '🎨', '✍️', '📊', '🤝', '🎬', '🌱',
+];
+
+export interface IncomeSourceForm {
+    id?: number;
+    label: string;
+    emoji: string;
+    monthlyAmount: number;
     effectiveYear: number;
     effectiveMonth: number;
-    monthlySalary: number;
-    grossSalary: number;
-    deductions: number;
-    label: string;
+    active: boolean;
 }
 
 interface Props {
     open: boolean;
-    periods: UiSalaryPeriod[];
-    /** Default year for a brand-new entry (the viewing year). */
+    sources: UiIncomeSource[];
     defaultYear: number;
     pending?: boolean;
     onClose: () => void;
-    onSave: (v: SalaryPeriodForm) => void;
+    onSave: (v: IncomeSourceForm) => void;
     onDelete: (id: number) => void;
+    onToggle: (id: number, active: boolean) => void;
+}
+
+function EmojiPicker({ value, onChange }: { value: string; onChange: (e: string) => void }) {
+    return (
+        <div>
+            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
+                Icon
+            </div>
+            <div className="grid grid-cols-8 gap-1.5">
+                {EMOJI_CHOICES.map((e) => {
+                    const sel = value === e;
+                    return (
+                        <button
+                            key={e}
+                            type="button"
+                            onClick={() => onChange(e)}
+                            className="aspect-square rounded-xl text-[18px] flex items-center justify-center transition-all hover:brightness-[1.05]"
+                            style={
+                                sel
+                                    ? {
+                                          background:
+                                              'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))',
+                                          boxShadow: 'var(--shadow-gold)',
+                                      }
+                                    : { background: 'var(--color-bg-1)', border: '1px solid var(--color-line-soft)' }
+                            }
+                            aria-label={`Choose ${e}`}
+                            aria-pressed={sel}
+                        >
+                            {e}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }
 
 function Content({
-    periods,
+    sources,
     defaultYear,
     pending,
     onClose,
     onSave,
     onDelete,
+    onToggle,
 }: Omit<Props, 'open'>) {
-    // Newest first for display.
-    const sorted = [...periods].sort((a, b) =>
-        b.year !== a.year ? b.year - a.year : b.month - a.month,
-    );
-
+    const [emoji, setEmoji] = useState('💰');
+    const [label, setLabel] = useState('');
+    const [amount, setAmount] = useState('');
     const [effYear, setEffYear] = useState(String(defaultYear));
     const [effMonth, setEffMonth] = useState('1');
-    const [salary, setSalary] = useState('');
-    const [gross, setGross] = useState('');
-    const [deductions, setDeductions] = useState('');
-    const [label, setLabel] = useState('');
     const [editingId, setEditingId] = useState<number | null>(null);
 
-    const loadRow = (p: UiSalaryPeriod) => {
-        setEffYear(String(p.year));
-        setEffMonth(String(p.month));
-        setSalary(String(p.monthlySalary || ''));
-        setGross(String(p.grossSalary || ''));
-        setDeductions(String(p.deductions || ''));
-        setLabel(p.label ?? '');
-        setEditingId(p.id);
+    const loadRow = (s: UiIncomeSource) => {
+        setEmoji(s.emoji || '💰');
+        setLabel(s.label);
+        setAmount(String(s.monthlyAmount || ''));
+        setEffYear(String(s.year));
+        setEffMonth(String(s.month));
+        setEditingId(s.id);
     };
 
     const resetForm = () => {
+        setEmoji('💰');
+        setLabel('');
+        setAmount('');
         setEffYear(String(defaultYear));
         setEffMonth('1');
-        setSalary('');
-        setGross('');
-        setDeductions('');
-        setLabel('');
         setEditingId(null);
     };
 
-    const canSave = num(salary) > 0;
+    const canSave = num(amount) > 0 && label.trim().length > 0;
 
     const handleSave = () => {
         if (!canSave) return;
         onSave({
+            id: editingId ?? undefined,
+            emoji,
+            label: label.trim(),
+            monthlyAmount: num(amount),
             effectiveYear: Math.round(num(effYear)) || defaultYear,
             effectiveMonth: Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1)),
-            monthlySalary: num(salary),
-            grossSalary: num(gross),
-            deductions: num(deductions),
-            label: label.trim(),
+            active: true,
         });
         resetForm();
     };
@@ -120,53 +156,71 @@ function Content({
 
                 <div className="px-6 md:px-7 pt-7 pb-3">
                     <div className="text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
-                        Salary timeline
+                        Other income
                     </div>
                     <h2 className="display mt-1" style={{ fontSize: 26, lineHeight: 1.1 }}>
-                        Salary changes
+                        Income sources
                     </h2>
                     <div className="text-[12px] text-ink-2 mt-1">
-                        Each entry sets your salary from that month onward — add one when you start, and again whenever it changes.
+                        Add recurring income beyond your salary — freelance, dividends, rental. Each counts every month from its start.
                     </div>
                 </div>
 
-                {/* Existing periods */}
+                {/* Existing sources */}
                 <div className="px-6 md:px-7 flex flex-col gap-2">
-                    {sorted.length === 0 && (
+                    {sources.length === 0 && (
                         <div className="text-[13px] text-ink-2 py-2">
-                            No salary set yet. Add your first one below.
+                            No extra income yet. Add your first stream below.
                         </div>
                     )}
-                    {sorted.map((p) => (
+                    {sources.map((s) => (
                         <div
-                            key={p.id}
+                            key={s.id}
                             className="flex items-center gap-3 p-3 rounded-[14px]"
-                            style={{ background: 'var(--color-bg-1)', border: editingId === p.id ? '1px solid oklch(0.82 0.12 88)' : '1px solid var(--color-line-soft)' }}
+                            style={{
+                                background: 'var(--color-bg-1)',
+                                border: editingId === s.id ? '1px solid oklch(0.82 0.12 88)' : '1px solid var(--color-line-soft)',
+                                opacity: s.active ? 1 : 0.55,
+                            }}
                         >
+                            <div
+                                className="w-10 h-10 rounded-[10px] bg-bg-card flex items-center justify-center flex-shrink-0 text-[18px]"
+                                style={{ border: '1px solid var(--color-line-soft)' }}
+                            >
+                                {s.emoji}
+                            </div>
                             <div className="flex-1 min-w-0">
-                                <div className="text-[13px] font-medium">
-                                    {MONTH_NAMES[p.month - 1]} {p.year}
-                                    {p.label ? <span className="text-ink-2 font-normal"> · {p.label}</span> : null}
+                                <div className="text-[13px] font-medium truncate">
+                                    {s.label}
+                                    {!s.active && <span className="text-ink-2 font-normal"> · paused</span>}
                                 </div>
                                 <div className="text-[11px] text-ink-2 mono mt-0.5">
-                                    {formatMoney(p.monthlySalary)} take-home
-                                    {p.grossSalary > 0 ? ` · ${formatMoney(p.grossSalary)} gross` : ''}
+                                    {formatMoney(s.monthlyAmount)}/mo · from {MONTH_NAMES[s.month - 1].slice(0, 3)} {s.year}
                                 </div>
                             </div>
                             <button
                                 type="button"
-                                onClick={() => loadRow(p)}
+                                onClick={() => onToggle(s.id, !s.active)}
+                                disabled={pending}
+                                className="h-7 px-2.5 rounded-full text-[11px] font-medium border border-line hover:border-ink-2 transition-all disabled:opacity-40"
+                                aria-label={s.active ? 'Pause this source' : 'Resume this source'}
+                            >
+                                {s.active ? 'Pause' : 'Resume'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => loadRow(s)}
                                 className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-1 hover:bg-bg-2 transition-colors"
-                                aria-label="Edit this salary"
+                                aria-label="Edit this source"
                             >
                                 <EditIcon size={13} />
                             </button>
                             <button
                                 type="button"
-                                onClick={() => onDelete(p.id)}
+                                onClick={() => onDelete(s.id)}
                                 disabled={pending}
                                 className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-2 hover:bg-bg-2 hover:text-red-500 transition-colors disabled:opacity-40"
-                                aria-label="Delete this salary"
+                                aria-label="Delete this source"
                             >
                                 <CloseIcon size={13} />
                             </button>
@@ -177,33 +231,31 @@ function Content({
                 {/* Add / edit form */}
                 <div className="px-6 md:px-7 pt-4 pb-2 mt-2 flex flex-col gap-3" style={{ borderTop: '1px solid var(--color-line-soft)' }}>
                     <div className="text-[11px] text-on-soft uppercase tracking-[0.1em] font-semibold">
-                        {editingId !== null ? 'Edit salary' : 'Add a salary change'}
+                        {editingId !== null ? 'Edit source' : 'Add income source'}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                        <MonthGridDropdown
-                            value={Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1))}
-                            onChange={(m) => setEffMonth(String(m))}
-                        />
-                        <YearStepper value={effYear} onChange={setEffYear} />
-                    </div>
-                    <MoneyField label="Monthly salary (take-home)" value={salary} onChange={setSalary} />
-                    <div className="grid grid-cols-2 gap-3">
-                        <MoneyField label="Gross monthly" value={gross} onChange={setGross} />
-                        <MoneyField label="CPF / deductions" value={deductions} onChange={setDeductions} />
-                    </div>
+                    <EmojiPicker value={emoji} onChange={setEmoji} />
                     <div>
                         <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
-                            Label (optional)
+                            Name
                         </div>
                         <input
                             type="text"
                             value={label}
                             onChange={(e) => setLabel(e.target.value)}
-                            placeholder="e.g. Joined, Raise, Promotion"
+                            placeholder="e.g. Freelance, Dividends, Rental"
                             maxLength={40}
                             className="w-full px-3 py-2.5 rounded-xl border border-line bg-bg-1 outline-none text-[14px] focus:border-gold-400"
-                            aria-label="Label"
+                            aria-label="Name"
                         />
+                    </div>
+                    <MoneyField label="Amount per month" value={amount} onChange={setAmount} />
+                    <div className="grid grid-cols-2 gap-3">
+                        <MonthGridDropdown
+                            label="Starts"
+                            value={Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1))}
+                            onChange={(m) => setEffMonth(String(m))}
+                        />
+                        <YearStepper value={effYear} onChange={setEffYear} />
                     </div>
                 </div>
 
@@ -214,7 +266,7 @@ function Content({
                             onClick={resetForm}
                             className="h-10 px-4 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all"
                         >
-                            New entry
+                            New source
                         </button>
                     )}
                     <div className="flex-1" />
@@ -236,7 +288,7 @@ function Content({
                             boxShadow: 'var(--shadow-gold)',
                         }}
                     >
-                        <PlusIcon size={14} /> {editingId !== null ? 'Save change' : 'Add'}
+                        <PlusIcon size={14} /> {editingId !== null ? 'Save' : 'Add'}
                     </button>
                 </div>
             </motion.div>
@@ -244,7 +296,7 @@ function Content({
     );
 }
 
-export function SalaryTimelineModal({ open, periods, defaultYear, pending, onClose, onSave, onDelete }: Props) {
+export function IncomeSourceModal({ open, sources, defaultYear, pending, onClose, onSave, onDelete, onToggle }: Props) {
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -266,13 +318,14 @@ export function SalaryTimelineModal({ open, periods, defaultYear, pending, onClo
         <AnimatePresence>
             {open && (
                 <Content
-                    key="salary-timeline"
-                    periods={periods}
+                    key="income-sources"
+                    sources={sources}
                     defaultYear={defaultYear}
                     pending={pending}
                     onClose={onClose}
                     onSave={onSave}
                     onDelete={onDelete}
+                    onToggle={onToggle}
                 />
             )}
         </AnimatePresence>
