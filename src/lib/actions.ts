@@ -105,6 +105,7 @@ export async function deleteExpense(id: number) {
 }
 
 export interface BonusInput {
+  year: number;
   month: number;
   amount: number;
   label: string;
@@ -115,6 +116,7 @@ export async function addBonus(input: BonusInput) {
   await prisma.bonus.create({
     data: {
       userId,
+      year: input.year,
       month: input.month,
       amount: input.amount,
       label: input.label,

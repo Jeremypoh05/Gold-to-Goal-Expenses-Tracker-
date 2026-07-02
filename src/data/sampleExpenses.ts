@@ -180,8 +180,8 @@ export const SAMPLE_EXPENSES: Expense[] = [
 export const SAMPLE_INCOME: IncomeInfo = {
   salary: 7200,
   bonuses: [
-    { month: 2, amt: 5000, label: "Q1 bonus" },
-    { month: 6, amt: 5000, label: "Q2 bonus" },
+    { year: 2026, month: 2, amt: 5000, label: "Q1 bonus" },
+    { year: 2026, month: 6, amt: 5000, label: "Q2 bonus" },
   ],
   yearly: 7200 * 12 + 10000,
   saved: 42360,

@@ -12,6 +12,7 @@ import { SparkleIcon } from '@/components/icons';
 import { MONTH_NAMES } from '@/lib/utils';
 
 export interface NewBonus {
+    year: number;
     month: number; // 1-12
     amt: number;
     label: string;
@@ -19,6 +20,8 @@ export interface NewBonus {
 
 interface AddBonusModalProps {
     open: boolean;
+    /** The year currently being viewed on the Income page — the bonus is filed here. */
+    defaultYear: number;
     onClose: () => void;
     onAdd: (bonus: NewBonus) => void;
 }
@@ -50,6 +53,7 @@ function BonusForm({
     setMonth,
     amount,
     setAmount,
+    year,
     isMobile,
 }: {
     label: string;
@@ -58,6 +62,7 @@ function BonusForm({
     setMonth: (m: number) => void;
     amount: string;
     setAmount: (v: string) => void;
+    year: number;
     isMobile?: boolean;
 }) {
     const [intPart, decPart] = amount.split('.');
@@ -131,7 +136,7 @@ function BonusForm({
             {/* Month picker — horizontal scroll chips */}
             <div className="pt-4">
                 <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-2">
-                    Month
+                    Month · <span className="text-on-soft">{year}</span>
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto mobile-h-scroll pb-1">
                     {MONTH_NAMES.map((name, i) => {
@@ -222,9 +227,11 @@ function Footer({
 // resets the form to its defaults WITHOUT a setState-in-effect (the React 19
 // anti-pattern) — see .claude/Instructions/06-LEARNINGS.md.
 function ModalContent({
+    defaultYear,
     onClose,
     onAdd,
 }: {
+    defaultYear: number;
     onClose: () => void;
     onAdd: (b: NewBonus) => void;
 }) {
@@ -235,11 +242,11 @@ function ModalContent({
     const handleSave = () => {
         const amt = parseFloat(amount);
         if (!Number.isFinite(amt) || amt <= 0) return; // ignore empty/invalid
-        onAdd({ month, amt, label: label.trim() || 'Bonus' });
+        onAdd({ year: defaultYear, month, amt, label: label.trim() || 'Bonus' });
         onClose();
     };
 
-    const formProps = { label, setLabel, month, setMonth, amount, setAmount };
+    const formProps = { label, setLabel, month, setMonth, amount, setAmount, year: defaultYear };
 
     return (
         <>
@@ -365,7 +372,7 @@ function ModalContent({
     );
 }
 
-export function AddBonusModal({ open, onClose, onAdd }: AddBonusModalProps) {
+export function AddBonusModal({ open, defaultYear, onClose, onAdd }: AddBonusModalProps) {
     // ESC closes
     useEffect(() => {
         if (!open) return;
@@ -388,7 +395,7 @@ export function AddBonusModal({ open, onClose, onAdd }: AddBonusModalProps) {
     return (
         <AnimatePresence>
             {/* key forces a fresh ModalContent mount per open → form resets cleanly */}
-            {open && <ModalContent key="add-bonus" onClose={onClose} onAdd={onAdd} />}
+            {open && <ModalContent key="add-bonus" defaultYear={defaultYear} onClose={onClose} onAdd={onAdd} />}
         </AnimatePresence>
     );
 }
