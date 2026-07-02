@@ -93,7 +93,7 @@ export async function getMonthDashboardData(
       where: { userId: user.id, spentAt: { gte: monthStart, lt: monthEnd } },
       orderBy: { spentAt: "desc" },
     }),
-    prisma.bonus.findMany({ where: { userId: user.id } }),
+    prisma.bonus.findMany({ where: { userId: user.id, year } }),
     prisma.expense.aggregate({
       _sum: { amount: true },
       where: {
@@ -163,7 +163,7 @@ export async function getYearSummary(year: number): Promise<YearSummary> {
       where: { userId: user.id, spentAt: { gte: yearStart, lt: yearEnd } },
       select: { spentAt: true, amount: true },
     }),
-    prisma.bonus.findMany({ where: { userId: user.id } }),
+    prisma.bonus.findMany({ where: { userId: user.id, year } }),
     prisma.incomeSource.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "asc" },

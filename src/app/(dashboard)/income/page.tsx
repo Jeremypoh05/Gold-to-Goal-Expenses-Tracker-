@@ -9,7 +9,7 @@
 
 import { useState, useMemo, useTransition, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { PlusIcon, SparkleIcon, EditIcon } from '@/components/icons';
+import { PlusIcon, SparkleIcon, EditIcon, ChevronIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import {
     GoalProgress,
@@ -135,6 +135,59 @@ function ordinal(n: number): string {
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+// ADDED (Phase 9 · year nav): the Income page's own year picker. Back to the
+// earliest year with data, forward only up to this year (no future income). The
+// scope pill reads "up to Jun" for the live year and "full year" for past years.
+function YearSwitcher({
+    year,
+    minYear,
+    maxYear,
+    scope,
+    pending,
+    onChange,
+}: {
+    year: number;
+    minYear: number;
+    maxYear: number;
+    scope: string;
+    pending?: boolean;
+    onChange: (y: number) => void;
+}) {
+    const canPrev = year > minYear && !pending;
+    const canNext = year < maxYear && !pending;
+    return (
+        <div className="flex items-center gap-2.5">
+            <div className="flex items-center rounded-full border border-line bg-bg-card overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => onChange(year - 1)}
+                    disabled={!canPrev}
+                    className="w-9 h-9 flex items-center justify-center text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    aria-label="Previous year"
+                >
+                    <ChevronIcon direction="left" size={15} />
+                </button>
+                <div className="display text-[19px] leading-none px-1.5 min-w-[56px] text-center tabular-nums">
+                    {year}
+                </div>
+                <button
+                    type="button"
+                    onClick={() => onChange(year + 1)}
+                    disabled={!canNext}
+                    className="w-9 h-9 flex items-center justify-center text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    aria-label="Next year"
+                >
+                    <ChevronIcon direction="right" size={15} />
+                </button>
+            </div>
+            <span className="chip whitespace-nowrap">
+                <span className="dot" style={{ background: 'var(--color-gold-500)' }} />
+                {scope}
+            </span>
+        </div>
+    );
+}
+
 function SalaryCard({
     salary,
     gross,
@@ -196,11 +249,13 @@ function SalaryCard({
 function BonusesCard({
     bonuses,
     total,
+    year,
     onAdd,
     delay = 0,
 }: {
     bonuses: Bonus[];
     total: number;
+    year: number;
     onAdd: () => void;
     delay?: number;
 }) {
@@ -250,7 +305,7 @@ function BonusesCard({
                         </div>
                         <div className="flex-1 min-w-0">
                             <div className="text-[13px] font-medium truncate">{b.label}</div>
-                            <div className="text-[11px] text-ink-2">{MONTH_NAMES[b.month - 1]} 2026</div>
+                            <div className="text-[11px] text-ink-2">{MONTH_NAMES[b.month - 1]} {b.year}</div>
                         </div>
                         <div className="mono text-[16px] font-semibold">{formatMoney(b.amt)}</div>
                     </motion.div>
@@ -258,7 +313,7 @@ function BonusesCard({
             </div>
             <div className="mt-5 p-3.5 rounded-[14px] flex items-baseline gap-2" style={{ background: 'var(--color-bg-1)' }}>
                 <span className="text-[11px] text-ink-2 uppercase tracking-[0.06em]">
-                    Total bonuses &rsquo;26
+                    Total bonuses &rsquo;{String(year).slice(-2)}
                 </span>
                 <div className="flex-1" />
                 <span className="mono font-semibold text-[18px]">
@@ -325,27 +380,45 @@ function StatBand({
 // ═══════════════════════════════════════════════════════════════
 
 export default function IncomePage() {
-    const { current, income, refresh } = useExpenses();
+    const { income, refresh } = useExpenses();
     const [pending, startTransition] = useTransition();
 
-    const year = current.year;
-    // CHANGED (Phase 9): income figures now come from a real full-year rollup
-    // (salary timeline + per-month spend), fetched on mount + after mutations,
-    // instead of "current-month salary × 12". Bonuses still ride the month
-    // context (kept in sync by refresh()).
+    // CHANGED (Phase 9 · year nav): the Income page is YEAR-scoped and owns its own
+    // year (independent of the global month browser, which is meaningless here — see
+    // TopBar, which hides the month arrows on /income). Defaults to the real current
+    // year; you can step back to view past years and forward only up to this year.
+    const thisYear = new Date().getFullYear();
+    const thisMonth = new Date().getMonth() + 1;
+    const [viewYear, setViewYear] = useState(thisYear);
+    const isCurrentYear = viewYear === thisYear;
+
+    // Income figures come from a real full-year rollup (salary timeline + other
+    // income + per-month spend), fetched on mount, on year change, and after
+    // mutations — instead of "current-month salary × 12".
     const [summary, setSummary] = useState<YearSummary | null>(null);
 
     const loadSummary = useCallback(() => {
         startTransition(async () => {
-            setSummary(await fetchYearSummary(year));
+            setSummary(await fetchYearSummary(viewYear));
         });
-    }, [year]);
+    }, [viewYear]);
 
     useEffect(() => {
         loadSummary();
     }, [loadSummary]);
 
-    const bonuses = income.bonuses;
+    // How far back the user can browse: only as far as there's real data (salary
+    // periods / income sources), but never past this year. Add a 2025 salary in the
+    // timeline and that year becomes reachable here.
+    const minYear = useMemo(() => {
+        const years = [
+            ...(summary?.periods.map((p) => p.year) ?? []),
+            ...(summary?.incomeSources.map((s) => s.year) ?? []),
+        ];
+        return years.length ? Math.min(thisYear, ...years) : thisYear;
+    }, [summary, thisYear]);
+
+    const yearBonuses = summary?.bonuses ?? [];
     const [addOpen, setAddOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [salaryOpen, setSalaryOpen] = useState(false);
@@ -357,18 +430,18 @@ export default function IncomePage() {
         () =>
             computeYearIncomeStats(
                 summary ?? {
-                    year,
-                    isCurrentYear: current.day > 0,
-                    currentMonth: current.month,
+                    year: viewYear,
+                    isCurrentYear,
+                    currentMonth: isCurrentYear ? thisMonth : 12,
                     periods: [],
                     incomeSources: [],
                     monthlyExpenseTotals: Array(12).fill(0),
-                    bonuses,
+                    bonuses: [],
                     savingsGoal: income.savingsGoal,
                     saved: income.saved,
                 },
             ),
-        [summary, year, current.day, current.month, bonuses, income.savingsGoal, income.saved],
+        [summary, viewYear, isCurrentYear, thisMonth, income.savingsGoal, income.saved],
     );
 
     const refreshAll = () => {
@@ -378,7 +451,7 @@ export default function IncomePage() {
 
     const handleAddBonus = (b: NewBonus) => {
         startTransition(async () => {
-            await addBonus({ month: b.month, amount: b.amt, label: b.label });
+            await addBonus({ year: b.year, month: b.month, amount: b.amt, label: b.label });
             refreshAll();
         });
     };
@@ -457,21 +530,34 @@ export default function IncomePage() {
     return (
         <>
             <div className="px-4 md:px-8 py-5 md:py-7 pb-24 md:pb-16 max-w-[1320px] mx-auto flex flex-col gap-5 md:gap-6">
-                {/* Header */}
+                {/* Header — CHANGED (Phase 9 · year nav): the page owns its own year
+                    selector (income is a yearly view). Step back for past years, forward
+                    only up to this year. The scope pill makes "up to now vs full year" clear. */}
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                    className="flex items-end justify-between gap-4 flex-wrap"
                 >
-                    <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
-                        Income · {MONTH_NAMES[current.month - 1]} {current.year}
+                    <div>
+                        <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
+                            Income &amp; savings
+                        </div>
+                        <h1 className="display mt-0.5 md:mt-1" style={{ fontSize: 'clamp(28px, 5vw, 40px)', lineHeight: 1.05 }}>
+                            Your {viewYear} income
+                        </h1>
+                        <div className="text-[13px] text-ink-2 mt-1">
+                            Salary, other income, bonuses &amp; savings
+                        </div>
                     </div>
-                    <h1 className="display mt-0.5 md:mt-1" style={{ fontSize: 'clamp(28px, 5vw, 40px)', lineHeight: 1.05 }}>
-                        Income &amp; savings
-                    </h1>
-                    <div className="text-[13px] text-ink-2 mt-1">
-                        Salary, bonuses, net savings targets
-                    </div>
+                    <YearSwitcher
+                        year={viewYear}
+                        minYear={minYear}
+                        maxYear={thisYear}
+                        scope={isCurrentYear ? `up to ${MONTH_NAMES[thisMonth - 1]}` : 'full year'}
+                        pending={pending}
+                        onChange={setViewYear}
+                    />
                 </motion.div>
 
                 {/* ═══════════ DESKTOP / TABLET (md+) ═══════════ */}
@@ -480,8 +566,9 @@ export default function IncomePage() {
                     <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                         <SalaryCard salary={income.monthlySalary} gross={income.grossSalary} deductions={income.deductions} payDay={income.payDay} payFrequency={income.payFrequency} delay={0.05} onEdit={() => setSalaryOpen(true)} />
                         <BonusesCard
-                            bonuses={bonuses}
+                            bonuses={yearBonuses}
                             total={stats.totalBonuses}
+                            year={viewYear}
                             onAdd={() => setAddOpen(true)}
                             delay={0.1}
                         />
@@ -527,6 +614,7 @@ export default function IncomePage() {
                     <IncomeBreakdown
                         yearlySalary={stats.salaryAnnual}
                         totalBonuses={stats.totalBonuses}
+                        otherIncome={stats.otherIncomeAnnual}
                         yearlyIncome={stats.projectedAnnualIncome}
                         yearlyExpenses={stats.projectedAnnualExpenses}
                         netSavings={stats.netSavings}
@@ -534,8 +622,9 @@ export default function IncomePage() {
                     <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.1} />
                     <MonthlyFlowChart income={stats.monthlyIncome} expenses={stats.monthlyExpenses} elapsed={stats.elapsed} delay={0.12} />
                     <BonusesCard
-                        bonuses={bonuses}
+                        bonuses={yearBonuses}
                         total={stats.totalBonuses}
+                        year={viewYear}
                         onAdd={() => setAddOpen(true)}
                         delay={0.15}
                     />
@@ -549,8 +638,8 @@ export default function IncomePage() {
                 </div>
             </div>
 
-            {/* Interactive Add Bonus modal / sheet */}
-            <AddBonusModal open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAddBonus} />
+            {/* Interactive Add Bonus modal / sheet — files into the viewed year */}
+            <AddBonusModal open={addOpen} defaultYear={viewYear} onClose={() => setAddOpen(false)} onAdd={handleAddBonus} />
 
             {/* Goal / budget / pay settings (salary itself lives in the timeline) */}
             <IncomeSettingsModal
@@ -570,7 +659,7 @@ export default function IncomePage() {
             <SalaryTimelineModal
                 open={salaryOpen}
                 periods={summary?.periods ?? []}
-                defaultYear={year}
+                defaultYear={viewYear}
                 pending={pending}
                 onClose={() => setSalaryOpen(false)}
                 onSave={handleSaveSalary}
@@ -581,7 +670,7 @@ export default function IncomePage() {
             <IncomeSourceModal
                 open={sourcesOpen}
                 sources={summary?.incomeSources ?? []}
-                defaultYear={year}
+                defaultYear={viewYear}
                 pending={pending}
                 onClose={() => setSourcesOpen(false)}
                 onSave={handleSaveSource}

@@ -1,5 +1,6 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { ChevronIcon, PlusIcon, BellIcon } from '@/components/icons';
 import { MONTH_NAMES } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
@@ -28,6 +29,9 @@ function SearchIcon({ size = 14 }: { size?: number }) {
 export function TopBar() {
     // CHANGED (Phase 8.1): month/year + browsing come from the ExpensesProvider.
     const { current, canGoNext, goToMonth } = useExpenses();
+    // CHANGED (Phase 9 · year nav): the Income page is YEAR-scoped and owns its own
+    // year selector, so the global month arrows are meaningless there — hide them.
+    const hideMonthNav = usePathname() === '/income';
     const month = current.month;
     const year = current.year;
     // Viewing the real current month iff the server stamped today's date (>0).
@@ -90,75 +94,80 @@ export function TopBar() {
                     </div>
                 </div>
 
-                {/* Row 2 */}
-                <div className="flex items-center gap-2 px-4 pb-3">
-                    <button
-                        onClick={() => goToMonth(-1)}
-                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
-                        aria-label="Previous month"
-                    >
-                        <ChevronIcon direction="left" size={14} />
-                    </button>
+                {/* Row 2 — month nav (hidden on the year-scoped Income page) */}
+                {!hideMonthNav && (
+                    <div className="flex items-center gap-2 px-4 pb-3">
+                        <button
+                            onClick={() => goToMonth(-1)}
+                            className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
+                            aria-label="Previous month"
+                        >
+                            <ChevronIcon direction="left" size={14} />
+                        </button>
 
-                    <div className="display text-[18px] leading-none whitespace-nowrap">
-                        {MONTH_NAMES[month - 1]} {year}
-                    </div>
-
-                    <button
-                        onClick={() => goToMonth(1)}
-                        disabled={!canGoNext}
-                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                        aria-label="Next month"
-                    >
-                        <ChevronIcon direction="right" size={14} />
-                    </button>
-
-                    {isCurrentMonth && (
-                        <div className="chip ml-1">
-                            <span
-                                className="dot"
-                                style={{ background: 'var(--color-gold-500)' }}
-                            />
-                            {todayBadge}
+                        <div className="display text-[18px] leading-none whitespace-nowrap">
+                            {MONTH_NAMES[month - 1]} {year}
                         </div>
-                    )}
-                </div>
+
+                        <button
+                            onClick={() => goToMonth(1)}
+                            disabled={!canGoNext}
+                            className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                            aria-label="Next month"
+                        >
+                            <ChevronIcon direction="right" size={14} />
+                        </button>
+
+                        {isCurrentMonth && (
+                            <div className="chip ml-1">
+                                <span
+                                    className="dot"
+                                    style={{ background: 'var(--color-gold-500)' }}
+                                />
+                                {todayBadge}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Desktop / tablet layout */}
             <div className="hidden md:flex items-center gap-3 px-8 py-[18px]">
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => goToMonth(-1)}
-                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
-                        aria-label="Previous month"
-                    >
-                        <ChevronIcon direction="left" size={16} />
-                    </button>
+                {/* Month nav — hidden on the year-scoped Income page */}
+                {!hideMonthNav && (
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => goToMonth(-1)}
+                            className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors"
+                            aria-label="Previous month"
+                        >
+                            <ChevronIcon direction="left" size={16} />
+                        </button>
 
-                    <div className="display text-[22px] leading-none whitespace-nowrap">
-                        {MONTH_NAMES[month - 1]} {year}
-                    </div>
-
-                    <button
-                        onClick={() => goToMonth(1)}
-                        disabled={!canGoNext}
-                        className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                        aria-label="Next month"
-                    >
-                        <ChevronIcon direction="right" size={16} />
-                    </button>
-
-                    {isCurrentMonth && (
-                        <div className="chip ml-2">
-                            <span
-                                className="dot"
-                                style={{ background: 'var(--color-gold-500)' }}
-                            />
-                            {todayBadge}
+                        <div className="display text-[22px] leading-none whitespace-nowrap">
+                            {MONTH_NAMES[month - 1]} {year}
                         </div>
-                    )}
-                </div>
+
+                        <button
+                            onClick={() => goToMonth(1)}
+                            disabled={!canGoNext}
+                            className="w-8 h-8 flex items-center justify-center rounded-full text-ink-1 hover:bg-bg-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                            aria-label="Next month"
+                        >
+                            <ChevronIcon direction="right" size={16} />
+                        </button>
+
+                        {isCurrentMonth && (
+                            <div className="chip ml-2">
+                                <span
+                                    className="dot"
+                                    style={{ background: 'var(--color-gold-500)' }}
+                                />
+                                {todayBadge}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="flex-1" />
 

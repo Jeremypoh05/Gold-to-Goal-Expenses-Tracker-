@@ -232,7 +232,12 @@ export function getIncomeStats(income: IncomeInput) {
 /** Map DB Bonus rows to the UI bonus shape. */
 export function toUiBonus(rows: DbBonus[]) {
   return rows
-    .map((b) => ({ month: b.month, amt: Number(b.amount), label: b.label }))
+    .map((b) => ({
+      year: b.year,
+      month: b.month,
+      amt: Number(b.amount),
+      label: b.label,
+    }))
     .sort((a, b) => a.month - b.month);
 }
 

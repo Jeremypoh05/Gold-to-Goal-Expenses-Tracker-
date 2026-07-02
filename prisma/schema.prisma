@@ -156,13 +156,17 @@ model Expense {
 }
 
 /// Bonuses for the Income page (was IncomeInfo.bonuses[]).
+/// CHANGED (Phase 9): bonuses are now year-scoped so past years stay accurate.
+/// The @default(2026) exists only to backfill pre-existing rows in the migration —
+/// new bonuses always carry the year the user selected.
 model Bonus {
   id     Int     @id @default(autoincrement())
   userId String
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  year   Int     @default(2026)
   month  Int // 1–12
   amount Decimal @db.Decimal(12, 2)
   label  String
 
-  @@index([userId])
+  @@index([userId, year])
 }
