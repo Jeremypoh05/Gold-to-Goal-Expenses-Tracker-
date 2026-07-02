@@ -11,8 +11,10 @@ import {
   toUiVoiceLog,
   toUiBonus,
   toUiSalaryPeriod,
+  toUiIncomeSource,
   activeSalaryForMonth,
   type UiSalaryPeriod,
+  type UiIncomeSource,
 } from "@/lib/expense-utils";
 import type { MonthInfo } from "@/types";
 
@@ -134,6 +136,7 @@ export interface YearSummary {
   isCurrentYear: boolean;
   currentMonth: number;
   periods: UiSalaryPeriod[];
+  incomeSources: UiIncomeSource[];
   monthlyExpenseTotals: number[];
   bonuses: ReturnType<typeof toUiBonus>;
   savingsGoal: number;
@@ -151,7 +154,7 @@ export async function getYearSummary(year: number): Promise<YearSummary> {
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 
-  const [periods, rows, bonuses] = await Promise.all([
+  const [periods, rows, bonuses, sources] = await Promise.all([
     prisma.salaryPeriod.findMany({
       where: { userId: user.id },
       orderBy: [{ effectiveYear: "asc" }, { effectiveMonth: "asc" }],
@@ -161,6 +164,10 @@ export async function getYearSummary(year: number): Promise<YearSummary> {
       select: { spentAt: true, amount: true },
     }),
     prisma.bonus.findMany({ where: { userId: user.id } }),
+    prisma.incomeSource.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
   const monthlyExpenseTotals = Array(12).fill(0) as number[];
@@ -173,6 +180,7 @@ export async function getYearSummary(year: number): Promise<YearSummary> {
     isCurrentYear,
     currentMonth,
     periods: periods.map(toUiSalaryPeriod),
+    incomeSources: sources.map(toUiIncomeSource),
     monthlyExpenseTotals,
     bonuses: toUiBonus(bonuses),
     savingsGoal: Number(user.savingsGoal),

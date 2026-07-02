@@ -19,8 +19,11 @@ import {
     IncomeSettingsModal,
     SalaryTimelineModal,
     MonthlyFlowChart,
+    IncomeSourcesCard,
+    IncomeSourceModal,
     type NewBonus,
     type SalaryPeriodForm,
+    type IncomeSourceForm,
 } from '@/components/income';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { computeYearIncomeStats } from '@/lib/expense-utils';
@@ -31,6 +34,9 @@ import {
     fetchYearSummary,
     addSalaryPeriod,
     deleteSalaryPeriod,
+    addIncomeSource,
+    updateIncomeSource,
+    deleteIncomeSource,
 } from '@/lib/actions';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import type { IncomeInfo } from '@/types';
@@ -280,13 +286,14 @@ function StatBand({
             className="glass grad-gold-soft rounded-3xl p-6 md:p-8"
             style={{ border: '1px solid oklch(0.88 0.08 88)' }}
         >
-            {/* CHANGED (Phase 9): real actual-vs-projected numbers. The main figure is
-                the full-year projection; the sub-line shows what's actually banked so far. */}
+            {/* CHANGED (Phase 9): present-focused figures — what's actually earned, spent
+                and saved SO FAR this year (income keeps an est.-for-year sub-line since
+                it's predictable). No more speculative "projected expenses" headline. */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
-                <BigStat label="Income" value={stats.projectedAnnualIncome} sub={`${formatMoney(stats.actualIncomeYTD)} so far · est. year`} delay={300} />
-                <BigStat label="Expenses" value={stats.projectedAnnualExpenses} sub={`${formatMoney(stats.actualExpensesYTD)} so far · est. year`} delay={400} />
-                <BigStat label="Net savings" value={stats.netSavings} sub="projected year" accent delay={500} />
-                <BigStat label="Savings rate" value={stats.savingsRate} percent sub="of income" delay={600} />
+                <BigStat label="Income so far" value={stats.actualIncomeYTD} sub={`est. ${formatMoney(stats.projectedAnnualIncome)} this year`} delay={300} />
+                <BigStat label="Total expenses" value={stats.actualExpensesYTD} sub={`${formatMoney(stats.avgMonthlyExpense)}/mo avg`} delay={400} />
+                <BigStat label="Net savings" value={stats.netSavingsActual} sub="so far this year" accent delay={500} />
+                <BigStat label="Savings rate" value={stats.savingsRateActual} percent sub="of income so far" delay={600} />
             </div>
             <div className="mt-7">
                 <div className="flex items-center justify-between mb-1">
@@ -342,6 +349,7 @@ export default function IncomePage() {
     const [addOpen, setAddOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [salaryOpen, setSalaryOpen] = useState(false);
+    const [sourcesOpen, setSourcesOpen] = useState(false);
 
     // Compute from the server summary; fall back to a zero/loading shape so the
     // page renders instantly before the fetch resolves.
@@ -353,6 +361,7 @@ export default function IncomePage() {
                     isCurrentYear: current.day > 0,
                     currentMonth: current.month,
                     periods: [],
+                    incomeSources: [],
                     monthlyExpenseTotals: Array(12).fill(0),
                     bonuses,
                     savingsGoal: income.savingsGoal,
@@ -408,6 +417,43 @@ export default function IncomePage() {
         });
     };
 
+    const handleSaveSource = (v: IncomeSourceForm) => {
+        startTransition(async () => {
+            if (v.id !== undefined) {
+                await updateIncomeSource(v.id, {
+                    label: v.label,
+                    emoji: v.emoji,
+                    monthlyAmount: v.monthlyAmount,
+                    effectiveYear: v.effectiveYear,
+                    effectiveMonth: v.effectiveMonth,
+                });
+            } else {
+                await addIncomeSource({
+                    label: v.label,
+                    emoji: v.emoji,
+                    monthlyAmount: v.monthlyAmount,
+                    effectiveYear: v.effectiveYear,
+                    effectiveMonth: v.effectiveMonth,
+                });
+            }
+            refreshAll();
+        });
+    };
+
+    const handleToggleSource = (id: number, active: boolean) => {
+        startTransition(async () => {
+            await updateIncomeSource(id, { active });
+            refreshAll();
+        });
+    };
+
+    const handleDeleteSource = (id: number) => {
+        startTransition(async () => {
+            await deleteIncomeSource(id);
+            refreshAll();
+        });
+    };
+
     return (
         <>
             <div className="px-4 md:px-8 py-5 md:py-7 pb-24 md:pb-16 max-w-[1320px] mx-auto flex flex-col gap-5 md:gap-6">
@@ -441,6 +487,9 @@ export default function IncomePage() {
                         />
                     </div>
 
+                    {/* Row 1.5 (Phase 9): custom recurring income beyond salary */}
+                    <IncomeSourcesCard sources={summary?.incomeSources ?? []} onManage={() => setSourcesOpen(true)} delay={0.12} />
+
                     {/* Row 2: Full-width stat band + goal (1:1 with design) */}
                     <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.15} />
 
@@ -457,6 +506,7 @@ export default function IncomePage() {
                             <IncomeBreakdown
                                 yearlySalary={stats.salaryAnnual}
                                 totalBonuses={stats.totalBonuses}
+                                otherIncome={stats.otherIncomeAnnual}
                                 yearlyIncome={stats.projectedAnnualIncome}
                                 yearlyExpenses={stats.projectedAnnualExpenses}
                                 netSavings={stats.netSavings}
@@ -489,6 +539,7 @@ export default function IncomePage() {
                         onAdd={() => setAddOpen(true)}
                         delay={0.15}
                     />
+                    <IncomeSourcesCard sources={summary?.incomeSources ?? []} onManage={() => setSourcesOpen(true)} delay={0.18} />
                     <IncomeSummary
                         savingsRate={stats.savingsRate}
                         monthsToGoal={stats.monthsToGoal}
@@ -524,6 +575,18 @@ export default function IncomePage() {
                 onClose={() => setSalaryOpen(false)}
                 onSave={handleSaveSalary}
                 onDelete={handleDeleteSalary}
+            />
+
+            {/* ADDED (Phase 9): custom recurring income sources */}
+            <IncomeSourceModal
+                open={sourcesOpen}
+                sources={summary?.incomeSources ?? []}
+                defaultYear={year}
+                pending={pending}
+                onClose={() => setSourcesOpen(false)}
+                onSave={handleSaveSource}
+                onDelete={handleDeleteSource}
+                onToggle={handleToggleSource}
             />
         </>
     );

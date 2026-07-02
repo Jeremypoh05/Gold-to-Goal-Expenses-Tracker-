@@ -7,6 +7,7 @@ import type {
   Expense as DbExpense,
   Bonus as DbBonus,
   SalaryPeriod as DbSalaryPeriod,
+  IncomeSource as DbIncomeSource,
 } from "@/generated/prisma/client";
 import type { Expense, VoiceLog, CategoryKey } from "@/types";
 
@@ -274,6 +275,35 @@ export function activeSalaryForMonth(
   );
 }
 
+/** Map a DB IncomeSource row to the UI shape (Decimal → number). */
+export function toUiIncomeSource(row: DbIncomeSource) {
+  return {
+    id: row.id,
+    label: row.label,
+    emoji: row.emoji,
+    monthlyAmount: Number(row.monthlyAmount),
+    year: row.effectiveYear,
+    month: row.effectiveMonth,
+    active: row.active,
+  };
+}
+export type UiIncomeSource = ReturnType<typeof toUiIncomeSource>;
+
+/** Monthly total of active income sources in effect for (year, month). */
+function activeOtherIncome(
+  sources: UiIncomeSource[],
+  year: number,
+  month: number,
+): number {
+  return sources
+    .filter(
+      (s) =>
+        s.active &&
+        (s.year < year || (s.year === year && s.month <= month)),
+    )
+    .reduce((a, s) => a + s.monthlyAmount, 0);
+}
+
 export interface YearIncomeInput {
   year: number;
   /** Viewing the actual current year (so only elapsed months are "actual"). */
@@ -284,6 +314,8 @@ export interface YearIncomeInput {
   /** Real expense total per month, index 0 = Jan … 11 = Dec. */
   monthlyExpenseTotals: number[];
   bonuses: { month: number; amt: number; label: string }[];
+  /** ADDED (Phase 9): custom recurring income beyond salary. */
+  incomeSources: UiIncomeSource[];
   savingsGoal: number;
   saved: number;
 }
@@ -296,6 +328,7 @@ export interface YearIncomeInput {
  */
 export function computeYearIncomeStats(input: YearIncomeInput) {
   const { year, isCurrentYear, periods, monthlyExpenseTotals, bonuses } = input;
+  const incomeSources = input.incomeSources ?? [];
   const elapsed = isCurrentYear ? Math.max(1, input.currentMonth) : 12;
 
   // Salary active in each of the 12 months (0 before the first period).
@@ -304,13 +337,20 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
     (_, i) => activeSalaryForMonth(periods, year, i + 1)?.monthlySalary ?? 0,
   );
 
+  // Custom recurring income (freelance, dividends…) active each month.
+  const otherByMonth = Array.from({ length: 12 }, (_, i) =>
+    activeOtherIncome(incomeSources, year, i + 1),
+  );
+
   // Bonus total per month (index 0 = Jan) for the per-month income series.
   const bonusByMonth = Array(12).fill(0) as number[];
   for (const b of bonuses) {
     if (b.month >= 1 && b.month <= 12) bonusByMonth[b.month - 1] += b.amt;
   }
-  // Income each month = salary active that month + any bonuses that month.
-  const monthlyIncome = salaryByMonth.map((s, i) => s + bonusByMonth[i]);
+  // Income each month = salary + other recurring income + bonuses that month.
+  const monthlyIncome = salaryByMonth.map(
+    (s, i) => s + otherByMonth[i] + bonusByMonth[i],
+  );
 
   const totalBonuses = bonuses.reduce((a, b) => a + b.amt, 0);
   const bonusesYTD = bonuses
@@ -322,8 +362,11 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
     .reduce((a, v) => a + v, 0);
   const salaryAnnual = salaryByMonth.reduce((a, v) => a + v, 0);
 
-  const actualIncomeYTD = salaryYTD + bonusesYTD;
-  const projectedAnnualIncome = salaryAnnual + totalBonuses;
+  const otherIncomeYTD = otherByMonth.slice(0, elapsed).reduce((a, v) => a + v, 0);
+  const otherIncomeAnnual = otherByMonth.reduce((a, v) => a + v, 0);
+
+  const actualIncomeYTD = salaryYTD + otherIncomeYTD + bonusesYTD;
+  const projectedAnnualIncome = salaryAnnual + otherIncomeAnnual + totalBonuses;
 
   const actualExpensesYTD = monthlyExpenseTotals
     .slice(0, elapsed)
@@ -335,6 +378,12 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
   const netSavings = projectedAnnualIncome - projectedAnnualExpenses;
   const savingsRate =
     projectedAnnualIncome > 0 ? (netSavings / projectedAnnualIncome) * 100 : 0;
+
+  // CHANGED (Phase 9): present-focused figures for the stat band — what's actually
+  // banked and spent so far this year (not the full-year projection).
+  const netSavingsActual = actualIncomeYTD - actualExpensesYTD;
+  const savingsRateActual =
+    actualIncomeYTD > 0 ? (netSavingsActual / actualIncomeYTD) * 100 : 0;
 
   const goal = input.savingsGoal;
   const saved = input.saved;
@@ -357,10 +406,15 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
     projectedAnnualIncome,
     actualExpensesYTD,
     projectedAnnualExpenses,
+    avgMonthlyExpense,
     salaryAnnual,
+    otherIncomeYTD,
+    otherIncomeAnnual,
     totalBonuses,
     netSavings,
     savingsRate,
+    netSavingsActual,
+    savingsRateActual,
     goal,
     saved,
     toGo,

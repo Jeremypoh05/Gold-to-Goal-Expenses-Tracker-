@@ -78,6 +78,7 @@ model User {
   expenses      Expense[]
   bonuses       Bonus[]
   salaryPeriods SalaryPeriod[]
+  incomeSources IncomeSource[]
 }
 
 /// ADDED (Phase 9): time-aware salary. One row per "this salary, effective from
@@ -102,6 +103,29 @@ model SalaryPeriod {
   updatedAt      DateTime @updatedAt
 
   @@unique([userId, effectiveYear, effectiveMonth]) // one salary change per month
+  @@index([userId])
+}
+
+/// ADDED (Phase 9): custom recurring income beyond salary — freelance/side gigs,
+/// investment income, rental, etc. Each source contributes `monthlyAmount` to every
+/// month on or after (effectiveYear, effectiveMonth) while `active`. Like SalaryPeriod
+/// it's effective-dated (no end date) but each row is an independent ongoing stream,
+/// not a timeline of one value. `emoji` is a user-picked glyph for the card.
+model IncomeSource {
+  id             Int      @id @default(autoincrement())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  label          String   // "Freelance", "Dividends", "Rental"…
+  emoji          String   @default("💰")
+  monthlyAmount  Decimal  @db.Decimal(12, 2)
+  effectiveYear  Int      // starts contributing from…
+  effectiveMonth Int      // 1–12
+  active         Boolean  @default(true) // paused sources stay for history but stop counting
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   @@index([userId])
 }
 

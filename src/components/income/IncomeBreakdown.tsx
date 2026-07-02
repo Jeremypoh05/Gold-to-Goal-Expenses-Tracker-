@@ -10,9 +10,12 @@ import { motion } from 'framer-motion';
 import { Donut } from '@/components/shared';
 import { formatMoney } from '@/lib/utils';
 
-// Gold shades for the two income segments (kept here so legend + donut match).
+// Gold shades for the income segments (kept here so legend + donut match).
 const SALARY_COLOR = 'oklch(0.72 0.165 82)';
 const BONUS_COLOR = 'oklch(0.86 0.13 92)';
+// ADDED (Phase 9): custom recurring income (freelance/dividends/rental) — a
+// warmer amber so it reads distinct from salary/bonus in the donut.
+const OTHER_COLOR = 'oklch(0.78 0.145 68)';
 // Spending segment of the income-vs-spending bar (peach, distinct from gold savings).
 const SPEND_COLOR = 'oklch(0.80 0.12 40)';
 const SAVE_COLOR = 'oklch(0.70 0.155 80)';
@@ -20,6 +23,8 @@ const SAVE_COLOR = 'oklch(0.70 0.155 80)';
 interface IncomeBreakdownProps {
     yearlySalary: number;
     totalBonuses: number;
+    /** ADDED (Phase 9): annual total of custom recurring income sources. */
+    otherIncome?: number;
     yearlyIncome: number;
     yearlyExpenses: number;
     netSavings: number;
@@ -28,12 +33,13 @@ interface IncomeBreakdownProps {
 export function IncomeBreakdown({
     yearlySalary,
     totalBonuses,
+    otherIncome = 0,
     yearlyIncome,
     yearlyExpenses,
     netSavings,
 }: IncomeBreakdownProps) {
-    const spentPct = (yearlyExpenses / yearlyIncome) * 100;
-    const savedPct = (netSavings / yearlyIncome) * 100;
+    const spentPct = yearlyIncome > 0 ? (yearlyExpenses / yearlyIncome) * 100 : 0;
+    const savedPct = yearlyIncome > 0 ? (netSavings / yearlyIncome) * 100 : 0;
 
     return (
         <div
@@ -49,16 +55,18 @@ export function IncomeBreakdown({
                     thickness={20}
                     data={[
                         { k: 'salary', v: yearlySalary, color: SALARY_COLOR },
+                        { k: 'other', v: otherIncome, color: OTHER_COLOR },
                         { k: 'bonus', v: totalBonuses, color: BONUS_COLOR },
                     ]}
                     centerLabel="Income"
                     centerValue={yearlyIncome}
-                    centerSub="salary + bonuses"
+                    centerSub={otherIncome > 0 ? 'salary + extras' : 'salary + bonuses'}
                 />
 
                 {/* Legend */}
                 <div className="flex-1 w-full flex flex-col gap-3">
-                    <LegendRow color={SALARY_COLOR} label="Salary × 12" value={yearlySalary} />
+                    <LegendRow color={SALARY_COLOR} label="Salary" value={yearlySalary} />
+                    {otherIncome > 0 && <LegendRow color={OTHER_COLOR} label="Other income" value={otherIncome} />}
                     <LegendRow color={BONUS_COLOR} label="Bonuses" value={totalBonuses} />
                 </div>
             </div>
