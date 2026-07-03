@@ -8,8 +8,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { toUiExpense } from "@/lib/expense-utils";
-import { getMonthDashboardData, getYearSummary } from "@/lib/queries";
+import { toUiExpense, suggestFixedMetaLocal } from "@/lib/expense-utils";
+import { getMonthDashboardData, getYearSummary, getFixedExpenses } from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
 
 const DASHBOARD_ROUTES = [
@@ -333,6 +333,104 @@ export async function updateIncomeSource(
 export async function deleteIncomeSource(id: number) {
   const userId = await requireUserId();
   await prisma.incomeSource.deleteMany({ where: { id, userId } });
+  revalidateDashboard();
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADDED (Module 4): fixed/recurring expenses.
+// ─────────────────────────────────────────────────────────────
+
+/** Read the user's fixed-expense definitions (client fetch after mutations). */
+export async function fetchFixedExpenses() {
+  await requireUserId();
+  return getFixedExpenses();
+}
+
+/**
+ * Suggest an emoji + best-fit category for a fixed-expense label.
+ * SECURITY: only the label text is ever sent to any AI — never amounts or PII.
+ * Uses a local keyword map today; when ANTHROPIC_API_KEY + @anthropic-ai/sdk are
+ * configured, swap the body for a Claude Haiku `messages.parse()` call (structured
+ * output) that falls back to `suggestFixedMetaLocal` on any error.
+ */
+export async function suggestFixedMeta(
+  label: string,
+): Promise<{ emoji: string; category: CategoryKey }> {
+  return suggestFixedMetaLocal(label);
+}
+
+export interface FixedExpenseInput {
+  label: string;
+  emoji?: string;
+  category?: CategoryKey;
+  amount: number;
+  currency?: Currency;
+  dueDay?: number; // 1–31
+  startYear: number;
+  startMonth: number; // 1–12
+  endYear?: number | null;
+  endMonth?: number | null;
+  active?: boolean;
+}
+
+const clampDay = (d: number) => Math.min(31, Math.max(1, Math.round(d)));
+
+export async function addFixedExpense(input: FixedExpenseInput) {
+  const userId = await requireUserId();
+  // Fill emoji/category from the local suggester when the client didn't set them.
+  const fallback = suggestFixedMetaLocal(input.label);
+  await prisma.fixedExpense.create({
+    data: {
+      userId,
+      label: input.label.trim() || "Fixed expense",
+      emoji: input.emoji || fallback.emoji,
+      category: input.category ?? fallback.category,
+      amount: input.amount,
+      currency: input.currency ?? "SGD",
+      dueDay: clampDay(input.dueDay ?? 1),
+      startYear: input.startYear,
+      startMonth: clampMonth(input.startMonth),
+      endYear: input.endYear ?? null,
+      endMonth: input.endMonth != null ? clampMonth(input.endMonth) : null,
+      active: input.active ?? true,
+    },
+  });
+  revalidateDashboard();
+}
+
+export async function updateFixedExpense(
+  id: number,
+  input: Partial<FixedExpenseInput>,
+) {
+  const userId = await requireUserId();
+  const owned = await prisma.fixedExpense.findFirst({ where: { id, userId } });
+  if (!owned) throw new Error("Fixed expense not found");
+  await prisma.fixedExpense.update({
+    where: { id },
+    data: {
+      ...(input.label !== undefined && { label: input.label.trim() || "Fixed expense" }),
+      ...(input.emoji !== undefined && { emoji: input.emoji || "📌" }),
+      ...(input.category !== undefined && { category: input.category }),
+      ...(input.amount !== undefined && { amount: input.amount }),
+      ...(input.currency !== undefined && { currency: input.currency }),
+      ...(input.dueDay !== undefined && { dueDay: clampDay(input.dueDay) }),
+      ...(input.startYear !== undefined && { startYear: input.startYear }),
+      ...(input.startMonth !== undefined && { startMonth: clampMonth(input.startMonth) }),
+      ...(input.endYear !== undefined && { endYear: input.endYear }),
+      ...(input.endMonth !== undefined && {
+        endMonth: input.endMonth != null ? clampMonth(input.endMonth) : null,
+      }),
+      ...(input.active !== undefined && { active: input.active }),
+    },
+  });
+  revalidateDashboard();
+}
+
+/** Remove a fixed-expense definition. Already-generated Expense rows remain
+ *  (their fixedSourceId is set null) so history is preserved. */
+export async function deleteFixedExpense(id: number) {
+  const userId = await requireUserId();
+  await prisma.fixedExpense.deleteMany({ where: { id, userId } });
   revalidateDashboard();
 }
 

@@ -8,8 +8,9 @@ import type {
   Bonus as DbBonus,
   SalaryPeriod as DbSalaryPeriod,
   IncomeSource as DbIncomeSource,
+  FixedExpense as DbFixedExpense,
 } from "@/generated/prisma/client";
-import type { Expense, VoiceLog, CategoryKey } from "@/types";
+import type { Expense, VoiceLog, CategoryKey, Currency } from "@/types";
 
 // ─────────────────────────────────────────────────────────────
 // DB row → UI shape
@@ -232,6 +233,97 @@ export function getIncomeStats(income: IncomeInput) {
     projectedYearEnd,
     biggestBonus,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADDED (Module 4): fixed/recurring expenses.
+// ─────────────────────────────────────────────────────────────
+
+/** Map a DB FixedExpense row to the UI shape (Decimal → number). */
+export function toUiFixedExpense(row: DbFixedExpense) {
+  return {
+    id: row.id,
+    label: row.label,
+    emoji: row.emoji,
+    category: row.category as CategoryKey,
+    amount: Number(row.amount),
+    currency: row.currency as Currency,
+    dueDay: row.dueDay,
+    startYear: row.startYear,
+    startMonth: row.startMonth,
+    endYear: row.endYear,
+    endMonth: row.endMonth,
+    active: row.active,
+    lastGenYear: row.lastGenYear,
+    lastGenMonth: row.lastGenMonth,
+  };
+}
+export type UiFixedExpense = ReturnType<typeof toUiFixedExpense>;
+
+/** Status of a fixed expense relative to "now" — drives tabs/colours. */
+export type FixedStatus = "active" | "upcoming" | "ended" | "paused";
+
+export function fixedExpenseStatus(
+  f: UiFixedExpense,
+  nowYear: number,
+  nowMonth: number,
+): FixedStatus {
+  if (!f.active) return "paused";
+  if (cmpYM(f.startYear, f.startMonth, nowYear, nowMonth) > 0) return "upcoming";
+  if (
+    f.endYear != null &&
+    f.endMonth != null &&
+    cmpYM(f.endYear, f.endMonth, nowYear, nowMonth) < 0
+  ) {
+    return "ended";
+  }
+  return "active";
+}
+
+/**
+ * Local (no-AI) fallback that maps a label to a sensible emoji + category, so
+ * fixed items get a friendly glyph even without ANTHROPIC_API_KEY. Handles common
+ * EN + zh keywords. The Claude Haiku suggester (server action) uses this as its
+ * fallback too. Case-insensitive substring match; first hit wins.
+ */
+const FIXED_KEYWORDS: {
+  match: string[];
+  emoji: string;
+  category: CategoryKey;
+}[] = [
+  { match: ["rent", "房租", "租金", "mortgage", "房贷"], emoji: "🏠", category: "bills" },
+  { match: ["家用", "household", "allowance", "家庭", "parents", "父母", "孝亲"], emoji: "👨‍👩‍👧", category: "other" },
+  { match: ["transport", "交通", "mrt", "bus", "巴士", "地铁", "grab", "ez-link", "ezlink", "petrol", "汽油", "gas", "fuel", "parking", "停车"], emoji: "🚌", category: "trans" },
+  { match: ["car", "车", "vehicle", "road tax", "车贷"], emoji: "🚗", category: "trans" },
+  { match: ["phone", "电话", "mobile", "手机", "telco", "singtel", "starhub", "m1"], emoji: "📱", category: "bills" },
+  { match: ["internet", "wifi", "网络", "broadband", "网费"], emoji: "🌐", category: "bills" },
+  { match: ["electric", "电费", "utility", "utilities", "水电", "power"], emoji: "💡", category: "bills" },
+  { match: ["water", "水费"], emoji: "🚰", category: "bills" },
+  { match: ["insurance", "保险"], emoji: "🛡️", category: "bills" },
+  { match: ["netflix", "spotify", "disney", "youtube", "subscription", "订阅", "hbo", "prime"], emoji: "🎬", category: "ent" },
+  { match: ["gym", "健身", "fitness", "yoga"], emoji: "🏋️", category: "health" },
+  { match: ["health", "医疗", "medical", "clinic", "medicine", "药"], emoji: "💊", category: "health" },
+  { match: ["loan", "贷款", "debt", "credit card", "信用卡", "instalment", "installment", "分期"], emoji: "💳", category: "bills" },
+  { match: ["save", "savings", "储蓄", "invest", "投资", "fund"], emoji: "📈", category: "other" },
+  { match: ["food", "餐", "grocery", "groceries", "菜", "meal", "makan"], emoji: "🍚", category: "food" },
+  { match: ["school", "学费", "tuition", "education", "课程", "course", "book"], emoji: "📚", category: "other" },
+  { match: ["donation", "捐", "charity", "tithe", "十一"], emoji: "🤝", category: "other" },
+  { match: ["pet", "宠物", "dog", "cat"], emoji: "🐾", category: "other" },
+];
+
+export function suggestFixedMetaLocal(label: string): {
+  emoji: string;
+  category: CategoryKey;
+} {
+  const l = label.trim().toLowerCase();
+  if (l) {
+    for (const row of FIXED_KEYWORDS) {
+      if (row.match.some((m) => l.includes(m.toLowerCase()))) {
+        return { emoji: row.emoji, category: row.category };
+      }
+    }
+  }
+  return { emoji: "📌", category: "bills" };
 }
 
 /** Map DB Bonus rows to the UI bonus shape. */

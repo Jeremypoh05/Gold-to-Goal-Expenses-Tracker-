@@ -7,6 +7,7 @@ export {
   GridIcon,
   CalendarIcon,
   WalletIcon,
+  RepeatIcon,
   SettingsIcon,
   SunIcon,
   MoonIcon,

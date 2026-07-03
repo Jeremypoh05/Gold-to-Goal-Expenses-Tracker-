@@ -12,6 +12,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     WalletIcon,
+    RepeatIcon,
     MicIcon,
     SettingsIcon,
     ChevronIcon,
@@ -29,6 +30,7 @@ interface MoreItem {
 
 const MORE_ITEMS: MoreItem[] = [
     { href: '/income', label: 'Income & savings', sub: 'Salary, bonuses, goals', Icon: WalletIcon },
+    { href: '/fixed', label: 'Fixed expenses', sub: 'Rent, bills, subscriptions', Icon: RepeatIcon },
     // CHANGED (Phase 6): Voice page now exists → live link (was "Soon").
     { href: '/voice', label: 'Voice log', sub: 'Talk to log · review entries', Icon: MicIcon },
     // CHANGED (Phase 7): Settings now opens the Clerk account modal (was "Soon").

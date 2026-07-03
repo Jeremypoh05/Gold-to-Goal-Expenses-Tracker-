@@ -12,11 +12,14 @@ import {
   toUiBonus,
   toUiSalaryPeriod,
   toUiIncomeSource,
+  toUiFixedExpense,
   activeSalaryForMonth,
   recurringMonthlyIncome,
   type UiSalaryPeriod,
   type UiIncomeSource,
+  type UiFixedExpense,
 } from "@/lib/expense-utils";
+import { daysInMonth } from "@/lib/utils";
 import type { MonthInfo } from "@/types";
 
 /**
@@ -206,4 +209,106 @@ export async function getYearSummary(year: number): Promise<YearSummary> {
 export function getDashboardData(): Promise<DashboardData> {
   const now = new Date();
   return getMonthDashboardData(now.getFullYear(), now.getMonth() + 1);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADDED (Module 4): fixed/recurring expenses — read + lazy generation.
+// ─────────────────────────────────────────────────────────────
+
+/** All of the user's fixed-expense definitions (UI shape). */
+export async function getFixedExpenses(): Promise<UiFixedExpense[]> {
+  const user = await getOrCreateUser();
+  const rows = await prisma.fixedExpense.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map(toUiFixedExpense);
+}
+
+const cmpYM = (aY: number, aM: number, bY: number, bM: number) =>
+  aY !== bY ? aY - bY : aM - bM;
+const nextYM = (y: number, m: number) => (m >= 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 });
+
+/**
+ * Lazily materialize due fixed-expense rows up to today, forward-only. For each
+ * active item we walk from the month after its watermark (or its start month if
+ * never generated) up to the current month, creating a real Expense on each due
+ * day that has passed — then advance the watermark. Never touches months before
+ * the start (no retroactive backfill); the watermark means a deleted/skipped row
+ * is not regenerated. Called from the dashboard layout (cached per request).
+ */
+export async function syncFixedExpenses(): Promise<void> {
+  const user = await getOrCreateUser();
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curM = now.getMonth() + 1;
+  const curD = now.getDate();
+
+  const items = await prisma.fixedExpense.findMany({
+    where: { userId: user.id, active: true },
+  });
+
+  for (const it of items) {
+    // Starting cursor = month after the watermark, floored at the start month.
+    let cy: number;
+    let cm: number;
+    if (it.lastGenYear != null && it.lastGenMonth != null) {
+      const n = nextYM(it.lastGenYear, it.lastGenMonth);
+      cy = n.y;
+      cm = n.m;
+      if (cmpYM(cy, cm, it.startYear, it.startMonth) < 0) {
+        cy = it.startYear;
+        cm = it.startMonth;
+      }
+    } else {
+      cy = it.startYear;
+      cm = it.startMonth;
+    }
+
+    const toCreate: { y: number; m: number; due: number }[] = [];
+    let wmY = it.lastGenYear;
+    let wmM = it.lastGenMonth;
+
+    while (cmpYM(cy, cm, curY, curM) <= 0) {
+      // Stop once past the end month (if any).
+      if (it.endYear != null && it.endMonth != null && cmpYM(cy, cm, it.endYear, it.endMonth) > 0) break;
+      const due = Math.min(it.dueDay, daysInMonth(cy, cm));
+      // In the current month, only generate once the due day has arrived.
+      if (cy === curY && cm === curM && due > curD) break;
+      toCreate.push({ y: cy, m: cm, due });
+      wmY = cy;
+      wmM = cm;
+      const n = nextYM(cy, cm);
+      cy = n.y;
+      cm = n.m;
+    }
+
+    if (toCreate.length > 0) {
+      try {
+        await prisma.$transaction([
+          ...toCreate.map((t) =>
+            prisma.expense.create({
+              data: {
+                userId: user.id,
+                spentAt: new Date(t.y, t.m - 1, t.due, 9, 0, 0),
+                category: it.category,
+                amount: it.amount,
+                currency: it.currency,
+                note: it.label,
+                fixed: true,
+                fixedSourceId: it.id,
+                source: "manual",
+              },
+            }),
+          ),
+          prisma.fixedExpense.update({
+            where: { id: it.id },
+            data: { lastGenYear: wmY, lastGenMonth: wmM },
+          }),
+        ]);
+      } catch {
+        // One bad item shouldn't block the rest / the page render.
+      }
+    }
+  }
 }
