@@ -48,6 +48,7 @@
   --color-hue-trans:  oklch(0.80 0.100 220);
   --color-hue-health: oklch(0.82 0.110 160);
   --color-hue-bills:  oklch(0.78 0.090 260);
+  --color-hue-family: oklch(0.80 0.110 20);
   --color-hue-other:  oklch(0.82 0.025 80);
 
   /* ===== Typography ===== */

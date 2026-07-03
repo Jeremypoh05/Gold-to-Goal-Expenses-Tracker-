@@ -18,7 +18,7 @@ const EMOJI_CHOICES = [
     '🏠', '🛡️', '👨‍👩‍👧', '🚌', '🚗', '📱', '🌐', '💡',
     '🚰', '💳', '🎬', '🏋️', '💊', '🍽️', '📚', '📌',
 ];
-const CAT_KEYS: CategoryKey[] = ['bills', 'trans', 'food', 'health', 'ent', 'shop', 'other'];
+const CAT_KEYS: CategoryKey[] = ['bills', 'trans', 'family', 'food', 'health', 'ent', 'shop', 'other'];
 
 export interface FixedExpenseForm {
     id?: number;

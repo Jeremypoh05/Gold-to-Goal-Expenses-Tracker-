@@ -9,8 +9,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { toUiExpense, suggestFixedMetaLocal, composeFixedNote } from "@/lib/expense-utils";
-import { getMonthDashboardData, getYearSummary, getFixedExpenses } from "@/lib/queries";
+import { toUiExpense, suggestFixedMetaLocal } from "@/lib/expense-utils";
+import {
+  getMonthDashboardData,
+  getYearSummary,
+  getFixedExpenses,
+  resyncFixedExpense,
+} from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
 
 const VALID_CATEGORIES: CategoryKey[] = [
@@ -423,7 +428,7 @@ export async function addFixedExpense(input: FixedExpenseInput) {
   const userId = await requireUserId();
   // Fill emoji/category from the local suggester when the client didn't set them.
   const fallback = suggestFixedMetaLocal(input.label);
-  await prisma.fixedExpense.create({
+  const created = await prisma.fixedExpense.create({
     data: {
       userId,
       label: input.label.trim() || "Fixed expense",
@@ -440,6 +445,8 @@ export async function addFixedExpense(input: FixedExpenseInput) {
       active: input.active ?? true,
     },
   });
+  // Materialize its due entries right away (from start to today).
+  await resyncFixedExpense(created.id);
   revalidateDashboard();
 }
 
@@ -450,7 +457,7 @@ export async function updateFixedExpense(
   const userId = await requireUserId();
   const owned = await prisma.fixedExpense.findFirst({ where: { id, userId } });
   if (!owned) throw new Error("Fixed expense not found");
-  const updated = await prisma.fixedExpense.update({
+  await prisma.fixedExpense.update({
     where: { id },
     data: {
       ...(input.label !== undefined && { label: input.label.trim() || "Fixed expense" }),
@@ -470,29 +477,26 @@ export async function updateFixedExpense(
     },
   });
 
-  // Propagate the definition to already-generated rows for THIS month and later,
-  // so a correction (renamed "home" → "rent", amount 100 → 200) shows up in the
-  // ledger / dashboard / income immediately. Past months stay as historical record.
-  const now = new Date();
-  const curStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  await prisma.expense.updateMany({
-    where: { userId, fixedSourceId: id, spentAt: { gte: curStart } },
-    data: {
-      amount: updated.amount,
-      category: updated.category,
-      currency: updated.currency,
-      note: composeFixedNote(updated.label, updated.note),
-    },
-  });
+  // Editing = redefine: fully re-materialize the whole [start, today] range at the
+  // new values, so a changed start month / amount / label is reflected across every
+  // affected month (ledger, calendar, dashboard, income). To change the rate from a
+  // point in time while KEEPING past months, use changeFixedAmount instead.
+  await resyncFixedExpense(id);
 
   revalidateDashboard();
 }
 
-/** Remove a fixed-expense definition. Already-generated Expense rows remain
- *  (their fixedSourceId is set null) so history is preserved. */
+/** Remove a fixed-expense definition AND its auto-generated Expense rows, so the
+ *  recurring entries disappear from the ledger/calendar/dashboard when the rule is
+ *  deleted (they were system-generated, not hand-entered). */
 export async function deleteFixedExpense(id: number) {
   const userId = await requireUserId();
-  await prisma.fixedExpense.deleteMany({ where: { id, userId } });
+  const owned = await prisma.fixedExpense.findFirst({ where: { id, userId } });
+  if (!owned) return;
+  await prisma.$transaction([
+    prisma.expense.deleteMany({ where: { userId, fixedSourceId: id } }),
+    prisma.fixedExpense.delete({ where: { id } }),
+  ]);
   revalidateDashboard();
 }
 

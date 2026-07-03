@@ -32,6 +32,12 @@ export const CATEGORIES: Record<CategoryKey, Category> = {
     color: "var(--color-hue-bills)",
     hue: 260,
   },
+  family: {
+    key: "family",
+    label: "Family support",
+    color: "var(--color-hue-family)",
+    hue: 20,
+  },
   other: {
     key: "other",
     label: "Others",

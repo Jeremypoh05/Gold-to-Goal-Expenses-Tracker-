@@ -744,11 +744,11 @@ function RecentTransactions({ filter, setFilter }: {
                 <div className="hidden sm:block flex-1" />
                 <div className="flex items-center gap-2 flex-wrap">
                     <SegmentedControl value={filter} onChange={setFilter} />
-                    <button className="flex items-center gap-1.5 border border-line bg-bg-card py-2 px-3 md:px-4 rounded-full text-sm hover:border-ink-2 transition-all">
+                    <Link href="/ledger" className="flex items-center gap-1.5 border border-line bg-bg-card py-2 px-3 md:px-4 rounded-full text-sm hover:border-ink-2 transition-all">
                         <span className="hidden sm:inline">View ledger</span>
                         <span className="sm:hidden">All</span>
                         <ChevronIcon direction="right" size={14} />
-                    </button>
+                    </Link>
                 </div>
             </div>
 

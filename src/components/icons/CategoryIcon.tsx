@@ -53,6 +53,14 @@ const ICON_PATHS: Record<CategoryKey, React.ReactNode> = {
             <path d="M9 9 H15 M9 12 H15 M9 15 H13" stroke="#fff" strokeLinecap="round" fill="none" />
         </g>
     ),
+    family: (
+        <g>
+            <circle cx="8.5" cy="8" r="2.6" />
+            <circle cx="16" cy="9" r="2.1" />
+            <path d="M3.5 19 V17 A4 4 0 0 1 11.5 17 V19 Z" strokeLinejoin="round" />
+            <path d="M13 19 V17 A3.2 3.2 0 0 1 19.5 17 V19 Z" strokeLinejoin="round" />
+        </g>
+    ),
     other: (
         <g>
             <path d="M12 4 L13.5 10.5 L20 12 L13.5 13.5 L12 20 L10.5 13.5 L4 12 L10.5 10.5 Z" />

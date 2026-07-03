@@ -335,3 +335,73 @@ export async function syncFixedExpenses(): Promise<void> {
     }
   }
 }
+
+/**
+ * Fully re-materialize ONE fixed expense: delete all its generated rows and
+ * regenerate the entire [start, today] range (respecting the end month + due day)
+ * at the definition's current values, resetting the watermark. Called after an
+ * add or edit so a changed start month / amount is reflected across every affected
+ * month immediately (ledger, calendar, dashboard, income) — unlike the lazy,
+ * forward-only sync. History-preserving rate changes use `changeFixedAmount`.
+ */
+export async function resyncFixedExpense(id: number): Promise<void> {
+  const user = await getOrCreateUser();
+  const it = await prisma.fixedExpense.findFirst({ where: { id, userId: user.id } });
+  if (!it) return;
+
+  // Clear existing generated rows for this item — the definition is the source of truth.
+  await prisma.expense.deleteMany({ where: { userId: user.id, fixedSourceId: id } });
+
+  if (!it.active) {
+    await prisma.fixedExpense.update({
+      where: { id },
+      data: { lastGenYear: null, lastGenMonth: null },
+    });
+    return;
+  }
+
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curM = now.getMonth() + 1;
+  const curD = now.getDate();
+
+  let cy = it.startYear;
+  let cm = it.startMonth;
+  const toCreate: { y: number; m: number; due: number }[] = [];
+  let wmY: number | null = null;
+  let wmM: number | null = null;
+
+  while (cmpYM(cy, cm, curY, curM) <= 0) {
+    if (it.endYear != null && it.endMonth != null && cmpYM(cy, cm, it.endYear, it.endMonth) > 0) break;
+    const due = Math.min(it.dueDay, daysInMonth(cy, cm));
+    if (cy === curY && cm === curM && due > curD) break;
+    toCreate.push({ y: cy, m: cm, due });
+    wmY = cy;
+    wmM = cm;
+    const n = nextYM(cy, cm);
+    cy = n.y;
+    cm = n.m;
+  }
+
+  await prisma.$transaction([
+    ...toCreate.map((t) =>
+      prisma.expense.create({
+        data: {
+          userId: user.id,
+          spentAt: new Date(t.y, t.m - 1, t.due, 9, 0, 0),
+          category: it.category,
+          amount: it.amount,
+          currency: it.currency,
+          note: composeFixedNote(it.label, it.note),
+          fixed: true,
+          fixedSourceId: id,
+          source: "manual",
+        },
+      }),
+    ),
+    prisma.fixedExpense.update({
+      where: { id },
+      data: { lastGenYear: wmY, lastGenMonth: wmM },
+    }),
+  ]);
+}

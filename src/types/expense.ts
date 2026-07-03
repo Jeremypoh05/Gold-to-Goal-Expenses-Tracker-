@@ -9,6 +9,7 @@ export type CategoryKey =
   | "trans"
   | "health"
   | "bills"
+  | "family"
   | "other";
 
 export interface Category {
@@ -27,6 +28,7 @@ export interface Expense {
   note: string;
   voice?: boolean; // Was this logged via voice?
   fixed?: boolean; // Is this a recurring fixed expense?
+  fixedSourceId?: number | null; // ADDED (Module 4): the FixedExpense that generated this row
   currency?: Currency; // ADDED (Phase 8): carried so edits round-trip the right currency
 }
 

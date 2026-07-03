@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
     CategoryTile,
@@ -155,7 +156,15 @@ function DayCard({
 }) {
     const { current, refresh } = useExpenses();
     const { open: openEdit } = useAddModal();
+    const router = useRouter();
     const [pendingId, startTransition] = useTransition();
+
+    // Recurring rows are managed by their rule — clicking one deep-links to the
+    // Fixed page and auto-opens that item's modal (they're linked). Others edit inline.
+    const editRow = (t: Expense) => {
+        if (t.fixed && t.fixedSourceId) router.push(`/fixed?edit=${t.fixedSourceId}`);
+        else openEdit(t);
+    };
     const dayTotal = entries.reduce((a, b) => a + b.amt, 0);
     const voiceCount = entries.filter((e) => e.voice).length;
     const date = new Date(current.year, current.month - 1, day);
@@ -302,9 +311,9 @@ function DayCard({
                                 <td>
                                     <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button
-                                            onClick={() => openEdit(t)}
+                                            onClick={() => editRow(t)}
                                             className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors"
-                                            aria-label="Edit"
+                                            aria-label={t.fixed ? 'Open recurring' : 'Edit'}
                                         >
                                             <EditIcon size={12} className="text-ink-2" />
                                         </button>
@@ -329,7 +338,11 @@ function DayCard({
                 {entries.map((t) => (
                     <div
                         key={t.id}
-                        className="flex items-center gap-2.5 px-4 py-3 active:bg-bg-1"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => editRow(t)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editRow(t); } }}
+                        className="flex items-center gap-2.5 px-4 py-3 active:bg-bg-1 cursor-pointer"
                     >
                         <CategoryTile kind={t.cat} size={32} variant="filled" />
                         <div className="flex-1 min-w-0">
@@ -346,7 +359,7 @@ function DayCard({
                                 )}
                                 {t.fixed && (
                                     <>
-                                        <span>fixed</span>
+                                        <span>recurring</span>
                                         <span>·</span>
                                     </>
                                 )}

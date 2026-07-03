@@ -33,6 +33,7 @@ export function toUiExpense(row: DbExpense): Expense {
     note: row.note,
     voice: row.source === "voice",
     fixed: row.fixed,
+    fixedSourceId: row.fixedSourceId,
     currency: row.currency,
   };
 }
@@ -300,7 +301,7 @@ const FIXED_KEYWORDS: {
   category: CategoryKey;
 }[] = [
   { match: ["rent", "房租", "租金", "mortgage", "房贷"], emoji: "🏠", category: "bills" },
-  { match: ["family support", "family", "家用", "household", "allowance", "家庭", "parents", "父母", "孝亲"], emoji: "👨‍👩‍👧", category: "other" },
+  { match: ["family support", "family", "家用", "household", "allowance", "家庭", "parents", "父母", "孝亲"], emoji: "👨‍👩‍👧", category: "family" },
   { match: ["transport", "交通", "mrt", "bus", "巴士", "地铁", "grab", "ez-link", "ezlink", "petrol", "汽油", "gas", "fuel", "parking", "停车"], emoji: "🚌", category: "trans" },
   { match: ["car", "车", "vehicle", "road tax", "车贷"], emoji: "🚗", category: "trans" },
   { match: ["phone", "电话", "mobile", "手机", "telco", "singtel", "starhub", "m1"], emoji: "📱", category: "bills" },

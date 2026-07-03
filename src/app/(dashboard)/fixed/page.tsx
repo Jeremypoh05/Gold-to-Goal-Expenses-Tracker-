@@ -68,6 +68,20 @@ export default function FixedExpensesPage() {
         load();
     }, [load]);
 
+    // ADDED (Module 4): deep link from a generated ledger/dashboard row —
+    // /fixed?edit=<id> auto-opens that item's modal, then cleans the URL.
+    useEffect(() => {
+        if (!loaded || items.length === 0) return;
+        const editId = Number(new URLSearchParams(window.location.search).get('edit'));
+        if (!editId) return;
+        const target = items.find((f) => f.id === editId);
+        if (target) {
+            setEditing(target);
+            setModalOpen(true);
+        }
+        window.history.replaceState(null, '', '/fixed');
+    }, [loaded, items]);
+
     const { active, archived, monthlyTotal } = useMemo(() => {
         const active: UiFixedExpense[] = [];
         const archived: UiFixedExpense[] = [];
