@@ -563,7 +563,20 @@ export default function IncomePage() {
                         <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                             Income &amp; savings
                         </div>
-                        <h1 className="display mt-0.5 md:mt-1" style={{ fontSize: 'clamp(28px, 5vw, 40px)', lineHeight: 1.05 }}>
+                        <h1
+                            className="display mt-0.5 md:mt-1"
+                            style={{
+                                fontSize: 'clamp(30px, 5.5vw, 46px)',
+                                lineHeight: 1.02,
+                                width: 'fit-content',
+                                backgroundImage:
+                                    'linear-gradient(100deg, var(--color-ink-0) 32%, oklch(0.74 0.17 80) 92%)',
+                                WebkitBackgroundClip: 'text',
+                                backgroundClip: 'text',
+                                color: 'transparent',
+                                letterSpacing: '-0.01em',
+                            }}
+                        >
                             Your {viewYear} income
                         </h1>
                         <div className="text-[13px] text-ink-2 mt-1">

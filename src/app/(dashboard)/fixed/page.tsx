@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useTransition, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { PlusIcon } from '@/components/icons';
+import { PlusIcon, RepeatIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { FixedExpenseModal, FixedTile, type FixedExpenseForm } from '@/components/fixed';
 import {
@@ -16,6 +16,7 @@ import {
     addFixedExpense,
     updateFixedExpense,
     deleteFixedExpense,
+    suggestFixedMeta,
 } from '@/lib/actions';
 import { fixedExpenseStatus, type UiFixedExpense, type FixedStatus } from '@/lib/expense-utils';
 import { CATEGORIES } from '@/data/categories';
@@ -149,8 +150,22 @@ export default function FixedExpensesPage() {
                 >
                     <div>
                         <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">Recurring</div>
-                        <h1 className="display mt-0.5 md:mt-1" style={{ fontSize: 'clamp(28px, 5vw, 40px)', lineHeight: 1.05 }}>Fixed expenses</h1>
-                        <div className="text-[13px] text-ink-2 mt-1">Rent, bills, 家用, subscriptions — auto-logged each month</div>
+                        <h1
+                            className="display mt-0.5 md:mt-1"
+                            style={{
+                                fontSize: 'clamp(30px, 5.5vw, 46px)',
+                                lineHeight: 1.02,
+                                width: 'fit-content',
+                                backgroundImage: 'linear-gradient(100deg, var(--color-ink-0) 32%, oklch(0.74 0.17 80) 92%)',
+                                WebkitBackgroundClip: 'text',
+                                backgroundClip: 'text',
+                                color: 'transparent',
+                                letterSpacing: '-0.01em',
+                            }}
+                        >
+                            Fixed expenses
+                        </h1>
+                        <div className="text-[13px] text-ink-2 mt-1">Rent, bills, family support, subscriptions — auto-logged each month</div>
                     </div>
                     <button
                         type="button"
@@ -165,17 +180,31 @@ export default function FixedExpensesPage() {
                 {/* Monthly commitment hero */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
-                    className="glass grad-gold-soft rounded-3xl p-6 md:p-7 flex items-baseline gap-3"
+                    className="glass grad-gold-soft rounded-3xl p-6 md:p-7 relative overflow-hidden"
                     style={{ border: '1px solid oklch(0.88 0.08 88)' }}
                 >
-                    <div>
-                        <div className="text-[11px] uppercase tracking-[0.1em] font-semibold text-on-soft">Monthly commitment</div>
-                        <div className="text-[11px] text-ink-2 mt-1">{active.length} active {active.length === 1 ? 'item' : 'items'} · {MONTH_NAMES[current.month - 1]} {current.year}</div>
+                    {/* Faint watermark to fill the space */}
+                    <div className="absolute -right-6 -bottom-8 opacity-[0.07] pointer-events-none" style={{ color: 'var(--color-gold-700)' }}>
+                        <RepeatIcon size={180} />
                     </div>
-                    <div className="flex-1" />
-                    <div className="display-number" style={{ fontSize: 'clamp(30px, 6vw, 40px)', lineHeight: 1 }}>
-                        <span style={{ fontSize: '0.5em', color: 'var(--color-ink-2)', marginRight: 4 }}>S$</span>
-                        <AnimatedNumber value={monthlyTotal} format="integer" duration={1400} delay={300} />
+                    <div className="flex items-center gap-4 relative">
+                        <div
+                            className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+                            style={{ background: 'linear-gradient(135deg, oklch(0.86 0.14 90), oklch(0.72 0.16 78))', color: '#3a2708', boxShadow: 'var(--shadow-gold)' }}
+                        >
+                            <RepeatIcon size={26} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-[11px] uppercase tracking-[0.1em] font-semibold text-on-soft">Monthly commitment</div>
+                            <div className="display-number mt-0.5" style={{ fontSize: 'clamp(28px, 6vw, 38px)', lineHeight: 1 }}>
+                                <span style={{ fontSize: '0.5em', color: 'var(--color-ink-2)', marginRight: 4 }}>S$</span>
+                                <AnimatedNumber value={monthlyTotal} format="integer" duration={1400} delay={300} />
+                                <span className="text-[13px] text-ink-2 font-normal" style={{ marginLeft: 4 }}>/mo</span>
+                            </div>
+                            <div className="text-[11px] text-ink-2 mt-1">
+                                {active.length} active {active.length === 1 ? 'item' : 'items'} · auto-logged in {MONTH_NAMES[current.month - 1]} {current.year}
+                            </div>
+                        </div>
                     </div>
                 </motion.div>
 
@@ -255,6 +284,7 @@ export default function FixedExpensesPage() {
                 onClose={() => setModalOpen(false)}
                 onSave={handleSave}
                 onDelete={handleDelete}
+                onSuggest={suggestFixedMeta}
             />
         </>
     );

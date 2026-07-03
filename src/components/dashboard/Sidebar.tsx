@@ -43,7 +43,7 @@ const NAV_ITEMS: NavItem[] = [
     { href: '/ledger', label: 'Ledger', Icon: GridIcon },
     { href: '/calendar', label: 'Calendar', Icon: CalendarIcon },
     { href: '/income', label: 'Income', Icon: WalletIcon },
-    { href: '/fixed', label: 'Fixed', Icon: RepeatIcon },
+    { href: '/fixed', label: 'Recurring', Icon: RepeatIcon },
     { href: '/voice', label: 'Voice log', Icon: MicIcon },
 ];
 

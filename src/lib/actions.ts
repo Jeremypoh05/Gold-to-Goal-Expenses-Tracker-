@@ -5,12 +5,23 @@
 // never trust the client) and scopes writes to the signed-in user. After a write we
 // revalidatePath the dashboard routes; client handlers also call the ExpensesProvider's
 // refresh() (which re-fetches the viewed month via fetchMonthData) so the UI updates.
+import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { toUiExpense, suggestFixedMetaLocal } from "@/lib/expense-utils";
 import { getMonthDashboardData, getYearSummary, getFixedExpenses } from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
+
+const VALID_CATEGORIES: CategoryKey[] = [
+  "food",
+  "shop",
+  "ent",
+  "trans",
+  "health",
+  "bills",
+  "other",
+];
 
 const DASHBOARD_ROUTES = [
   "/dashboard",
@@ -347,16 +358,48 @@ export async function fetchFixedExpenses() {
 }
 
 /**
- * Suggest an emoji + best-fit category for a fixed-expense label.
- * SECURITY: only the label text is ever sent to any AI — never amounts or PII.
- * Uses a local keyword map today; when ANTHROPIC_API_KEY + @anthropic-ai/sdk are
- * configured, swap the body for a Claude Haiku `messages.parse()` call (structured
- * output) that falls back to `suggestFixedMetaLocal` on any error.
+ * Suggest an emoji + best-fit category for a fixed-expense label via Claude Haiku,
+ * falling back to the local keyword map when the key is unset, the label is empty,
+ * or anything goes wrong. SECURITY: only the label text is ever sent to the model —
+ * never amounts, dates, or any other PII.
  */
 export async function suggestFixedMeta(
   label: string,
 ): Promise<{ emoji: string; category: CategoryKey }> {
-  return suggestFixedMetaLocal(label);
+  const fallback = suggestFixedMetaLocal(label);
+  const trimmed = label.trim().slice(0, 60);
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !trimmed) return fallback;
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 80,
+      system:
+        `You tag a personal recurring-expense label with one emoji and one spending category. ` +
+        `Valid categories: ${VALID_CATEGORIES.join(", ")}. ` +
+        `Reply with ONLY a compact JSON object, no prose: {"emoji":"<one emoji>","category":"<one category>"}. ` +
+        `Pick the single most fitting emoji and the closest category.`,
+      messages: [{ role: "user", content: trimmed }],
+    });
+    const text = msg.content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return fallback;
+    const parsed = JSON.parse(match[0]) as { emoji?: unknown; category?: unknown };
+    const category = VALID_CATEGORIES.includes(parsed.category as CategoryKey)
+      ? (parsed.category as CategoryKey)
+      : fallback.category;
+    const emoji =
+      typeof parsed.emoji === "string" && parsed.emoji.trim()
+        ? parsed.emoji.trim().slice(0, 8)
+        : fallback.emoji;
+    return { emoji, category };
+  } catch {
+    return fallback;
+  }
 }
 
 export interface FixedExpenseInput {

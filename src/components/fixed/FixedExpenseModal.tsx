@@ -41,6 +41,8 @@ interface Props {
     onClose: () => void;
     onSave: (v: FixedExpenseForm) => void;
     onDelete: (id: number) => void;
+    /** AI (Claude Haiku) emoji + category suggester; label-only. */
+    onSuggest: (label: string) => Promise<{ emoji: string; category: CategoryKey }>;
 }
 
 function hue(cat: CategoryKey) {
@@ -82,7 +84,7 @@ function DayStepper({ value, onChange }: { value: number; onChange: (d: number) 
     );
 }
 
-function Content({ item, defaultYear, pending, onClose, onSave, onDelete }: Omit<Props, 'open'>) {
+function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSuggest }: Omit<Props, 'open'>) {
     const editing = item != null;
     const initSuggest = suggestFixedMetaLocal(item?.label ?? '');
 
@@ -110,6 +112,24 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete }: Omit
         if (!emojiTouched) setEmoji(s.emoji);
         if (!catTouched) setCategory(s.category);
     };
+
+    // Refine the local guess with the AI suggester (debounced), unless the user has
+    // manually picked an emoji + category. Races are avoided by re-checking the label.
+    useEffect(() => {
+        const l = label.trim();
+        if (!l || (emojiTouched && catTouched)) return;
+        const t = setTimeout(async () => {
+            try {
+                const s = await onSuggest(l);
+                if (label.trim() !== l) return; // stale
+                if (!emojiTouched) setEmoji(s.emoji);
+                if (!catTouched) setCategory(s.category);
+            } catch {
+                /* keep local guess */
+            }
+        }, 500);
+        return () => clearTimeout(t);
+    }, [label, emojiTouched, catTouched, onSuggest]);
 
     const canSave = num(amount) > 0 && label.trim().length > 0;
 
@@ -169,7 +189,7 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete }: Omit
 
                     <div>
                         <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">Name</div>
-                        <input type="text" value={label} onChange={(e) => onLabelChange(e.target.value)} placeholder="e.g. Rent, Phone bill, 家用, Netflix" maxLength={40} className="w-full px-3 py-2.5 rounded-xl border border-line bg-bg-1 outline-none text-[14px] focus:border-gold-400" aria-label="Name" autoFocus={!editing} />
+                        <input type="text" value={label} onChange={(e) => onLabelChange(e.target.value)} placeholder="e.g. Rent, Phone bill, Family support, Netflix" maxLength={40} className="w-full px-3 py-2.5 rounded-xl border border-line bg-bg-1 outline-none text-[14px] focus:border-gold-400" aria-label="Name" autoFocus={!editing} />
                         <div className="text-[10px] text-ink-3 mt-1">Icon &amp; category are auto-picked from the name — tap to override.</div>
                     </div>
 
@@ -267,7 +287,7 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete }: Omit
     );
 }
 
-export function FixedExpenseModal({ open, item, defaultYear, pending, onClose, onSave, onDelete }: Props) {
+export function FixedExpenseModal({ open, item, defaultYear, pending, onClose, onSave, onDelete, onSuggest }: Props) {
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -296,6 +316,7 @@ export function FixedExpenseModal({ open, item, defaultYear, pending, onClose, o
                     onClose={onClose}
                     onSave={onSave}
                     onDelete={onDelete}
+                    onSuggest={onSuggest}
                 />
             )}
         </AnimatePresence>
