@@ -121,8 +121,13 @@ model IncomeSource {
   monthlyAmount  Decimal  @db.Decimal(12, 2)
   effectiveYear  Int      // recurring: contributes from here on. one-off: just this month.
   effectiveMonth Int      // 1–12
-  recurring      Boolean  @default(true) // true = every month from effective; false = that single month only
-  active         Boolean  @default(true) // paused sources stay for history but stop counting
+  // CHANGED (Phase 9): recurring streams can STOP at a month (interval end) so raises
+  // are modeled as "old ends Mar" + "new starts Apr" without erasing past months.
+  // null end = ongoing. Ignored for one-off (recurring=false).
+  endYear        Int?
+  endMonth       Int?
+  recurring      Boolean  @default(true) // true = every month in [start,end]; false = that single month only
+  active         Boolean  @default(true) // hard exclude (rare); the normal "it stopped" is an end date
 
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

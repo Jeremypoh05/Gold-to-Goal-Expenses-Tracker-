@@ -24,6 +24,7 @@ import {
     type NewBonus,
     type SalaryPeriodForm,
     type IncomeSourceForm,
+    type RateChange,
 } from '@/components/income';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { computeYearIncomeStats } from '@/lib/expense-utils';
@@ -37,6 +38,7 @@ import {
     addIncomeSource,
     updateIncomeSource,
     deleteIncomeSource,
+    changeIncomeSourceAmount,
 } from '@/lib/actions';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import type { IncomeInfo } from '@/types';
@@ -499,6 +501,8 @@ export default function IncomePage() {
                     monthlyAmount: v.monthlyAmount,
                     effectiveYear: v.effectiveYear,
                     effectiveMonth: v.effectiveMonth,
+                    endYear: v.endYear,
+                    endMonth: v.endMonth,
                     recurring: v.recurring,
                 });
             } else {
@@ -508,6 +512,8 @@ export default function IncomePage() {
                     monthlyAmount: v.monthlyAmount,
                     effectiveYear: v.effectiveYear,
                     effectiveMonth: v.effectiveMonth,
+                    endYear: v.endYear,
+                    endMonth: v.endMonth,
                     recurring: v.recurring,
                 });
             }
@@ -515,9 +521,21 @@ export default function IncomePage() {
         });
     };
 
-    const handleToggleSource = (id: number, active: boolean) => {
+    const handleReopenSource = (id: number) => {
         startTransition(async () => {
-            await updateIncomeSource(id, { active });
+            // Reopen = un-pause + clear any end date → ongoing again.
+            await updateIncomeSource(id, { active: true, endYear: null, endMonth: null });
+            refreshAll();
+        });
+    };
+
+    const handleChangeAmount = (v: RateChange) => {
+        startTransition(async () => {
+            await changeIncomeSourceAmount(v.id, {
+                fromYear: v.fromYear,
+                fromMonth: v.fromMonth,
+                newAmount: v.newAmount,
+            });
             refreshAll();
         });
     };
@@ -677,7 +695,8 @@ export default function IncomePage() {
                 onClose={() => setSourcesOpen(false)}
                 onSave={handleSaveSource}
                 onDelete={handleDeleteSource}
-                onToggle={handleToggleSource}
+                onReopen={handleReopenSource}
+                onChangeAmount={handleChangeAmount}
             />
         </>
     );

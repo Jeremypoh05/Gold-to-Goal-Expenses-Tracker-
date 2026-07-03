@@ -294,19 +294,71 @@ export function toUiIncomeSource(row: DbIncomeSource) {
     monthlyAmount: Number(row.monthlyAmount),
     year: row.effectiveYear,
     month: row.effectiveMonth,
+    endYear: row.endYear,
+    endMonth: row.endMonth,
     recurring: row.recurring,
     active: row.active,
   };
 }
 export type UiIncomeSource = ReturnType<typeof toUiIncomeSource>;
 
+/** Compare two (year, month) pairs: <0, 0, >0. */
+function cmpYM(aY: number, aM: number, bY: number, bM: number): number {
+  return aY !== bY ? aY - bY : aM - bM;
+}
+
 /** Does an active income source contribute in this specific (year, month)?
- *  Recurring sources apply from their effective month onward; one-off sources
- *  apply only in their single effective month. */
+ *  Recurring sources apply across their [start, end] interval (null end =
+ *  ongoing); one-off sources apply only in their single effective month. */
 function sourceAppliesTo(s: UiIncomeSource, year: number, month: number): boolean {
   if (!s.active) return false;
-  if (s.recurring) return s.year < year || (s.year === year && s.month <= month);
-  return s.year === year && s.month === month;
+  if (!s.recurring) return s.year === year && s.month === month;
+  const afterStart = cmpYM(year, month, s.year, s.month) >= 0;
+  const beforeEnd =
+    s.endYear == null || s.endMonth == null
+      ? true
+      : cmpYM(year, month, s.endYear, s.endMonth) <= 0;
+  return afterStart && beforeEnd;
+}
+
+/** Status of an income source relative to "now" — drives the UI tabs/colors.
+ *  upcoming: starts in the future · ongoing: recurring, no/future end ·
+ *  ended: recurring, end is in the past · oneoff / oneoff-past for single months. */
+export type IncomeSourceStatus =
+  | "ongoing"
+  | "upcoming"
+  | "ended"
+  | "oneoff"
+  | "oneoff-past";
+
+export function incomeSourceStatus(
+  s: UiIncomeSource,
+  nowYear: number,
+  nowMonth: number,
+): IncomeSourceStatus {
+  const startsInFuture = cmpYM(s.year, s.month, nowYear, nowMonth) > 0;
+  if (!s.recurring) {
+    return cmpYM(s.year, s.month, nowYear, nowMonth) < 0 ? "oneoff-past" : "oneoff";
+  }
+  if (startsInFuture) return "upcoming";
+  if (
+    s.endYear != null &&
+    s.endMonth != null &&
+    cmpYM(s.endYear, s.endMonth, nowYear, nowMonth) < 0
+  ) {
+    return "ended";
+  }
+  return "ongoing";
+}
+
+/** Archived = no longer contributing now or in the future (ended or past one-off). */
+export function isIncomeSourceArchived(
+  s: UiIncomeSource,
+  nowYear: number,
+  nowMonth: number,
+): boolean {
+  const st = incomeSourceStatus(s, nowYear, nowMonth);
+  return st === "ended" || st === "oneoff-past";
 }
 
 /** Total income-source amount in effect for (year, month) — recurring + any
@@ -329,7 +381,7 @@ export function recurringMonthlyIncome(
   month: number,
 ): number {
   return sources
-    .filter((s) => s.active && s.recurring && (s.year < year || (s.year === year && s.month <= month)))
+    .filter((s) => s.recurring && sourceAppliesTo(s, year, month))
     .reduce((a, s) => a + s.monthlyAmount, 0);
 }
 

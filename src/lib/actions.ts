@@ -267,9 +267,14 @@ export interface IncomeSourceInput {
   monthlyAmount: number;
   effectiveYear: number;
   effectiveMonth: number; // 1–12
+  /** Interval end for recurring streams; null = ongoing. */
+  endYear?: number | null;
+  endMonth?: number | null;
   recurring?: boolean;
   active?: boolean;
 }
+
+const clampMonth = (m: number) => Math.min(12, Math.max(1, Math.round(m)));
 
 export async function addIncomeSource(input: IncomeSourceInput) {
   const userId = await requireUserId();
@@ -280,7 +285,9 @@ export async function addIncomeSource(input: IncomeSourceInput) {
       emoji: input.emoji || "💰",
       monthlyAmount: input.monthlyAmount,
       effectiveYear: input.effectiveYear,
-      effectiveMonth: Math.min(12, Math.max(1, Math.round(input.effectiveMonth))),
+      effectiveMonth: clampMonth(input.effectiveMonth),
+      endYear: input.endYear ?? null,
+      endMonth: input.endMonth != null ? clampMonth(input.endMonth) : null,
       recurring: input.recurring ?? true,
       active: input.active ?? true,
     },
@@ -308,7 +315,12 @@ export async function updateIncomeSource(
         effectiveYear: input.effectiveYear,
       }),
       ...(input.effectiveMonth !== undefined && {
-        effectiveMonth: Math.min(12, Math.max(1, Math.round(input.effectiveMonth))),
+        effectiveMonth: clampMonth(input.effectiveMonth),
+      }),
+      // null clears the end (reopen → ongoing); a value sets/moves it.
+      ...(input.endYear !== undefined && { endYear: input.endYear }),
+      ...(input.endMonth !== undefined && {
+        endMonth: input.endMonth != null ? clampMonth(input.endMonth) : null,
       }),
       ...(input.recurring !== undefined && { recurring: input.recurring }),
       ...(input.active !== undefined && { active: input.active }),
@@ -321,5 +333,48 @@ export async function updateIncomeSource(
 export async function deleteIncomeSource(id: number) {
   const userId = await requireUserId();
   await prisma.incomeSource.deleteMany({ where: { id, userId } });
+  revalidateDashboard();
+}
+
+/**
+ * Guided "amount changed from month X" — models a raise/cut without erasing
+ * history or double-counting. Caps the existing recurring stream at the month
+ * BEFORE the change, then creates a fresh ongoing stream (same label/emoji) at
+ * the new amount from the change month. Both writes + one revalidate.
+ */
+export async function changeIncomeSourceAmount(
+  id: number,
+  input: { fromYear: number; fromMonth: number; newAmount: number },
+) {
+  const userId = await requireUserId();
+  const src = await prisma.incomeSource.findFirst({ where: { id, userId } });
+  if (!src) throw new Error("Income source not found");
+
+  const fromMonth = clampMonth(input.fromMonth);
+  const fromYear = input.fromYear;
+  // The month just before the change (handles Jan → Dec of prior year).
+  const prevMonth = fromMonth === 1 ? 12 : fromMonth - 1;
+  const prevYear = fromMonth === 1 ? fromYear - 1 : fromYear;
+
+  await prisma.$transaction([
+    prisma.incomeSource.update({
+      where: { id },
+      data: { endYear: prevYear, endMonth: prevMonth },
+    }),
+    prisma.incomeSource.create({
+      data: {
+        userId,
+        label: src.label,
+        emoji: src.emoji,
+        monthlyAmount: input.newAmount,
+        effectiveYear: fromYear,
+        effectiveMonth: fromMonth,
+        endYear: null,
+        endMonth: null,
+        recurring: true,
+        active: true,
+      },
+    }),
+  ]);
   revalidateDashboard();
 }

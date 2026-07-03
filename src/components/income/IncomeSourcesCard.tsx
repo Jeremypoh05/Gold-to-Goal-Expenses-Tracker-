@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import { PlusIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
-import type { UiIncomeSource } from '@/lib/expense-utils';
+import { incomeSourceStatus, isIncomeSourceArchived, type UiIncomeSource } from '@/lib/expense-utils';
 
 // Cap how many rows render on the card so it stays compact no matter how many
 // sources exist — the rest live behind "+N more" in the manage modal.
@@ -23,17 +23,22 @@ export function IncomeSourcesCard({
     onManage: () => void;
     delay?: number;
 }) {
-    const active = sources.filter((s) => s.active);
-    // Only recurring streams are truly "per month"; one-off amounts aren't annualized.
-    const recurringActive = active.filter((s) => s.recurring);
-    const monthlyTotal = recurringActive.reduce((a, s) => a + s.monthlyAmount, 0);
-    // Show active sources first (biggest first), paused ones after.
-    const ordered = [...sources].sort((a, b) => {
-        if (a.active !== b.active) return a.active ? -1 : 1;
-        return b.monthlyAmount - a.monthlyAmount;
-    });
+    const now = new Date();
+    const nowY = now.getFullYear();
+    const nowM = now.getMonth() + 1;
+
+    // The card surfaces what's live: currently-contributing / upcoming streams
+    // (ended + past one-off live in the modal's Archived tab).
+    const live = sources.filter((s) => s.active && !isIncomeSourceArchived(s, nowY, nowM));
+    // Only ongoing recurring streams count toward the "per month" total.
+    const monthlyTotal = live
+        .filter((s) => s.recurring && incomeSourceStatus(s, nowY, nowM) === 'ongoing')
+        .reduce((a, s) => a + s.monthlyAmount, 0);
+    const ongoingCount = live.filter((s) => s.recurring && incomeSourceStatus(s, nowY, nowM) === 'ongoing').length;
+    const ordered = [...live].sort((a, b) => b.monthlyAmount - a.monthlyAmount);
     const visible = ordered.slice(0, MAX_VISIBLE);
-    const hiddenCount = ordered.length - visible.length;
+    const archivedCount = sources.length - live.length;
+    const hiddenCount = ordered.length - visible.length + archivedCount;
 
     return (
         <motion.div
@@ -80,7 +85,7 @@ export function IncomeSourcesCard({
                                 Recurring income
                             </div>
                             <div className="text-[11px] text-ink-2 mt-0.5">
-                                {recurringActive.length} recurring · per month
+                                {ongoingCount} ongoing · per month
                             </div>
                         </div>
                         <div className="flex-1" />
@@ -101,7 +106,6 @@ export function IncomeSourcesCard({
                                 style={{
                                     background: 'var(--color-bg-1)',
                                     border: '1px solid var(--color-line-soft)',
-                                    opacity: s.active ? 1 : 0.55,
                                 }}
                             >
                                 <div
@@ -113,7 +117,9 @@ export function IncomeSourcesCard({
                                 <div className="flex-1 min-w-0">
                                     <div className="text-[13px] font-medium truncate">
                                         {s.label}
-                                        {!s.active && <span className="text-ink-2 font-normal"> · paused</span>}
+                                        {incomeSourceStatus(s, nowY, nowM) === 'upcoming' && (
+                                            <span className="text-ink-2 font-normal"> · upcoming</span>
+                                        )}
                                     </div>
                                     <div className="text-[11px] text-ink-2">
                                         {s.recurring

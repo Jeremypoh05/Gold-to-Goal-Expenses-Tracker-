@@ -7,4 +7,4 @@ export { IncomeSettingsModal, type IncomeSettingsValue } from "./IncomeSettingsM
 export { SalaryTimelineModal, type SalaryPeriodForm } from "./SalaryTimelineModal";
 export { MonthlyFlowChart } from "./MonthlyFlowChart";
 export { IncomeSourcesCard } from "./IncomeSourcesCard";
-export { IncomeSourceModal, type IncomeSourceForm } from "./IncomeSourceModal";
+export { IncomeSourceModal, type IncomeSourceForm, type RateChange } from "./IncomeSourceModal";
