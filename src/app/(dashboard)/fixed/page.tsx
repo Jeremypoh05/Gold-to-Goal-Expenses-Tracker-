@@ -106,6 +106,7 @@ export default function FixedExpensesPage() {
             if (v.id !== undefined) {
                 await updateFixedExpense(v.id, {
                     label: v.label,
+                    note: v.note,
                     emoji: v.emoji,
                     category: v.category,
                     amount: v.monthlyAmount,
@@ -118,6 +119,7 @@ export default function FixedExpensesPage() {
             } else {
                 await addFixedExpense({
                     label: v.label,
+                    note: v.note,
                     emoji: v.emoji,
                     category: v.category,
                     amount: v.monthlyAmount,

@@ -244,6 +244,7 @@ export function toUiFixedExpense(row: DbFixedExpense) {
   return {
     id: row.id,
     label: row.label,
+    note: row.note,
     emoji: row.emoji,
     category: row.category as CategoryKey,
     amount: Number(row.amount),
@@ -259,6 +260,13 @@ export function toUiFixedExpense(row: DbFixedExpense) {
   };
 }
 export type UiFixedExpense = ReturnType<typeof toUiFixedExpense>;
+
+/** The note stamped onto a generated Expense: "Label · detail" (or just Label). */
+export function composeFixedNote(label: string, note?: string | null): string {
+  const l = label.trim() || "Fixed expense";
+  const n = note?.trim();
+  return n ? `${l} · ${n}` : l;
+}
 
 /** Status of a fixed expense relative to "now" — drives tabs/colours. */
 export type FixedStatus = "active" | "upcoming" | "ended" | "paused";
@@ -292,7 +300,7 @@ const FIXED_KEYWORDS: {
   category: CategoryKey;
 }[] = [
   { match: ["rent", "房租", "租金", "mortgage", "房贷"], emoji: "🏠", category: "bills" },
-  { match: ["家用", "household", "allowance", "家庭", "parents", "父母", "孝亲"], emoji: "👨‍👩‍👧", category: "other" },
+  { match: ["family support", "family", "家用", "household", "allowance", "家庭", "parents", "父母", "孝亲"], emoji: "👨‍👩‍👧", category: "other" },
   { match: ["transport", "交通", "mrt", "bus", "巴士", "地铁", "grab", "ez-link", "ezlink", "petrol", "汽油", "gas", "fuel", "parking", "停车"], emoji: "🚌", category: "trans" },
   { match: ["car", "车", "vehicle", "road tax", "车贷"], emoji: "🚗", category: "trans" },
   { match: ["phone", "电话", "mobile", "手机", "telco", "singtel", "starhub", "m1"], emoji: "📱", category: "bills" },

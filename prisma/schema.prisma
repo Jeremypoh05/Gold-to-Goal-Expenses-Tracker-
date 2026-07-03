@@ -94,6 +94,7 @@ model FixedExpense {
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   label        String
+  note         String?   // optional detail, e.g. "electric + phone bill"
   emoji        String    @default("📌")
   category     Category  @default(bills)
   amount       Decimal   @db.Decimal(12, 2)

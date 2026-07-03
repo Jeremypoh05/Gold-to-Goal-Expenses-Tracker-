@@ -9,7 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { toUiExpense, suggestFixedMetaLocal } from "@/lib/expense-utils";
+import { toUiExpense, suggestFixedMetaLocal, composeFixedNote } from "@/lib/expense-utils";
 import { getMonthDashboardData, getYearSummary, getFixedExpenses } from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
 
@@ -404,6 +404,7 @@ export async function suggestFixedMeta(
 
 export interface FixedExpenseInput {
   label: string;
+  note?: string | null;
   emoji?: string;
   category?: CategoryKey;
   amount: number;
@@ -426,6 +427,7 @@ export async function addFixedExpense(input: FixedExpenseInput) {
     data: {
       userId,
       label: input.label.trim() || "Fixed expense",
+      note: input.note?.trim() || null,
       emoji: input.emoji || fallback.emoji,
       category: input.category ?? fallback.category,
       amount: input.amount,
@@ -448,10 +450,11 @@ export async function updateFixedExpense(
   const userId = await requireUserId();
   const owned = await prisma.fixedExpense.findFirst({ where: { id, userId } });
   if (!owned) throw new Error("Fixed expense not found");
-  await prisma.fixedExpense.update({
+  const updated = await prisma.fixedExpense.update({
     where: { id },
     data: {
       ...(input.label !== undefined && { label: input.label.trim() || "Fixed expense" }),
+      ...(input.note !== undefined && { note: input.note?.trim() || null }),
       ...(input.emoji !== undefined && { emoji: input.emoji || "📌" }),
       ...(input.category !== undefined && { category: input.category }),
       ...(input.amount !== undefined && { amount: input.amount }),
@@ -466,6 +469,22 @@ export async function updateFixedExpense(
       ...(input.active !== undefined && { active: input.active }),
     },
   });
+
+  // Propagate the definition to already-generated rows for THIS month and later,
+  // so a correction (renamed "home" → "rent", amount 100 → 200) shows up in the
+  // ledger / dashboard / income immediately. Past months stay as historical record.
+  const now = new Date();
+  const curStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  await prisma.expense.updateMany({
+    where: { userId, fixedSourceId: id, spentAt: { gte: curStart } },
+    data: {
+      amount: updated.amount,
+      category: updated.category,
+      currency: updated.currency,
+      note: composeFixedNote(updated.label, updated.note),
+    },
+  });
+
   revalidateDashboard();
 }
 
@@ -521,6 +540,7 @@ export async function changeFixedAmount(
       data: {
         userId,
         label: src.label,
+        note: src.note,
         emoji: src.emoji,
         category: src.category,
         amount: input.newAmount,

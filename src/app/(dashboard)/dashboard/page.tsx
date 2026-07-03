@@ -11,6 +11,7 @@ import {
     ArrowIcon,
     ChevronIcon,
     BellIcon,
+    RepeatIcon,
 } from '@/components/icons';
 import { MonthBars, Donut, CalendarGrid } from '@/components/shared';
 import {
@@ -789,6 +790,8 @@ function RecentTransactions({ filter, setFilter }: {
                                                         <MicIcon size={10} className="text-gold-700" />
                                                         voice
                                                     </span>
+                                                ) : t.fixed ? (
+                                                    <span>recurring</span>
                                                 ) : (
                                                     <span>manual</span>
                                                 )}
@@ -814,6 +817,11 @@ function RecentTransactions({ filter, setFilter }: {
                                         <span className="chip" style={{ background: 'oklch(0.96 0.05 88)', color: 'var(--color-gold-900)' }}>
                                             <MicIcon size={10} className="text-gold-700" />
                                             Voice
+                                        </span>
+                                    ) : t.fixed ? (
+                                        <span className="chip">
+                                            <RepeatIcon size={10} />
+                                            Recurring
                                         </span>
                                     ) : (
                                         <span className="text-xs text-ink-2">Manual</span>

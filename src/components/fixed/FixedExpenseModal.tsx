@@ -15,14 +15,15 @@ import type { CategoryKey } from '@/types';
 import { CloseIcon, MoneyField, MonthGridDropdown, YearStepper, num } from '@/components/income/pickers';
 
 const EMOJI_CHOICES = [
-    '🏠', '🚌', '🚗', '📱', '🌐', '💡', '🚰', '🛡️',
-    '🎬', '🏋️', '💊', '💳', '📈', '👨‍👩‍👧', '📚', '📌',
+    '🏠', '🛡️', '👨‍👩‍👧', '🚌', '🚗', '📱', '🌐', '💡',
+    '🚰', '💳', '🎬', '🏋️', '💊', '🍽️', '📚', '📌',
 ];
 const CAT_KEYS: CategoryKey[] = ['bills', 'trans', 'food', 'health', 'ent', 'shop', 'other'];
 
 export interface FixedExpenseForm {
     id?: number;
     label: string;
+    note: string | null;
     emoji: string;
     category: CategoryKey;
     monthlyAmount: number;
@@ -98,6 +99,7 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
     const initSuggest = suggestFixedMetaLocal(item?.label ?? '');
 
     const [label, setLabel] = useState(item?.label ?? '');
+    const [note, setNote] = useState(item?.note ?? '');
     const [emoji, setEmoji] = useState(item?.emoji ?? initSuggest.emoji);
     const [category, setCategory] = useState<CategoryKey>(item?.category ?? initSuggest.category);
     const [amount, setAmount] = useState(item ? String(item.amount) : '');
@@ -147,6 +149,7 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
         onSave({
             id: item?.id,
             label: label.trim(),
+            note: note.trim() || null,
             emoji,
             category,
             monthlyAmount: num(amount),
@@ -265,6 +268,11 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
                                 );
                             })}
                         </div>
+                    </div>
+
+                    <div>
+                        <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">Note <span className="text-ink-3 normal-case tracking-normal">· optional</span></div>
+                        <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. electric + phone bill" maxLength={80} className="w-full px-3 py-2.5 rounded-xl border border-line bg-bg-1 outline-none text-[14px] focus:border-gold-400" aria-label="Note" />
                     </div>
 
                     <MoneyField label="Amount per month" value={amount} onChange={setAmount} />
