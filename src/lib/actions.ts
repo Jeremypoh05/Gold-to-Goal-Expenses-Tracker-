@@ -267,6 +267,7 @@ export interface IncomeSourceInput {
   monthlyAmount: number;
   effectiveYear: number;
   effectiveMonth: number; // 1–12
+  recurring?: boolean;
   active?: boolean;
 }
 
@@ -280,6 +281,7 @@ export async function addIncomeSource(input: IncomeSourceInput) {
       monthlyAmount: input.monthlyAmount,
       effectiveYear: input.effectiveYear,
       effectiveMonth: Math.min(12, Math.max(1, Math.round(input.effectiveMonth))),
+      recurring: input.recurring ?? true,
       active: input.active ?? true,
     },
   });
@@ -308,6 +310,7 @@ export async function updateIncomeSource(
       ...(input.effectiveMonth !== undefined && {
         effectiveMonth: Math.min(12, Math.max(1, Math.round(input.effectiveMonth))),
       }),
+      ...(input.recurring !== undefined && { recurring: input.recurring }),
       ...(input.active !== undefined && { active: input.active }),
     },
   });

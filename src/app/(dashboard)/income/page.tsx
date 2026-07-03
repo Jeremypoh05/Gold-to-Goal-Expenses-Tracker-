@@ -499,6 +499,7 @@ export default function IncomePage() {
                     monthlyAmount: v.monthlyAmount,
                     effectiveYear: v.effectiveYear,
                     effectiveMonth: v.effectiveMonth,
+                    recurring: v.recurring,
                 });
             } else {
                 await addIncomeSource({
@@ -507,6 +508,7 @@ export default function IncomePage() {
                     monthlyAmount: v.monthlyAmount,
                     effectiveYear: v.effectiveYear,
                     effectiveMonth: v.effectiveMonth,
+                    recurring: v.recurring,
                 });
             }
             refreshAll();

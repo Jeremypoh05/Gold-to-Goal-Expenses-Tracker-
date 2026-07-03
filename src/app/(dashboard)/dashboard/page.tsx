@@ -645,6 +645,8 @@ function NetSavingsCard({
         savingsGoal: income.savingsGoal,
         saved: income.saved,
         bonuses: income.bonuses,
+        // ADDED (Phase 9): recurring additional income now feeds the snapshot too.
+        otherMonthlyIncome: income.otherMonthlyIncome,
         projectedYearlyExpenses: totalSpent(expenses) * 12,
         month: current.month,
     });
@@ -699,7 +701,7 @@ function NetSavingsCard({
                     )}
                 </div>
                 <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
-                    <MiniStat label="Income" value={stats.yearlyIncome} sub="salary × 12 + bonuses" delay={500} />
+                    <MiniStat label="Income" value={stats.yearlyIncome} sub={stats.yearlyOther > 0 ? 'salary + extras + bonuses' : 'salary × 12 + bonuses'} delay={500} />
                     <MiniStat label="Bonuses" value={stats.totalBonuses} sub={`${income.bonuses.length} ${income.bonuses.length === 1 ? 'bonus' : 'bonuses'}`} delay={650} />
                     <MiniStat label="Expenses" value={stats.yearlyExpenses} sub="projected yearly" delay={800} />
                     <MiniStat label="Goal" value={stats.goal} sub="year-end" accent delay={950} />

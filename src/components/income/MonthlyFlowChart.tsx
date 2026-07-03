@@ -45,7 +45,7 @@ export function MonthlyFlowChart({
                     <div className="display text-[20px]">Monthly flow</div>
                     <div className="text-xs text-ink-2 mt-0.5">Income vs spending across the year</div>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-ink-2">
+                <div className="flex items-center gap-2.5 md:gap-3 text-[11px] text-ink-2 flex-wrap justify-end">
                     <span className="inline-flex items-center gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.64 0.16 78))' }} />
                         Income
@@ -53,6 +53,12 @@ export function MonthlyFlowChart({
                     <span className="inline-flex items-center gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'var(--color-ink-3)' }} />
                         Spent
+                    </span>
+                    {/* CHANGED (Phase 9): explicit legend for the striped "projected" bars
+                        so future/estimate months read clearly (not just as faded actuals). */}
+                    <span className="inline-flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'repeating-linear-gradient(45deg, oklch(0.80 0.15 84) 0 2px, oklch(0.80 0.15 84 / 0.25) 2px 4px)' }} />
+                        Projected
                     </span>
                 </div>
             </div>
@@ -74,9 +80,11 @@ export function MonthlyFlowChart({
                                 className="px-3 py-2 rounded-xl whitespace-nowrap shadow-lg"
                                 style={{ background: 'oklch(0.20 0.015 75)', color: '#fff' }}
                             >
-                                <div className="text-[10px] uppercase tracking-[0.08em] opacity-60 mb-1">
-                                    {MONTH_SHORT[hover]}
-                                    {hover + 1 > elapsed && ' · projected'}
+                                <div className="text-[10px] uppercase tracking-[0.08em] mb-1">
+                                    <span className="opacity-60">{MONTH_SHORT[hover]}</span>
+                                    {hover + 1 > elapsed && (
+                                        <span style={{ color: 'oklch(0.86 0.15 88)', fontWeight: 700 }}> · projected</span>
+                                    )}
                                 </div>
                                 <div className="flex items-center justify-between gap-4 text-[11px]">
                                     <span className="opacity-70">Income</span>
@@ -108,8 +116,16 @@ export function MonthlyFlowChart({
                                 key={i}
                                 className="flex-1 h-full flex items-end justify-center gap-[2px] md:gap-1 cursor-pointer rounded-md transition-colors"
                                 style={{ background: active ? 'var(--color-bg-1)' : 'transparent' }}
-                                onMouseEnter={() => setHover(i)}
-                                onMouseLeave={() => setHover(null)}
+                                // CHANGED (Phase 9): pointer-aware so touch works — hover on
+                                // mouse only (touch fires a spurious leave that closed the
+                                // tooltip instantly on mobile); tap toggles and holds it open.
+                                onPointerEnter={(e) => {
+                                    if (e.pointerType === 'mouse') setHover(i);
+                                }}
+                                onPointerLeave={(e) => {
+                                    if (e.pointerType === 'mouse') setHover((p) => (p === i ? null : p));
+                                }}
+                                onClick={() => setHover((p) => (p === i ? null : i))}
                             >
                                 <motion.div
                                     initial={{ height: 0 }}
@@ -118,8 +134,12 @@ export function MonthlyFlowChart({
                                     className="w-1/2 rounded-t-[4px]"
                                     style={{
                                         maxWidth: 14,
-                                        background: 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.64 0.16 78))',
-                                        opacity: projected ? 0.38 : 1,
+                                        // Projected months → gold stripes (vivid, clearly "estimate"),
+                                        // not just a faded solid bar that reads as a real actual.
+                                        background: projected
+                                            ? 'repeating-linear-gradient(45deg, oklch(0.80 0.15 84) 0 3px, oklch(0.80 0.15 84 / 0.28) 3px 6px)'
+                                            : 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.64 0.16 78))',
+                                        opacity: projected ? 0.9 : 1,
                                         boxShadow: active ? '0 2px 8px -2px oklch(0.6 0.16 78 / 0.5)' : 'none',
                                     }}
                                 />
@@ -130,8 +150,10 @@ export function MonthlyFlowChart({
                                     className="w-1/2 rounded-t-[4px]"
                                     style={{
                                         maxWidth: 14,
-                                        background: 'var(--color-ink-3)',
-                                        opacity: projected ? 0.3 : 0.85,
+                                        background: projected
+                                            ? 'repeating-linear-gradient(45deg, var(--color-ink-3) 0 3px, transparent 3px 6px)'
+                                            : 'var(--color-ink-3)',
+                                        opacity: projected ? 0.65 : 0.85,
                                     }}
                                 />
                             </div>

@@ -13,6 +13,7 @@ import {
   toUiSalaryPeriod,
   toUiIncomeSource,
   activeSalaryForMonth,
+  recurringMonthlyIncome,
   type UiSalaryPeriod,
   type UiIncomeSource,
 } from "@/lib/expense-utils";
@@ -60,6 +61,9 @@ export interface DashboardData {
     payDay: number;
     payFrequency: string;
     bonuses: ReturnType<typeof toUiBonus>;
+    /** ADDED (Phase 9): recurring additional income active this month (freelance,
+     *  dividends…), so the dashboard snapshot can reflect it. Excludes one-off. */
+    otherMonthlyIncome: number;
   };
 }
 
@@ -88,7 +92,7 @@ export async function getMonthDashboardData(
   // ADDED (Phase 8.2): the prior calendar month, for the month-over-month delta.
   const prevMonthStart = new Date(year, month - 2, 1);
 
-  const [rows, bonuses, prevAgg, periods] = await Promise.all([
+  const [rows, bonuses, prevAgg, periods, sources] = await Promise.all([
     prisma.expense.findMany({
       where: { userId: user.id, spentAt: { gte: monthStart, lt: monthEnd } },
       orderBy: { spentAt: "desc" },
@@ -102,11 +106,18 @@ export async function getMonthDashboardData(
       },
     }),
     prisma.salaryPeriod.findMany({ where: { userId: user.id } }),
+    prisma.incomeSource.findMany({ where: { userId: user.id } }),
   ]);
 
   // CHANGED (Phase 9): salary/gross/deductions now come from the SalaryPeriod
   // active in the viewing month (was the deprecated flat User.monthlySalary).
   const active = activeSalaryForMonth(periods.map(toUiSalaryPeriod), year, month);
+  // Recurring additional income active this month (excludes one-off streams).
+  const otherMonthlyIncome = recurringMonthlyIncome(
+    sources.map(toUiIncomeSource),
+    year,
+    month,
+  );
 
   return {
     current,
@@ -124,6 +135,7 @@ export async function getMonthDashboardData(
       payDay: user.payDay,
       payFrequency: user.payFrequency,
       bonuses: toUiBonus(bonuses),
+      otherMonthlyIncome,
     },
   };
 }

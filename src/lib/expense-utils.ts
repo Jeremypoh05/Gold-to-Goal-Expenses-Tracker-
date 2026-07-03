@@ -176,6 +176,9 @@ export interface IncomeInput {
   savingsGoal: number;
   saved: number;
   bonuses: { month: number; amt: number; label: string }[];
+  /** ADDED (Phase 9): recurring additional income per month (freelance, dividends…),
+   *  annualized alongside salary. Excludes one-off sources. Defaults to 0. */
+  otherMonthlyIncome?: number;
   /** Projected full-year spend. For now: current-month spend annualized. */
   projectedYearlyExpenses: number;
   /** Current month (1-12) for "months left" projections. */
@@ -185,8 +188,9 @@ export interface IncomeInput {
 export function getIncomeStats(income: IncomeInput) {
   const monthlySalary = income.monthlySalary;
   const yearlySalary = monthlySalary * 12;
+  const yearlyOther = (income.otherMonthlyIncome ?? 0) * 12;
   const totalBonuses = income.bonuses.reduce((a, b) => a + b.amt, 0);
-  const yearlyIncome = yearlySalary + totalBonuses;
+  const yearlyIncome = yearlySalary + yearlyOther + totalBonuses;
   const yearlyExpenses = income.projectedYearlyExpenses;
   const netSavings = yearlyIncome - yearlyExpenses;
   const savingsRate = yearlyIncome > 0 ? (netSavings / yearlyIncome) * 100 : 0;
@@ -213,6 +217,7 @@ export function getIncomeStats(income: IncomeInput) {
   return {
     monthlySalary,
     yearlySalary,
+    yearlyOther,
     totalBonuses,
     yearlyIncome,
     yearlyExpenses,
@@ -289,23 +294,42 @@ export function toUiIncomeSource(row: DbIncomeSource) {
     monthlyAmount: Number(row.monthlyAmount),
     year: row.effectiveYear,
     month: row.effectiveMonth,
+    recurring: row.recurring,
     active: row.active,
   };
 }
 export type UiIncomeSource = ReturnType<typeof toUiIncomeSource>;
 
-/** Monthly total of active income sources in effect for (year, month). */
+/** Does an active income source contribute in this specific (year, month)?
+ *  Recurring sources apply from their effective month onward; one-off sources
+ *  apply only in their single effective month. */
+function sourceAppliesTo(s: UiIncomeSource, year: number, month: number): boolean {
+  if (!s.active) return false;
+  if (s.recurring) return s.year < year || (s.year === year && s.month <= month);
+  return s.year === year && s.month === month;
+}
+
+/** Total income-source amount in effect for (year, month) — recurring + any
+ *  one-off that lands exactly on this month. Used for the per-month series. */
 function activeOtherIncome(
   sources: UiIncomeSource[],
   year: number,
   month: number,
 ): number {
   return sources
-    .filter(
-      (s) =>
-        s.active &&
-        (s.year < year || (s.year === year && s.month <= month)),
-    )
+    .filter((s) => sourceAppliesTo(s, year, month))
+    .reduce((a, s) => a + s.monthlyAmount, 0);
+}
+
+/** Recurring-only monthly income in effect for (year, month) — excludes one-off
+ *  streams, so it's safe to annualize (× 12). Used by the dashboard snapshot. */
+export function recurringMonthlyIncome(
+  sources: UiIncomeSource[],
+  year: number,
+  month: number,
+): number {
+  return sources
+    .filter((s) => s.active && s.recurring && (s.year < year || (s.year === year && s.month <= month)))
     .reduce((a, s) => a + s.monthlyAmount, 0);
 }
 

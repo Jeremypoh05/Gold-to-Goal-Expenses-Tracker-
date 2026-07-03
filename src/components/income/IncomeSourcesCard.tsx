@@ -24,7 +24,9 @@ export function IncomeSourcesCard({
     delay?: number;
 }) {
     const active = sources.filter((s) => s.active);
-    const monthlyTotal = active.reduce((a, s) => a + s.monthlyAmount, 0);
+    // Only recurring streams are truly "per month"; one-off amounts aren't annualized.
+    const recurringActive = active.filter((s) => s.recurring);
+    const monthlyTotal = recurringActive.reduce((a, s) => a + s.monthlyAmount, 0);
     // Show active sources first (biggest first), paused ones after.
     const ordered = [...sources].sort((a, b) => {
         if (a.active !== b.active) return a.active ? -1 : 1;
@@ -78,7 +80,7 @@ export function IncomeSourcesCard({
                                 Recurring income
                             </div>
                             <div className="text-[11px] text-ink-2 mt-0.5">
-                                {active.length} active · per month
+                                {recurringActive.length} recurring · per month
                             </div>
                         </div>
                         <div className="flex-1" />
@@ -114,12 +116,14 @@ export function IncomeSourcesCard({
                                         {!s.active && <span className="text-ink-2 font-normal"> · paused</span>}
                                     </div>
                                     <div className="text-[11px] text-ink-2">
-                                        from {MONTH_NAMES[s.month - 1].slice(0, 3)} {s.year}
+                                        {s.recurring
+                                            ? `from ${MONTH_NAMES[s.month - 1].slice(0, 3)} ${s.year}`
+                                            : `${MONTH_NAMES[s.month - 1].slice(0, 3)} ${s.year} · one-off`}
                                     </div>
                                 </div>
                                 <div className="mono text-[14px] font-semibold">
                                     {formatMoney(s.monthlyAmount)}
-                                    <span className="text-[11px] text-ink-2 font-normal">/mo</span>
+                                    {s.recurring && <span className="text-[11px] text-ink-2 font-normal">/mo</span>}
                                 </div>
                             </motion.div>
                         ))}

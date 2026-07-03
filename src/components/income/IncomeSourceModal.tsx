@@ -32,6 +32,7 @@ export interface IncomeSourceForm {
     monthlyAmount: number;
     effectiveYear: number;
     effectiveMonth: number;
+    recurring: boolean;
     active: boolean;
 }
 
@@ -125,7 +126,9 @@ function SourceRow({
                     {!s.active && <span className="text-ink-2 font-normal"> · paused</span>}
                 </div>
                 <div className="text-[11px] text-ink-2 mono">
-                    {formatMoney(s.monthlyAmount)}/mo · from {MONTH_NAMES[s.month - 1].slice(0, 3)} {s.year}
+                    {s.recurring
+                        ? `${formatMoney(s.monthlyAmount)}/mo · from ${MONTH_NAMES[s.month - 1].slice(0, 3)} ${s.year}`
+                        : `${formatMoney(s.monthlyAmount)} · ${MONTH_NAMES[s.month - 1].slice(0, 3)} ${s.year} · one-off`}
                 </div>
             </div>
             <button
@@ -162,6 +165,7 @@ function Content({
     const [amount, setAmount] = useState('');
     const [effYear, setEffYear] = useState(String(defaultYear));
     const [effMonth, setEffMonth] = useState('1');
+    const [recurring, setRecurring] = useState(true);
 
     const activeTotal = sources
         .filter((s) => s.active)
@@ -179,6 +183,7 @@ function Content({
         setAmount('');
         setEffYear(String(defaultYear));
         setEffMonth('1');
+        setRecurring(true);
         setMode('edit');
     };
 
@@ -189,6 +194,7 @@ function Content({
         setAmount(String(s.monthlyAmount || ''));
         setEffYear(String(s.year));
         setEffMonth(String(s.month));
+        setRecurring(s.recurring);
         setMode('edit');
     };
 
@@ -203,6 +209,7 @@ function Content({
             monthlyAmount: num(amount),
             effectiveYear: Math.round(num(effYear)) || defaultYear,
             effectiveMonth: Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1)),
+            recurring,
             active: true,
         });
         setMode('list');
@@ -318,7 +325,10 @@ function Content({
                                     <div className="flex-1 min-w-0">
                                         <div className="text-[14px] font-semibold truncate">{label.trim() || 'New income source'}</div>
                                         <div className="text-[11px] text-ink-2 mono">
-                                            {num(amount) > 0 ? `${formatMoney(num(amount))}/mo` : 'S$ —/mo'} · from {MONTH_NAMES[Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1)) - 1].slice(0, 3)} {Math.round(num(effYear)) || defaultYear}
+                                            {num(amount) > 0 ? formatMoney(num(amount)) : 'S$ —'}
+                                            {recurring
+                                                ? `/mo · from ${MONTH_NAMES[Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1)) - 1].slice(0, 3)} ${Math.round(num(effYear)) || defaultYear}`
+                                                : ` · ${MONTH_NAMES[Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1)) - 1].slice(0, 3)} ${Math.round(num(effYear)) || defaultYear} · one-off`}
                                         </div>
                                     </div>
                                 </div>
@@ -338,10 +348,37 @@ function Content({
                                         aria-label="Name"
                                     />
                                 </div>
-                                <MoneyField label="Amount per month" value={amount} onChange={setAmount} />
+                                <MoneyField label={recurring ? 'Amount per month' : 'Amount'} value={amount} onChange={setAmount} />
+
+                                {/* Recurring toggle — off = a single month's income (one-off) */}
+                                <button
+                                    type="button"
+                                    onClick={() => setRecurring((r) => !r)}
+                                    className="flex items-center gap-3 p-3 rounded-[14px] text-left transition-colors"
+                                    style={{ background: 'var(--color-bg-1)', border: '1px solid var(--color-line-soft)' }}
+                                    aria-pressed={recurring}
+                                >
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-[13px] font-medium">Recurring every month</div>
+                                        <div className="text-[11px] text-ink-2 mt-0.5">
+                                            {recurring ? 'Counts every month from its start' : 'Counts once, in the chosen month only'}
+                                        </div>
+                                    </div>
+                                    <span
+                                        className="relative w-11 h-6 rounded-full flex-shrink-0 transition-colors"
+                                        style={{ background: recurring ? 'oklch(0.74 0.155 82)' : 'var(--color-line)' }}
+                                    >
+                                        <motion.span
+                                            className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm"
+                                            animate={{ left: recurring ? 22 : 2 }}
+                                            transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+                                        />
+                                    </span>
+                                </button>
+
                                 <div className="grid grid-cols-2 gap-3">
                                     <MonthGridDropdown
-                                        label="Starts"
+                                        label={recurring ? 'Starts' : 'Month'}
                                         value={Math.min(12, Math.max(1, Math.round(num(effMonth)) || 1))}
                                         onChange={(m) => setEffMonth(String(m))}
                                     />

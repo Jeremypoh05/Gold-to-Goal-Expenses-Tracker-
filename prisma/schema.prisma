@@ -119,8 +119,9 @@ model IncomeSource {
   label          String   // "Freelance", "Dividends", "Rental"…
   emoji          String   @default("💰")
   monthlyAmount  Decimal  @db.Decimal(12, 2)
-  effectiveYear  Int      // starts contributing from…
+  effectiveYear  Int      // recurring: contributes from here on. one-off: just this month.
   effectiveMonth Int      // 1–12
+  recurring      Boolean  @default(true) // true = every month from effective; false = that single month only
   active         Boolean  @default(true) // paused sources stay for history but stop counting
 
   createdAt      DateTime @default(now())
