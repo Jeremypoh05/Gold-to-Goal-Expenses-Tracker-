@@ -95,6 +95,14 @@ function metaLine(s: UiIncomeSource): string {
     return `${formatMoney(s.monthlyAmount)}/mo · from ${start}`;
 }
 
+function TrashIcon({ size = 14 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 11v6 M14 11v6" />
+        </svg>
+    );
+}
+
 function EmojiPicker({ value, onChange }: { value: string; onChange: (e: string) => void }) {
     return (
         <div>
@@ -196,6 +204,9 @@ function Content({ sources, defaultYear, pending, onClose, onSave, onDelete, onR
     const [chAmount, setChAmount] = useState('');
     const editingLabel = sources.find((s) => s.id === editingId)?.label ?? '';
 
+    // Delete needs an explicit confirm so a stray tap can't wipe a source.
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
     const partitioned = sources.reduce(
         (acc, s) => {
             const d = displayStatus(s, nowY, nowM);
@@ -223,6 +234,7 @@ function Content({ sources, defaultYear, pending, onClose, onSave, onDelete, onR
         setEndEnabled(false);
         setEndYear(String(nowY));
         setEndMonth(String(nowM));
+        setConfirmDelete(false);
         setMode('edit');
     };
 
@@ -237,6 +249,7 @@ function Content({ sources, defaultYear, pending, onClose, onSave, onDelete, onR
         setEndEnabled(s.endYear != null);
         setEndYear(String(s.endYear ?? nowY));
         setEndMonth(String(s.endMonth ?? nowM));
+        setConfirmDelete(false);
         setMode('edit');
     };
 
@@ -439,9 +452,29 @@ function Content({ sources, defaultYear, pending, onClose, onSave, onDelete, onR
                                 )}
 
                                 {editingId !== null && (
-                                    <button type="button" onClick={() => { onDelete(editingId); setMode('list'); }} disabled={pending} className="self-start text-[12px] font-medium text-ink-2 hover:text-red-500 transition-colors disabled:opacity-40">
-                                        Delete this source
-                                    </button>
+                                    confirmDelete ? (
+                                        <div className="flex items-center gap-2 p-2.5 rounded-[14px]" style={{ background: 'oklch(0.63 0.2 25 / 0.09)', border: '1px solid oklch(0.63 0.2 25 / 0.4)' }}>
+                                            <span className="flex-1 text-[12px] font-medium" style={{ color: 'oklch(0.55 0.2 25)' }}>
+                                                Delete permanently?
+                                            </span>
+                                            <button type="button" onClick={() => setConfirmDelete(false)} className="h-8 px-3 rounded-full border border-line bg-bg-card text-[12px] font-medium hover:border-ink-2 transition-all">
+                                                Cancel
+                                            </button>
+                                            <button type="button" onClick={() => { onDelete(editingId); setMode('list'); }} disabled={pending} className="h-8 px-3.5 rounded-full text-[12px] font-semibold text-white transition-all disabled:opacity-40 hover:brightness-[1.05]" style={{ background: 'oklch(0.58 0.21 25)' }}>
+                                                Delete
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setConfirmDelete(true)}
+                                            disabled={pending}
+                                            className="self-start flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[12px] font-semibold transition-all disabled:opacity-40 hover:brightness-[1.03]"
+                                            style={{ color: 'oklch(0.55 0.2 25)', border: '1px solid oklch(0.63 0.2 25 / 0.4)', background: 'oklch(0.63 0.2 25 / 0.06)' }}
+                                        >
+                                            <TrashIcon size={13} /> Delete this source
+                                        </button>
+                                    )
                                 )}
                             </motion.div>
                         )}

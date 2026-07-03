@@ -4,7 +4,7 @@
 // timeline + income sources). Extracted from SalaryTimelineModal so both modals
 // share the same look: a popover month grid, a year stepper, and a money field.
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronIcon } from '@/components/icons';
 import { MONTH_NAMES } from '@/lib/utils';
@@ -63,8 +63,23 @@ export function MonthGridDropdown({
     label?: string;
 }) {
     const [open, setOpen] = useState(false);
+    const panelRef = useRef<HTMLDivElement>(null);
+
+    // CHANGED (Phase 9): the month grid now expands INLINE (in-flow) instead of a
+    // floating absolute popover — an absolute popover was clipped by the modal's
+    // scroll container and couldn't be reached. Expanding in-flow lets the modal
+    // grow/scroll naturally, and we scroll the panel into view so the user never
+    // has to hunt for it.
+    useEffect(() => {
+        if (!open) return;
+        const id = requestAnimationFrame(() =>
+            panelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+        );
+        return () => cancelAnimationFrame(id);
+    }, [open]);
+
     return (
-        <div className="relative">
+        <div>
             <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
                 {label}
             </div>
@@ -79,17 +94,19 @@ export function MonthGridDropdown({
                 <span className="text-[14px] font-medium">{MONTH_NAMES[value - 1]}</span>
                 <ChevronIcon direction={open ? 'up' : 'down'} size={14} className="text-ink-2" />
             </button>
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
                 {open && (
-                    <>
-                        <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-                        <motion.div
-                            initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                            className="absolute z-20 mt-2 left-0 right-0 p-2 rounded-2xl bg-bg-card grid grid-cols-3 gap-1.5"
-                            style={{ border: '1px solid var(--color-line)', boxShadow: '0 16px 40px -12px rgba(0,0,0,0.3)' }}
+                    <motion.div
+                        ref={panelRef}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                        className="overflow-hidden"
+                    >
+                        <div
+                            className="mt-2 p-2 rounded-2xl grid grid-cols-3 gap-1.5"
+                            style={{ background: 'var(--color-bg-1)', border: '1px solid var(--color-line)' }}
                             role="listbox"
                         >
                             {MONTH_NAMES.map((m, i) => {
@@ -110,7 +127,7 @@ export function MonthGridDropdown({
                                                           'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))',
                                                       color: '#1a120a',
                                                   }
-                                                : { background: 'var(--color-bg-1)', color: 'var(--color-ink-1)' }
+                                                : { background: 'var(--color-bg-card)', color: 'var(--color-ink-1)' }
                                         }
                                         role="option"
                                         aria-selected={sel}
@@ -119,8 +136,8 @@ export function MonthGridDropdown({
                                     </button>
                                 );
                             })}
-                        </motion.div>
-                    </>
+                        </div>
+                    </motion.div>
                 )}
             </AnimatePresence>
         </div>
