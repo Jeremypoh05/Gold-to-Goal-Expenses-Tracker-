@@ -489,6 +489,13 @@ export interface YearIncomeInput {
   bonuses: { month: number; amt: number; label: string }[];
   /** ADDED (Phase 9): custom recurring income beyond salary. */
   incomeSources: UiIncomeSource[];
+  /** ADDED (Module 4): scheduled fixed-expense amount per month (index 0 = Jan),
+   *  from the fixed-expense definitions — used to make expense projections aware of
+   *  known upcoming commitments (rent, bills…). Optional; defaults to zeros. */
+  scheduledFixedByMonth?: number[];
+  /** ADDED (Module 4): fixed-expense amount already MATERIALIZED per month (real
+   *  generated rows), so it can be excluded from the discretionary average. */
+  materializedFixedByMonth?: number[];
   savingsGoal: number;
   saved: number;
 }
@@ -545,8 +552,33 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
     .slice(0, elapsed)
     .reduce((a, v) => a + v, 0);
   const avgMonthlyExpense = actualExpensesYTD / Math.max(elapsed, 1);
+
+  // CHANGED (Module 4): expense projection is now aware of known fixed commitments.
+  // Discretionary (non-fixed) spend is averaged from the past; future months add
+  // that average PLUS the scheduled fixed expenses for each month; the current month
+  // adds any fixed due later this month that hasn't been charged yet.
+  const scheduledFixedByMonth = input.scheduledFixedByMonth ?? Array(12).fill(0);
+  const materializedFixedByMonth = input.materializedFixedByMonth ?? Array(12).fill(0);
+  const materializedFixedYTD = materializedFixedByMonth
+    .slice(0, elapsed)
+    .reduce((a, v) => a + v, 0);
+  const discretionaryAvg =
+    Math.max(0, actualExpensesYTD - materializedFixedYTD) / Math.max(elapsed, 1);
+  const currentMonthUnpaidFixed = isCurrentYear
+    ? Math.max(0, (scheduledFixedByMonth[elapsed - 1] ?? 0) - (materializedFixedByMonth[elapsed - 1] ?? 0))
+    : 0;
+  let futureExpense = 0;
+  for (let i = elapsed; i < 12; i++) {
+    futureExpense += discretionaryAvg + (scheduledFixedByMonth[i] ?? 0);
+  }
   const projectedAnnualExpenses =
-    actualExpensesYTD + avgMonthlyExpense * (12 - elapsed);
+    actualExpensesYTD + currentMonthUnpaidFixed + futureExpense;
+
+  // Per-month expense series for the chart: actual for elapsed months, projected
+  // (discretionary avg + scheduled fixed) for future months.
+  const projectedExpensesByMonth = monthlyExpenseTotals.map((actual, i) =>
+    i < elapsed ? actual : discretionaryAvg + (scheduledFixedByMonth[i] ?? 0),
+  );
 
   const netSavings = projectedAnnualIncome - projectedAnnualExpenses;
   const savingsRate =
@@ -597,8 +629,9 @@ export function computeYearIncomeStats(input: YearIncomeInput) {
     projectedYearEnd,
     biggestBonus,
     elapsed,
-    // Per-month series (index 0 = Jan) for the monthly flow chart.
+    // Per-month series (index 0 = Jan) for the monthly flow chart. Expenses use
+    // actuals for elapsed months and fixed-aware projections for future months.
     monthlyIncome,
-    monthlyExpenses: monthlyExpenseTotals,
+    monthlyExpenses: projectedExpensesByMonth,
   };
 }

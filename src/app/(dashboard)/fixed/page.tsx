@@ -16,6 +16,7 @@ import {
     addFixedExpense,
     updateFixedExpense,
     deleteFixedExpense,
+    changeFixedAmount,
     suggestFixedMeta,
 } from '@/lib/actions';
 import { fixedExpenseStatus, type UiFixedExpense, type FixedStatus } from '@/lib/expense-utils';
@@ -135,6 +136,14 @@ export default function FixedExpensesPage() {
     const handleDelete = (id: number) => {
         startTransition(async () => {
             await deleteFixedExpense(id);
+            setModalOpen(false);
+            refreshAll();
+        });
+    };
+
+    const handleChangeAmount = (v: { id: number; fromYear: number; fromMonth: number; newAmount: number }) => {
+        startTransition(async () => {
+            await changeFixedAmount(v.id, { fromYear: v.fromYear, fromMonth: v.fromMonth, newAmount: v.newAmount });
             setModalOpen(false);
             refreshAll();
         });
@@ -285,6 +294,7 @@ export default function FixedExpensesPage() {
                 onSave={handleSave}
                 onDelete={handleDelete}
                 onSuggest={suggestFixedMeta}
+                onChangeAmount={handleChangeAmount}
             />
         </>
     );

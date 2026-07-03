@@ -478,6 +478,66 @@ export async function deleteFixedExpense(id: number) {
 }
 
 /**
+ * Guided "amount changed from month X" for a fixed expense (e.g. rent went up).
+ * Caps the current definition at the month before the change and starts a fresh
+ * one (same label/emoji/category/due-day) at the new amount from the change month
+ * — so past months keep their old figure and there's no double-count. Any rows
+ * already generated on/after the change month are removed so the new segment can
+ * re-materialize them at the new amount.
+ */
+export async function changeFixedAmount(
+  id: number,
+  input: { fromYear: number; fromMonth: number; newAmount: number },
+) {
+  const userId = await requireUserId();
+  const src = await prisma.fixedExpense.findFirst({ where: { id, userId } });
+  if (!src) throw new Error("Fixed expense not found");
+
+  const fromMonth = clampMonth(input.fromMonth);
+  const fromYear = input.fromYear;
+  const prevMonth = fromMonth === 1 ? 12 : fromMonth - 1;
+  const prevYear = fromMonth === 1 ? fromYear - 1 : fromYear;
+
+  // If the old definition had an end on/after the change, the new segment inherits it.
+  const cmp = (aY: number, aM: number, bY: number, bM: number) => (aY !== bY ? aY - bY : aM - bM);
+  const carryEnd =
+    src.endYear != null && src.endMonth != null && cmp(src.endYear, src.endMonth, fromYear, fromMonth) >= 0;
+
+  const fromStart = new Date(fromYear, fromMonth - 1, 1);
+
+  await prisma.$transaction([
+    // Remove any generated rows at/after the change month (old-amount rows) —
+    // the new segment will regenerate them at the new amount on next sync.
+    prisma.expense.deleteMany({
+      where: { userId, fixedSourceId: id, spentAt: { gte: fromStart } },
+    }),
+    // Cap the old definition at the month before the change.
+    prisma.fixedExpense.update({
+      where: { id },
+      data: { endYear: prevYear, endMonth: prevMonth },
+    }),
+    // New ongoing (or end-inheriting) segment at the new amount.
+    prisma.fixedExpense.create({
+      data: {
+        userId,
+        label: src.label,
+        emoji: src.emoji,
+        category: src.category,
+        amount: input.newAmount,
+        currency: src.currency,
+        dueDay: src.dueDay,
+        startYear: fromYear,
+        startMonth: fromMonth,
+        endYear: carryEnd ? src.endYear : null,
+        endMonth: carryEnd ? src.endMonth : null,
+        active: true,
+      },
+    }),
+  ]);
+  revalidateDashboard();
+}
+
+/**
  * Guided "amount changed from month X" — models a raise/cut without erasing
  * history or double-counting. Caps the existing recurring stream at the month
  * BEFORE the change, then creates a fresh ongoing stream (same label/emoji) at

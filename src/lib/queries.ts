@@ -153,6 +153,9 @@ export interface YearSummary {
   periods: UiSalaryPeriod[];
   incomeSources: UiIncomeSource[];
   monthlyExpenseTotals: number[];
+  /** ADDED (Module 4): scheduled + materialized fixed-expense amounts per month. */
+  scheduledFixedByMonth: number[];
+  materializedFixedByMonth: number[];
   bonuses: ReturnType<typeof toUiBonus>;
   savingsGoal: number;
   saved: number;
@@ -169,25 +172,42 @@ export async function getYearSummary(year: number): Promise<YearSummary> {
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 
-  const [periods, rows, bonuses, sources] = await Promise.all([
+  const [periods, rows, bonuses, sources, fixed] = await Promise.all([
     prisma.salaryPeriod.findMany({
       where: { userId: user.id },
       orderBy: [{ effectiveYear: "asc" }, { effectiveMonth: "asc" }],
     }),
     prisma.expense.findMany({
       where: { userId: user.id, spentAt: { gte: yearStart, lt: yearEnd } },
-      select: { spentAt: true, amount: true },
+      select: { spentAt: true, amount: true, fixedSourceId: true },
     }),
     prisma.bonus.findMany({ where: { userId: user.id, year } }),
     prisma.incomeSource.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "asc" },
     }),
+    prisma.fixedExpense.findMany({ where: { userId: user.id, active: true } }),
   ]);
 
   const monthlyExpenseTotals = Array(12).fill(0) as number[];
+  // ADDED (Module 4): how much fixed expense was actually materialized per month.
+  const materializedFixedByMonth = Array(12).fill(0) as number[];
   for (const r of rows) {
-    monthlyExpenseTotals[r.spentAt.getMonth()] += Number(r.amount);
+    const m = r.spentAt.getMonth();
+    monthlyExpenseTotals[m] += Number(r.amount);
+    if (r.fixedSourceId != null) materializedFixedByMonth[m] += Number(r.amount);
+  }
+  // Scheduled fixed commitment per month from the definitions (active items whose
+  // [start, end] interval covers that month) — used to project future expenses.
+  const scheduledFixedByMonth = Array(12).fill(0) as number[];
+  const cmp = (aY: number, aM: number, bY: number, bM: number) => (aY !== bY ? aY - bY : aM - bM);
+  for (const f of fixed) {
+    for (let m = 1; m <= 12; m++) {
+      const afterStart = cmp(year, m, f.startYear, f.startMonth) >= 0;
+      const beforeEnd =
+        f.endYear == null || f.endMonth == null ? true : cmp(year, m, f.endYear, f.endMonth) <= 0;
+      if (afterStart && beforeEnd) scheduledFixedByMonth[m - 1] += Number(f.amount);
+    }
   }
 
   return {
@@ -197,6 +217,8 @@ export async function getYearSummary(year: number): Promise<YearSummary> {
     periods: periods.map(toUiSalaryPeriod),
     incomeSources: sources.map(toUiIncomeSource),
     monthlyExpenseTotals,
+    scheduledFixedByMonth,
+    materializedFixedByMonth,
     bonuses: toUiBonus(bonuses),
     savingsGoal: Number(user.savingsGoal),
     saved: Number(user.saved),

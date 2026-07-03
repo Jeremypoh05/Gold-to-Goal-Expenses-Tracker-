@@ -7,7 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PlusIcon } from '@/components/icons';
+import { PlusIcon, ChevronIcon } from '@/components/icons';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import { CATEGORIES } from '@/data/categories';
 import { suggestFixedMetaLocal, type UiFixedExpense } from '@/lib/expense-utils';
@@ -43,6 +43,8 @@ interface Props {
     onDelete: (id: number) => void;
     /** AI (Claude Haiku) emoji + category suggester; label-only. */
     onSuggest: (label: string) => Promise<{ emoji: string; category: CategoryKey }>;
+    /** Guided rate change: cap old at month-before, start new from the change month. */
+    onChangeAmount: (v: { id: number; fromYear: number; fromMonth: number; newAmount: number }) => void;
 }
 
 function hue(cat: CategoryKey) {
@@ -84,8 +86,15 @@ function DayStepper({ value, onChange }: { value: number; onChange: (d: number) 
     );
 }
 
-function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSuggest }: Omit<Props, 'open'>) {
+function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSuggest, onChangeAmount }: Omit<Props, 'open'>) {
     const editing = item != null;
+    const nowY = new Date().getFullYear();
+    const nowM = new Date().getMonth() + 1;
+    const [mode, setMode] = useState<'form' | 'change'>('form');
+    // Rate-change sub-form
+    const [chAmount, setChAmount] = useState('');
+    const [chFromYear, setChFromYear] = useState(String(nowY));
+    const [chFromMonth, setChFromMonth] = useState(String(nowM));
     const initSuggest = suggestFixedMetaLocal(item?.label ?? '');
 
     const [label, setLabel] = useState(item?.label ?? '');
@@ -149,6 +158,17 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
         });
     };
 
+    const canApplyChange = num(chAmount) > 0 && item != null;
+    const applyChange = () => {
+        if (!canApplyChange || !item) return;
+        onChangeAmount({
+            id: item.id,
+            fromYear: Math.round(num(chFromYear)) || nowY,
+            fromMonth: clampM(chFromMonth),
+            newAmount: num(chAmount),
+        });
+    };
+
     return (
         <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}
@@ -165,9 +185,14 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
             >
                 {/* Header */}
                 <div className="px-6 md:px-7 pt-6 pb-4 flex items-start gap-3" style={{ borderBottom: '1px solid var(--color-line-soft)' }}>
+                    {mode === 'change' && (
+                        <button onClick={() => setMode('form')} type="button" className="w-9 h-9 -ml-1.5 rounded-xl bg-bg-1 hover:bg-bg-2 flex items-center justify-center text-ink-1 transition-colors flex-shrink-0" aria-label="Back">
+                            <ChevronIcon direction="left" size={15} />
+                        </button>
+                    )}
                     <div className="flex-1 min-w-0">
                         <div className="text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">Fixed expense</div>
-                        <h2 className="display mt-0.5" style={{ fontSize: 22, lineHeight: 1.1 }}>{editing ? 'Edit fixed expense' : 'Add fixed expense'}</h2>
+                        <h2 className="display mt-0.5" style={{ fontSize: 22, lineHeight: 1.1 }}>{mode === 'change' ? 'Rate change' : editing ? 'Edit fixed expense' : 'Add fixed expense'}</h2>
                     </div>
                     <button onClick={onClose} type="button" className="w-9 h-9 rounded-xl bg-bg-1 hover:bg-bg-2 flex items-center justify-center text-ink-1 transition-colors flex-shrink-0" aria-label="Close">
                         <CloseIcon size={14} />
@@ -176,6 +201,18 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
 
                 {/* Body */}
                 <div className="flex-1 min-h-0 overflow-y-auto px-6 md:px-7 py-4 flex flex-col gap-3.5" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+                  {mode === 'change' && item ? (
+                    <>
+                        <div className="text-[12px] text-ink-1 leading-snug p-3 rounded-[14px]" style={{ background: 'var(--color-bg-1)', border: '1px solid var(--color-line-soft)' }}>
+                            <b>{item.label}</b> will keep its current amount up to the month before the change, then a new rate applies from the chosen month onward. Past entries stay as they were.
+                        </div>
+                        <MoneyField label="New amount per month" value={chAmount} onChange={setChAmount} />
+                        <div className="grid grid-cols-2 gap-3">
+                            <MonthGridDropdown label="Changed from" value={clampM(chFromMonth)} onChange={(m) => setChFromMonth(String(m))} />
+                            <YearStepper value={chFromYear} onChange={setChFromYear} />
+                        </div>
+                    </>
+                  ) : (<>
                     {/* Live preview */}
                     <div className="flex items-center gap-3 p-3 rounded-[14px]" style={{ background: 'var(--color-bg-1)', border: '1px solid var(--color-line-soft)' }}>
                         <FixedTile emoji={emoji} cat={category} size={44} />
@@ -256,6 +293,22 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
                     )}
 
                     {editing && (
+                        <button
+                            type="button"
+                            onClick={() => { setChAmount(''); setChFromYear(String(nowY)); setChFromMonth(String(nowM)); setMode('change'); }}
+                            className="flex items-center gap-2.5 p-3 rounded-[14px] text-left transition-colors hover:brightness-[1.02]"
+                            style={{ background: 'var(--color-bg-1)', border: '1px dashed var(--color-line)' }}
+                        >
+                            <span className="text-[16px]">📈</span>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-[13px] font-medium">Amount changed from a month?</div>
+                                <div className="text-[11px] text-ink-2 mt-0.5">e.g. rent went up — keep past months, apply the new rate onward</div>
+                            </div>
+                            <ChevronIcon direction="right" size={14} className="text-ink-3" />
+                        </button>
+                    )}
+
+                    {editing && (
                         confirmDelete ? (
                             <div className="flex items-center gap-2 p-2.5 rounded-[14px]" style={{ background: 'oklch(0.63 0.2 25 / 0.09)', border: '1px solid oklch(0.63 0.2 25 / 0.4)' }}>
                                 <span className="flex-1 text-[12px] font-medium" style={{ color: 'oklch(0.55 0.2 25)' }}>Delete this fixed expense?</span>
@@ -272,22 +325,35 @@ function Content({ item, defaultYear, pending, onClose, onSave, onDelete, onSugg
                     <div className="text-[11px] text-ink-3 leading-snug">
                         Generates a real expense on day {dueDay} each month from {MONTH_NAMES[clampM(startMonth) - 1]} {Math.round(num(startYear)) || defaultYear}. Past months aren&rsquo;t back-filled; you can edit or delete any month&rsquo;s entry in the ledger.
                     </div>
+                  </>)}
                 </div>
 
                 {/* Footer */}
                 <div className="px-6 md:px-7 py-4 flex items-center gap-2.5" style={{ borderTop: '1px solid var(--color-line-soft)', paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
-                    <button type="button" onClick={onClose} className="h-11 px-5 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all">Cancel</button>
-                    <div className="flex-1" />
-                    <button type="button" onClick={handleSave} disabled={!canSave || pending} className="h-11 px-6 rounded-full text-sm font-semibold flex items-center gap-2 hover:brightness-[1.03] transition-all disabled:opacity-40" style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))', color: '#1a120a', boxShadow: 'var(--shadow-gold)' }}>
-                        <PlusIcon size={14} /> {editing ? 'Save' : 'Add'}
-                    </button>
+                    {mode === 'change' ? (
+                        <>
+                            <button type="button" onClick={() => setMode('form')} className="h-11 px-5 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all">Back</button>
+                            <div className="flex-1" />
+                            <button type="button" onClick={applyChange} disabled={!canApplyChange || pending} className="h-11 px-6 rounded-full text-sm font-semibold flex items-center gap-2 hover:brightness-[1.03] transition-all disabled:opacity-40" style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))', color: '#1a120a', boxShadow: 'var(--shadow-gold)' }}>
+                                Apply change
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <button type="button" onClick={onClose} className="h-11 px-5 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all">Cancel</button>
+                            <div className="flex-1" />
+                            <button type="button" onClick={handleSave} disabled={!canSave || pending} className="h-11 px-6 rounded-full text-sm font-semibold flex items-center gap-2 hover:brightness-[1.03] transition-all disabled:opacity-40" style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))', color: '#1a120a', boxShadow: 'var(--shadow-gold)' }}>
+                                <PlusIcon size={14} /> {editing ? 'Save' : 'Add'}
+                            </button>
+                        </>
+                    )}
                 </div>
             </motion.div>
         </motion.div>
     );
 }
 
-export function FixedExpenseModal({ open, item, defaultYear, pending, onClose, onSave, onDelete, onSuggest }: Props) {
+export function FixedExpenseModal({ open, item, defaultYear, pending, onClose, onSave, onDelete, onSuggest, onChangeAmount }: Props) {
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -317,6 +383,7 @@ export function FixedExpenseModal({ open, item, defaultYear, pending, onClose, o
                     onSave={onSave}
                     onDelete={onDelete}
                     onSuggest={onSuggest}
+                    onChangeAmount={onChangeAmount}
                 />
             )}
         </AnimatePresence>
