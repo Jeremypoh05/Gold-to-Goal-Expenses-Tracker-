@@ -6,7 +6,8 @@
 // (how much of the year's income is spent vs saved). All figures via props so it
 // stays live when a bonus is added.
 
-import { motion } from 'framer-motion';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Donut } from '@/components/shared';
 import { formatMoney } from '@/lib/utils';
 
@@ -40,6 +41,8 @@ export function IncomeBreakdown({
 }: IncomeBreakdownProps) {
     const spentPct = yearlyIncome > 0 ? (yearlyExpenses / yearlyIncome) * 100 : 0;
     const savedPct = yearlyIncome > 0 ? (netSavings / yearlyIncome) * 100 : 0;
+    // Hover/tap the income-vs-spending bar to read each part.
+    const [barActive, setBarActive] = useState<'spent' | 'saved' | null>(null);
 
     return (
         <div
@@ -47,16 +50,16 @@ export function IncomeBreakdown({
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <div className="display text-[20px]">Income breakdown</div>
-            <div className="text-xs text-ink-2 mt-0.5">Where your yearly income comes from</div>
+            <div className="text-xs text-ink-2 mt-0.5">Projected across the full year</div>
 
             <div className="flex flex-col sm:flex-row items-center gap-5 mt-4">
                 <Donut
                     size={150}
                     thickness={20}
                     data={[
-                        { k: 'salary', v: yearlySalary, color: SALARY_COLOR },
-                        { k: 'other', v: otherIncome, color: OTHER_COLOR },
-                        { k: 'bonus', v: totalBonuses, color: BONUS_COLOR },
+                        { k: 'salary', v: yearlySalary, color: SALARY_COLOR, label: 'Salary' },
+                        { k: 'other', v: otherIncome, color: OTHER_COLOR, label: 'Other income' },
+                        { k: 'bonus', v: totalBonuses, color: BONUS_COLOR, label: 'Bonuses' },
                     ]}
                     centerLabel="Income"
                     centerValue={yearlyIncome}
@@ -71,25 +74,50 @@ export function IncomeBreakdown({
                 </div>
             </div>
 
-            {/* Income vs spending bar */}
-            <div className="mt-6">
-                <div className="text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-2">
-                    Income vs spending
+            {/* Income vs spending bar — hover/tap a part for its share */}
+            <div className="mt-6 relative">
+                <div className="flex items-center justify-between mb-2">
+                    <div className="text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold">
+                        Income vs spending
+                    </div>
+                    <AnimatePresence mode="wait">
+                        {barActive && (
+                            <motion.div
+                                key={barActive}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.12 }}
+                                className="text-[11px] mono font-semibold"
+                                style={{ color: barActive === 'spent' ? SPEND_COLOR : SAVE_COLOR }}
+                            >
+                                {barActive === 'spent'
+                                    ? `${Math.round(spentPct)}% spent`
+                                    : `${Math.round(savedPct)}% saved`}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
-                <div className="h-3 rounded-full overflow-hidden flex" style={{ background: 'var(--color-bg-2)' }}>
+                <div className="h-3.5 rounded-full overflow-hidden flex" style={{ background: 'var(--color-bg-2)' }}>
                     <motion.div
-                        className="h-full"
+                        className="h-full cursor-pointer"
                         initial={{ width: 0 }}
                         animate={{ width: `${spentPct}%` }}
                         transition={{ duration: 1.2, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                        style={{ background: SPEND_COLOR }}
+                        style={{ background: SPEND_COLOR, opacity: barActive === 'saved' ? 0.45 : 1 }}
+                        onPointerEnter={(e) => { if (e.pointerType === 'mouse') setBarActive('spent'); }}
+                        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setBarActive((p) => (p === 'spent' ? null : p)); }}
+                        onClick={() => setBarActive((p) => (p === 'spent' ? null : 'spent'))}
                     />
                     <motion.div
-                        className="h-full"
+                        className="h-full cursor-pointer"
                         initial={{ width: 0 }}
                         animate={{ width: `${savedPct}%` }}
                         transition={{ duration: 1.2, delay: 0.55, ease: [0.16, 1, 0.3, 1] }}
-                        style={{ background: SAVE_COLOR }}
+                        style={{ background: SAVE_COLOR, opacity: barActive === 'spent' ? 0.45 : 1 }}
+                        onPointerEnter={(e) => { if (e.pointerType === 'mouse') setBarActive('saved'); }}
+                        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setBarActive((p) => (p === 'saved' ? null : p)); }}
+                        onClick={() => setBarActive((p) => (p === 'saved' ? null : 'saved'))}
                     />
                 </div>
                 <div className="flex justify-between mt-2 text-[11px]">

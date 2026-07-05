@@ -19,6 +19,7 @@ import {
     IncomeSettingsModal,
     SalaryTimelineModal,
     MonthlyFlowChart,
+    NetProfitPanel,
     IncomeSourcesCard,
     IncomeSourceModal,
     type NewBonus,
@@ -212,24 +213,37 @@ function SalaryCard({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-6 md:p-7 bg-bg-card"
+            whileHover={{ y: -3 }}
+            className="glass rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            {/* soft gold aura for a livelier surface */}
+            <div className="absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.82 0.15 85)', opacity: 0.1, filter: 'blur(34px)' }} />
             <CardHeader
                 title="Monthly salary"
                 right={
                     <button
                         type="button"
                         onClick={onEdit}
-                        className="flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all"
+                        className="flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all relative"
                     >
                         <EditIcon size={13} /> Edit
                     </button>
                 }
             />
-            <div className="mt-4 flex items-baseline gap-3 flex-wrap">
-                <div className="display-number" style={{ fontSize: 'clamp(40px, 7vw, 56px)', lineHeight: 1 }}>
-                    <span style={{ fontSize: '0.42em', color: 'var(--color-ink-2)', marginRight: 4 }}>S$</span>
+            <div className="mt-4 flex items-baseline gap-3 flex-wrap relative">
+                <div
+                    className="display-number"
+                    style={{
+                        fontSize: 'clamp(40px, 7vw, 56px)',
+                        lineHeight: 1,
+                        backgroundImage: 'linear-gradient(100deg, var(--color-ink-0) 40%, oklch(0.72 0.17 82))',
+                        WebkitBackgroundClip: 'text',
+                        backgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                    }}
+                >
+                    <span style={{ fontSize: '0.42em', color: 'var(--color-ink-2)', marginRight: 4, WebkitTextFillColor: 'var(--color-ink-2)' }}>S$</span>
                     <AnimatedNumber value={salary} format="integer" duration={1600} delay={300} />
                 </div>
                 <span className="chip">Take-home</span>
@@ -266,9 +280,11 @@ function BonusesCard({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-6 md:p-7 bg-bg-card"
+            whileHover={{ y: -3 }}
+            className="glass rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            <div className="absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.86 0.13 92)', opacity: 0.1, filter: 'blur(34px)' }} />
             <CardHeader
                 title="Bonuses"
                 subtitle="Add bonus months and amounts"
@@ -613,8 +629,11 @@ export default function IncomePage() {
                     {/* Row 2: Full-width stat band + goal (1:1 with design) */}
                     <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.15} />
 
-                    {/* Row 2.5 (Phase 9): interactive monthly income-vs-spent chart */}
-                    <MonthlyFlowChart income={stats.monthlyIncome} expenses={stats.monthlyExpenses} elapsed={stats.elapsed} delay={0.18} />
+                    {/* Row 2.4 (Module 4 · viz): actual net so far + interactive monthly chart */}
+                    <div className="grid gap-6 grid-cols-1 lg:[grid-template-columns:1fr_1.4fr] items-stretch">
+                        <NetProfitPanel earned={stats.actualIncomeYTD} spent={stats.actualExpensesYTD} elapsed={stats.elapsed} delay={0.17} />
+                        <MonthlyFlowChart income={stats.monthlyIncome} expenses={stats.monthlyExpenses} elapsed={stats.elapsed} delay={0.2} />
+                    </div>
 
                     {/* Row 3: Bonus features — breakdown viz + savings insights */}
                     <div className="grid gap-6 grid-cols-1 lg:[grid-template-columns:1.4fr_1fr] items-start">
@@ -653,7 +672,8 @@ export default function IncomePage() {
                         netSavings={stats.netSavings}
                     />
                     <StatBand stats={stats} onEditGoal={() => setSettingsOpen(true)} delay={0.1} />
-                    <MonthlyFlowChart income={stats.monthlyIncome} expenses={stats.monthlyExpenses} elapsed={stats.elapsed} delay={0.12} />
+                    <NetProfitPanel earned={stats.actualIncomeYTD} spent={stats.actualExpensesYTD} elapsed={stats.elapsed} delay={0.12} />
+                    <MonthlyFlowChart income={stats.monthlyIncome} expenses={stats.monthlyExpenses} elapsed={stats.elapsed} delay={0.14} />
                     <BonusesCard
                         bonuses={yearBonuses}
                         total={stats.totalBonuses}

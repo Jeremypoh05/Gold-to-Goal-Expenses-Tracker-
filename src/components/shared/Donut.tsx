@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { CATEGORIES } from '@/data/categories';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { expensesByCategory } from '@/lib/expense-utils';
+import { formatMoney } from '@/lib/utils';
 import type { CategoryKey } from '@/types';
 import { AnimatedHeroAmount } from './AnimatedNumber';
 
@@ -14,6 +15,8 @@ interface DonutData {
     v: number;
     // ADDED (Phase 5): explicit segment color; falls back to the category hue when omitted.
     color?: string;
+    // ADDED (Module 4 · viz): human label for the hover detail (else CATEGORIES[k] or k).
+    label?: string;
 }
 
 interface Segment {
@@ -46,6 +49,8 @@ export function Donut({
 }: DonutProps) {
     const { expenses } = useExpenses();
     const [progress, setProgress] = useState(animated ? 0 : 1);
+    // ADDED (Module 4 · viz): hover/tap a slice → highlight it + show its detail.
+    const [active, setActive] = useState<number | null>(null);
 
     // Trigger animation on mount
     useEffect(() => {
@@ -93,6 +98,12 @@ export function Donut({
         return acc;
     }, []);
 
+    const labelFor = (d: DonutData) =>
+        d.label ?? CATEGORIES[d.k as CategoryKey]?.label ?? d.k;
+
+    const activeSeg = active != null ? segments[active] : null;
+    const activePct = activeSeg && total > 0 ? Math.round((activeSeg.data.v / total) * 100) : 0;
+
     return (
         <div style={{ position: 'relative', width: size, height: size }}>
             <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
@@ -107,11 +118,11 @@ export function Donut({
                 {segments.map((segment, i) => {
                     const animatedLength = segment.length * progress;
                     const animatedOffset = segment.offset * progress;
-                    // CHANGED (Phase 5): prefer an explicit per-datum color; else fall back to the
-                    // category hue (cast since `k` is now a plain string, not only CategoryKey).
                     const category = CATEGORIES[segment.data.k as CategoryKey];
                     const hue = category?.hue ?? 80;
                     const stroke = segment.data.color ?? `oklch(0.78 0.12 ${hue})`;
+                    const dimmed = active != null && active !== i;
+                    const isActive = active === i;
                     return (
                         <circle
                             key={i}
@@ -120,12 +131,18 @@ export function Donut({
                             r={r}
                             fill="none"
                             stroke={stroke}
-                            strokeWidth={thickness}
+                            // Highlighted slice grows slightly; the rest recede — clear focus.
+                            strokeWidth={isActive ? thickness + 4 : thickness}
                             strokeDasharray={`${animatedLength} ${c - animatedLength}`}
                             strokeDashoffset={-animatedOffset}
                             strokeLinecap="butt"
+                            onPointerEnter={(e) => { if (e.pointerType === 'mouse') setActive(i); }}
+                            onPointerLeave={(e) => { if (e.pointerType === 'mouse') setActive((p) => (p === i ? null : p)); }}
+                            onClick={() => setActive((p) => (p === i ? null : i))}
                             style={{
-                                transition: 'none',
+                                opacity: dimmed ? 0.32 : 1,
+                                cursor: 'pointer',
+                                transition: 'opacity 0.2s, stroke-width 0.2s',
                             }}
                         />
                     );
@@ -140,36 +157,47 @@ export function Donut({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    pointerEvents: 'none',
+                    padding: '0 12px',
+                    textAlign: 'center',
                 }}
             >
                 <div
                     style={{
                         fontSize: 11,
-                        color: 'var(--color-ink-2)',
+                        color: activeSeg ? 'var(--color-ink-1)' : 'var(--color-ink-2)',
                         letterSpacing: '0.08em',
                         textTransform: 'uppercase',
+                        fontWeight: activeSeg ? 600 : 400,
+                        maxWidth: size - thickness * 2,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
                     }}
                 >
-                    {/* CHANGED (Phase 5): center label now configurable (defaults to "Spent"). */}
-                    {centerLabel}
+                    {activeSeg ? labelFor(activeSeg.data) : centerLabel}
                 </div>
                 <div
                     className="display-number"
                     style={{ fontSize: 26, lineHeight: 1, marginTop: 4 }}
                 >
-                    <AnimatedHeroAmount
-                        value={centerValue ?? total}
-                        duration={1500}
-                        delay={200}
-                        symbolSize={14}
-                        numberSize={26}
-                    />
+                    {activeSeg ? (
+                        <>
+                            <span style={{ fontSize: 14, color: 'var(--color-ink-2)', marginRight: 3 }}>S$</span>
+                            {Math.round(activeSeg.data.v).toLocaleString('en-SG')}
+                        </>
+                    ) : (
+                        <AnimatedHeroAmount
+                            value={centerValue ?? total}
+                            duration={1500}
+                            delay={200}
+                            symbolSize={14}
+                            numberSize={26}
+                        />
+                    )}
                 </div>
-                <div
-                    style={{ fontSize: 11, color: 'var(--color-ink-2)', marginTop: 4 }}
-                >
-                    {/* CHANGED (Phase 5): center sub-text now configurable. */}
-                    {centerSub}
+                <div style={{ fontSize: 11, color: 'var(--color-ink-2)', marginTop: 4 }}>
+                    {activeSeg ? `${activePct}% of ${formatMoney(total)}` : centerSub}
                 </div>
             </div>
         </div>
