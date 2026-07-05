@@ -853,22 +853,23 @@ function RecentTransactions({ filter, setFilter }: {
                                     −{formatMoney(t.amt)}
                                 </td>
                                 <td>
-                                    {/* CHANGED (Module 4 · UX): hover reveals edit + trash (was a static chevron). */}
-                                    <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {/* CHANGED (Module 4 · UX): always-visible edit + trash (muted → bright
+                                        on button hover). Not group-hover gated, so they reliably show. */}
+                                    <div className="flex gap-1 justify-end">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); editRow(t); }}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors"
+                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-ink-0 transition-colors"
                                             aria-label={t.fixed ? 'Open recurring' : 'Edit'}
                                         >
-                                            <EditIcon size={12} className="text-ink-2" />
+                                            <EditIcon size={13} />
                                         </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
                                             disabled={deleting}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors disabled:opacity-40"
+                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-red-500 transition-colors disabled:opacity-40"
                                             aria-label="Delete"
                                         >
-                                            <TrashIcon size={12} className="text-ink-2" />
+                                            <TrashIcon size={13} />
                                         </button>
                                     </div>
                                 </td>

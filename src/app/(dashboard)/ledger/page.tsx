@@ -264,7 +264,7 @@ function DayCard({
                     </colgroup>
                     <tbody>
                         {entries.map((t) => (
-                            <tr key={t.id} className="group cursor-pointer">
+                            <tr key={t.id} className="group cursor-pointer" onClick={() => editRow(t)}>
                                 <td className="mono text-xs text-ink-2">{t.time}</td>
                                 <td>
                                     <div className="flex items-center gap-2.5">
@@ -310,21 +310,22 @@ function DayCard({
                                     −{formatMoney(t.amt)}
                                 </td>
                                 <td>
-                                    <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {/* CHANGED (Module 4 · UX): always-visible (muted→bright), not group-hover gated. */}
+                                    <div className="flex gap-1 justify-end">
                                         <button
-                                            onClick={() => editRow(t)}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors"
+                                            onClick={(e) => { e.stopPropagation(); editRow(t); }}
+                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-ink-0 transition-colors"
                                             aria-label={t.fixed ? 'Open recurring' : 'Edit'}
                                         >
-                                            <EditIcon size={12} className="text-ink-2" />
+                                            <EditIcon size={13} />
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(t.id)}
+                                            onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
                                             disabled={pendingId}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors disabled:opacity-40"
+                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-red-500 transition-colors disabled:opacity-40"
                                             aria-label="Delete"
                                         >
-                                            <TrashIcon size={12} className="text-ink-2" />
+                                            <TrashIcon size={13} />
                                         </button>
                                     </div>
                                 </td>
