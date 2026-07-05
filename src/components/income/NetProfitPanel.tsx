@@ -46,13 +46,13 @@ export function NetProfitPanel({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
             whileHover={{ y: -3 }}
-            className="rounded-3xl bg-bg-card p-5 md:p-6 relative overflow-hidden"
+            className="shine-wrap shine-wrap-gold rounded-3xl bg-bg-card p-5 md:p-6 relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
-            {/* soft aura in the net's colour */}
+            {/* soft aura in the net's colour (slowly drifts) */}
             <div
-                className="absolute -top-16 -right-16 w-48 h-48 rounded-full pointer-events-none"
-                style={{ background: positive ? POS : NEG, opacity: 0.08, filter: 'blur(30px)' }}
+                className="aurora-blob absolute -top-16 -right-16 w-48 h-48 rounded-full pointer-events-none"
+                style={{ background: positive ? POS : NEG, opacity: 0.1, filter: 'blur(30px)' }}
             />
 
             <div className="flex items-start gap-3 mb-4 relative">

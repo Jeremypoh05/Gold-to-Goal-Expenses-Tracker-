@@ -131,8 +131,9 @@ export function Donut({
                             r={r}
                             fill="none"
                             stroke={stroke}
-                            // Highlighted slice grows slightly; the rest recede — clear focus.
-                            strokeWidth={isActive ? thickness + 4 : thickness}
+                            // Keep the stroke width CONSTANT (growing it overflowed the viewBox
+                            // and made the ring look dented). Focus = glow on active, dim on rest.
+                            strokeWidth={thickness}
                             strokeDasharray={`${animatedLength} ${c - animatedLength}`}
                             strokeDashoffset={-animatedOffset}
                             strokeLinecap="butt"
@@ -140,9 +141,10 @@ export function Donut({
                             onPointerLeave={(e) => { if (e.pointerType === 'mouse') setActive((p) => (p === i ? null : p)); }}
                             onClick={() => setActive((p) => (p === i ? null : i))}
                             style={{
-                                opacity: dimmed ? 0.32 : 1,
+                                opacity: dimmed ? 0.3 : 1,
                                 cursor: 'pointer',
-                                transition: 'opacity 0.2s, stroke-width 0.2s',
+                                filter: isActive ? `drop-shadow(0 0 7px ${stroke})` : 'none',
+                                transition: 'opacity 0.2s ease, filter 0.2s ease',
                             }}
                         />
                     );

@@ -214,11 +214,11 @@ function SalaryCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
             whileHover={{ y: -3 }}
-            className="glass rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
+            className="glass shine-wrap shine-wrap-gold rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
-            {/* soft gold aura for a livelier surface */}
-            <div className="absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.82 0.15 85)', opacity: 0.1, filter: 'blur(34px)' }} />
+            {/* soft gold aura for a livelier surface (slowly drifts) */}
+            <div className="aurora-blob absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.82 0.15 85)', opacity: 0.12, filter: 'blur(34px)' }} />
             <CardHeader
                 title="Monthly salary"
                 right={
@@ -281,10 +281,10 @@ function BonusesCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
             whileHover={{ y: -3 }}
-            className="glass rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
+            className="glass shine-wrap shine-wrap-gold rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
-            <div className="absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.86 0.13 92)', opacity: 0.1, filter: 'blur(34px)' }} />
+            <div className="aurora-blob absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.86 0.13 92)', opacity: 0.12, filter: 'blur(34px)' }} />
             <CardHeader
                 title="Bonuses"
                 subtitle="Add bonus months and amounts"
@@ -356,13 +356,15 @@ function StatBand({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass grad-gold-soft rounded-3xl p-6 md:p-8"
+            className="glass grad-gold-soft shine-wrap shine-wrap-gold rounded-3xl p-6 md:p-8 relative overflow-hidden"
             style={{ border: '1px solid oklch(0.88 0.08 88)' }}
         >
+            {/* Living gold aurora behind the hero band */}
+            <div className="aurora-blob absolute -bottom-20 -left-16 w-72 h-72 rounded-full pointer-events-none" style={{ background: 'oklch(0.85 0.15 88)', opacity: 0.18, filter: 'blur(46px)' }} />
             {/* CHANGED (Phase 9): present-focused figures — what's actually earned, spent
                 and saved SO FAR this year (income keeps an est.-for-year sub-line since
                 it's predictable). No more speculative "projected expenses" headline. */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6 relative">
                 <BigStat label="Income so far" value={stats.actualIncomeYTD} sub={`est. ${formatMoney(stats.projectedAnnualIncome)} this year`} delay={300} />
                 <BigStat label="Total expenses" value={stats.actualExpensesYTD} sub={`${formatMoney(stats.avgMonthlyExpense)}/mo avg`} delay={400} />
                 <BigStat label="Net savings" value={stats.netSavingsActual} sub="so far this year" accent delay={500} />
@@ -580,16 +582,11 @@ export default function IncomePage() {
                             Income &amp; savings
                         </div>
                         <h1
-                            className="display mt-0.5 md:mt-1"
+                            className="display mt-0.5 md:mt-1 text-gradient-gold"
                             style={{
                                 fontSize: 'clamp(30px, 5.5vw, 46px)',
                                 lineHeight: 1.02,
                                 width: 'fit-content',
-                                backgroundImage:
-                                    'linear-gradient(100deg, var(--color-ink-0) 32%, oklch(0.74 0.17 80) 92%)',
-                                WebkitBackgroundClip: 'text',
-                                backgroundClip: 'text',
-                                color: 'transparent',
                                 letterSpacing: '-0.01em',
                             }}
                         >

@@ -544,8 +544,46 @@ body {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Rotating gradient border on hover (premium calendar cells)
+   ADDED (Module 4 · viz): premium animated gradient + aurora
    ───────────────────────────────────────────────────────────── */
+
+/* Slow horizontal pan for shimmering gradient text/surfaces. */
+@keyframes gradient-pan {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* Animated ink→gold→ink title: a soft gold highlight drifts across the text. */
+@utility text-gradient-gold {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-ink-0) 18%,
+    oklch(0.80 0.17 84) 42%,
+    oklch(0.90 0.10 92) 50%,
+    oklch(0.80 0.17 84) 58%,
+    var(--color-ink-0) 82%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: gradient-pan 7s linear infinite;
+}
+
+/* Drifting blurred blob for a living gold aurora behind hero cards. */
+@keyframes aurora-drift {
+  0%,  100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%       { transform: translate3d(-8%, 6%, 0) scale(1.18); }
+}
+.aurora-blob {
+  animation: aurora-drift 11s ease-in-out infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-gradient-gold { animation: none; }
+  .aurora-blob { animation: none; }
+}
 
 /* @keyframes rotateBorder {
   from {
