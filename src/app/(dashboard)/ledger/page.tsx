@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
     CategoryTile,
@@ -21,6 +20,7 @@ import { useExpenses } from "@/components/data/ExpensesContext";
 import { formatMoney, MONTH_NAMES, WEEKDAYS_SHORT, cn } from "@/lib/utils";
 import type { Expense, CategoryKey } from "@/types";
 import { useAddModal } from '@/components/dashboard/AddModalContext';
+import { useFixedEdit } from '@/components/fixed';
 import { deleteExpense } from '@/lib/actions';
 
 
@@ -156,13 +156,14 @@ function DayCard({
 }) {
     const { current, refresh } = useExpenses();
     const { open: openEdit } = useAddModal();
-    const router = useRouter();
+    const { openFixedEdit } = useFixedEdit();
     const [pendingId, startTransition] = useTransition();
 
-    // Recurring rows are managed by their rule — clicking one deep-links to the
-    // Fixed page and auto-opens that item's modal (they're linked). Others edit inline.
+    // CHANGED (Module 4 · UX): recurring rows open their recurring modal IN PLACE
+    // (global FixedEditProvider) — no navigation. Manual/voice rows open the add
+    // modal in edit mode. Orphaned recurring rows fall back to the manual editor.
     const editRow = (t: Expense) => {
-        if (t.fixed && t.fixedSourceId) router.push(`/fixed?edit=${t.fixedSourceId}`);
+        if (t.fixed && t.fixedSourceId) openFixedEdit(t.fixedSourceId, t);
         else openEdit(t);
     };
     const dayTotal = entries.reduce((a, b) => a + b.amt, 0);

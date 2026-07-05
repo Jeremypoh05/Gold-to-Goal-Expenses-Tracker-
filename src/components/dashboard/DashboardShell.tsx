@@ -12,6 +12,8 @@ import { Orbs } from '@/components/shared';
 import { AddModalProvider } from '@/components/dashboard/AddModalContext';
 import { ManualAddModal } from '@/components/dashboard/ManualAddModal';
 import { VoiceProvider, VoiceModal, VoiceToast } from '@/components/voice';
+// ADDED (Module 4 · UX): global in-place "edit recurring" modal (any page can open it).
+import { FixedEditProvider } from '@/components/fixed';
 import { ExpensesProvider } from '@/components/data/ExpensesContext';
 import type { DashboardData } from '@/lib/queries';
 
@@ -26,6 +28,7 @@ export function DashboardShell({
         <ExpensesProvider initial={data}>
             <AddModalProvider>
                 <VoiceProvider>
+                    <FixedEditProvider>
                     <div className="h-screen flex relative bg-bg-0 overflow-hidden">
                         <Orbs count={3} />
 
@@ -50,6 +53,7 @@ export function DashboardShell({
                         <VoiceModal />
                         <VoiceToast />
                     </div>
+                    </FixedEditProvider>
                 </VoiceProvider>
             </AddModalProvider>
         </ExpensesProvider>

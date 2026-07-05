@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useTransition, Suspense } from 'react';
 import Link from 'next/link'; // ADDED (Phase 5): mobile entry point into the Income page
 import { WelcomeBanner } from '@/components/dashboard/WelcomeBanner'; // ADDED (Phase 7)
 import { motion } from 'framer-motion';
@@ -12,6 +12,8 @@ import {
     ChevronIcon,
     BellIcon,
     RepeatIcon,
+    EditIcon,
+    TrashIcon,
 } from '@/components/icons';
 import { MonthBars, Donut, CalendarGrid } from '@/components/shared';
 import {
@@ -28,7 +30,11 @@ import {
 import { formatMoney, MONTH_NAMES, cn, daysInMonth } from '@/lib/utils';
 import { useGreeting } from '@/hooks/useGreeting';
 import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open the voice modal
-import type { CategoryKey } from '@/types';
+// ADDED (Module 4 · UX): in-place row actions — edit opens the right modal, trash deletes.
+import { useAddModal } from '@/components/dashboard/AddModalContext';
+import { useFixedEdit } from '@/components/fixed';
+import { deleteExpense } from '@/lib/actions';
+import type { CategoryKey, Expense } from '@/types';
 
 // ═══════════════════════════════════════════════════════════════
 // Mobile Tab type
@@ -720,13 +726,29 @@ function RecentTransactions({ filter, setFilter }: {
     filter: FilterMode;
     setFilter: (v: FilterMode) => void;
 }) {
-    const { current, expenses } = useExpenses();
+    const { current, expenses, refresh } = useExpenses();
+    const { open: openManualEdit } = useAddModal();
+    const { openFixedEdit } = useFixedEdit();
+    const [deleting, startTransition] = useTransition();
     const monthName = MONTH_NAMES[current.month - 1]; // CHANGED (Phase 8.2): was hardcoded "Apr"
     const filteredExpenses = expenses.filter((t) => {
         if (filter === 'voice') return t.voice === true;
         if (filter === 'manual') return !t.voice;
         return true;
     }).slice(0, 8);
+
+    // ADDED (Module 4 · UX): row click opens the right modal IN PLACE — recurring
+    // rows open their recurring definition, manual/voice rows open the edit modal.
+    const editRow = (t: Expense) => {
+        if (t.fixed && t.fixedSourceId) openFixedEdit(t.fixedSourceId, t);
+        else openManualEdit(t);
+    };
+    const handleDelete = (id: number) => {
+        startTransition(async () => {
+            await deleteExpense(id);
+            refresh();
+        });
+    };
 
     return (
         <motion.div
@@ -762,12 +784,12 @@ function RecentTransactions({ filter, setFilter }: {
                             <th style={{ width: 80, whiteSpace: 'nowrap' }}>Date</th>
                             <th className="hidden lg:table-cell" style={{ width: 110 }}>Source</th>
                             <th style={{ width: 120, textAlign: 'right' }}>Amount</th>
-                            <th style={{ width: 36 }}></th>
+                            <th style={{ width: 72 }}></th>
                         </tr>
                     </thead>
                     <tbody>
                         {filteredExpenses.map((t) => (
-                            <tr key={t.id} className="cursor-pointer">
+                            <tr key={t.id} className="group cursor-pointer" onClick={() => editRow(t)}>
                                 <td>
                                     <div className="flex items-center gap-3">
                                         <CategoryTile kind={t.cat} size={36} variant="filled" />
@@ -830,7 +852,26 @@ function RecentTransactions({ filter, setFilter }: {
                                 <td className="mono text-right font-semibold" style={{ whiteSpace: 'nowrap' }}>
                                     −{formatMoney(t.amt)}
                                 </td>
-                                <td><ChevronIcon direction="right" size={14} className="text-ink-3" /></td>
+                                <td>
+                                    {/* CHANGED (Module 4 · UX): hover reveals edit + trash (was a static chevron). */}
+                                    <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); editRow(t); }}
+                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors"
+                                            aria-label={t.fixed ? 'Open recurring' : 'Edit'}
+                                        >
+                                            <EditIcon size={12} className="text-ink-2" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
+                                            disabled={deleting}
+                                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-bg-2 transition-colors disabled:opacity-40"
+                                            aria-label="Delete"
+                                        >
+                                            <TrashIcon size={12} className="text-ink-2" />
+                                        </button>
+                                    </div>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -845,6 +886,10 @@ function RecentTransactions({ filter, setFilter }: {
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.3, delay: 0.4 + i * 0.04 }}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => editRow(t)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editRow(t); } }}
                         className="flex items-center gap-3 px-4 py-3 active:bg-bg-1 cursor-pointer"
                     >
                         <CategoryTile kind={t.cat} size={36} variant="filled" />
