@@ -33,7 +33,8 @@ import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open the vo
 // ADDED (Module 4 · UX): in-place row actions — edit opens the right modal, trash deletes.
 import { useAddModal } from '@/components/dashboard/AddModalContext';
 import { useFixedEdit } from '@/components/fixed';
-import { deleteExpense } from '@/lib/actions';
+import { useConfirm } from '@/components/shared';
+import { deleteExpense, deleteFixedExpense } from '@/lib/actions';
 import type { CategoryKey, Expense } from '@/types';
 
 // ═══════════════════════════════════════════════════════════════
@@ -729,6 +730,7 @@ function RecentTransactions({ filter, setFilter }: {
     const { current, expenses, refresh } = useExpenses();
     const { open: openManualEdit } = useAddModal();
     const { openFixedEdit } = useFixedEdit();
+    const confirm = useConfirm();
     const [deleting, startTransition] = useTransition();
     const monthName = MONTH_NAMES[current.month - 1]; // CHANGED (Phase 8.2): was hardcoded "Apr"
     const filteredExpenses = expenses.filter((t) => {
@@ -743,9 +745,30 @@ function RecentTransactions({ filter, setFilter }: {
         if (t.fixed && t.fixedSourceId) openFixedEdit(t.fixedSourceId, t);
         else openManualEdit(t);
     };
-    const handleDelete = (id: number) => {
+    // Deleting a recurring-generated row removes the WHOLE rule (and all its entries,
+    // across every page) — they're linked. Manual/voice rows delete just that entry.
+    // Always confirm first.
+    const handleDelete = async (t: Expense) => {
+        const isRecurring = !!(t.fixed && t.fixedSourceId);
+        const ok = await confirm(
+            isRecurring
+                ? {
+                      title: `Delete recurring “${t.note}”?`,
+                      message: 'This removes the recurring rule and every entry it has generated, across all months.',
+                      confirmLabel: 'Delete rule',
+                      danger: true,
+                  }
+                : {
+                      title: 'Delete this expense?',
+                      message: 'This permanently removes the entry.',
+                      confirmLabel: 'Delete',
+                      danger: true,
+                  },
+        );
+        if (!ok) return;
         startTransition(async () => {
-            await deleteExpense(id);
+            if (isRecurring && t.fixedSourceId) await deleteFixedExpense(t.fixedSourceId);
+            await deleteExpense(t.id);
             refresh();
         });
     };
@@ -855,21 +878,21 @@ function RecentTransactions({ filter, setFilter }: {
                                 <td>
                                     {/* CHANGED (Module 4 · UX): always-visible edit + trash (muted → bright
                                         on button hover). Not group-hover gated, so they reliably show. */}
-                                    <div className="flex gap-1 justify-end">
+                                    <div className="flex gap-1.5 justify-end">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); editRow(t); }}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-ink-0 transition-colors"
+                                            className="w-9 h-9 flex items-center justify-center rounded-lg text-ink-2 border border-transparent hover:border-line hover:bg-bg-2 hover:text-gold-700 hover:scale-105 active:scale-95 transition-all"
                                             aria-label={t.fixed ? 'Open recurring' : 'Edit'}
                                         >
-                                            <EditIcon size={13} />
+                                            <EditIcon size={16} />
                                         </button>
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
+                                            onClick={(e) => { e.stopPropagation(); handleDelete(t); }}
                                             disabled={deleting}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-red-500 transition-colors disabled:opacity-40"
+                                            className="w-9 h-9 flex items-center justify-center rounded-lg text-ink-2 border border-transparent hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-500 hover:scale-105 active:scale-95 transition-all disabled:opacity-40"
                                             aria-label="Delete"
                                         >
-                                            <TrashIcon size={13} />
+                                            <TrashIcon size={16} />
                                         </button>
                                     </div>
                                 </td>

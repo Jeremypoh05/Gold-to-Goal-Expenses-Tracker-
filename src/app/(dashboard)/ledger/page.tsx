@@ -21,7 +21,8 @@ import { formatMoney, MONTH_NAMES, WEEKDAYS_SHORT, cn } from "@/lib/utils";
 import type { Expense, CategoryKey } from "@/types";
 import { useAddModal } from '@/components/dashboard/AddModalContext';
 import { useFixedEdit } from '@/components/fixed';
-import { deleteExpense } from '@/lib/actions';
+import { useConfirm } from '@/components/shared';
+import { deleteExpense, deleteFixedExpense } from '@/lib/actions';
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -157,6 +158,7 @@ function DayCard({
     const { current, refresh } = useExpenses();
     const { open: openEdit } = useAddModal();
     const { openFixedEdit } = useFixedEdit();
+    const confirm = useConfirm();
     const [pendingId, startTransition] = useTransition();
 
     // CHANGED (Module 4 · UX): recurring rows open their recurring modal IN PLACE
@@ -172,9 +174,24 @@ function DayCard({
     const weekday = WEEKDAYS_SHORT[date.getDay()];
     const isToday = day === current.day;
 
-    const handleDelete = (id: number) => {
+    // Recurring rows delete the whole rule (+ all entries, everywhere); others delete
+    // just the entry. Always confirm first.
+    const handleDelete = async (t: Expense) => {
+        const isRecurring = !!(t.fixed && t.fixedSourceId);
+        const ok = await confirm(
+            isRecurring
+                ? {
+                      title: `Delete recurring “${t.note}”?`,
+                      message: 'This removes the recurring rule and every entry it has generated, across all months.',
+                      confirmLabel: 'Delete rule',
+                      danger: true,
+                  }
+                : { title: 'Delete this expense?', message: 'This permanently removes the entry.', confirmLabel: 'Delete', danger: true },
+        );
+        if (!ok) return;
         startTransition(async () => {
-            await deleteExpense(id);
+            if (isRecurring && t.fixedSourceId) await deleteFixedExpense(t.fixedSourceId);
+            await deleteExpense(t.id);
             refresh();
         });
     };
@@ -311,21 +328,21 @@ function DayCard({
                                 </td>
                                 <td>
                                     {/* CHANGED (Module 4 · UX): always-visible (muted→bright), not group-hover gated. */}
-                                    <div className="flex gap-1 justify-end">
+                                    <div className="flex gap-1.5 justify-end">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); editRow(t); }}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-ink-0 transition-colors"
+                                            className="w-9 h-9 flex items-center justify-center rounded-lg text-ink-2 border border-transparent hover:border-line hover:bg-bg-2 hover:text-gold-700 hover:scale-105 active:scale-95 transition-all"
                                             aria-label={t.fixed ? 'Open recurring' : 'Edit'}
                                         >
-                                            <EditIcon size={13} />
+                                            <EditIcon size={16} />
                                         </button>
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
+                                            onClick={(e) => { e.stopPropagation(); handleDelete(t); }}
                                             disabled={pendingId}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:bg-bg-2 hover:text-red-500 transition-colors disabled:opacity-40"
+                                            className="w-9 h-9 flex items-center justify-center rounded-lg text-ink-2 border border-transparent hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-500 hover:scale-105 active:scale-95 transition-all disabled:opacity-40"
                                             aria-label="Delete"
                                         >
-                                            <TrashIcon size={13} />
+                                            <TrashIcon size={16} />
                                         </button>
                                     </div>
                                 </td>

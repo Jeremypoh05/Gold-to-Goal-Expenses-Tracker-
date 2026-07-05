@@ -8,7 +8,7 @@
 import { Sidebar } from '@/components/dashboard/Sidebar';
 import { BottomTabBar } from '@/components/dashboard/BottomTabBar';
 import { TopBar } from '@/components/dashboard/TopBar';
-import { Orbs } from '@/components/shared';
+import { Orbs, ConfirmProvider } from '@/components/shared';
 import { AddModalProvider } from '@/components/dashboard/AddModalContext';
 import { ManualAddModal } from '@/components/dashboard/ManualAddModal';
 import { VoiceProvider, VoiceModal, VoiceToast } from '@/components/voice';
@@ -26,6 +26,7 @@ export function DashboardShell({
 }) {
     return (
         <ExpensesProvider initial={data}>
+            <ConfirmProvider>
             <AddModalProvider>
                 <VoiceProvider>
                     <FixedEditProvider>
@@ -56,6 +57,7 @@ export function DashboardShell({
                     </FixedEditProvider>
                 </VoiceProvider>
             </AddModalProvider>
+            </ConfirmProvider>
         </ExpensesProvider>
     );
 }

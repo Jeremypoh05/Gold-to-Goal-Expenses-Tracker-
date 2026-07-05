@@ -7,11 +7,13 @@ import {
     CalendarIcon,
     WalletIcon,
     SparkleIcon,
+    TrashIcon,
 } from '@/components/icons';
 import { CATEGORIES } from '@/data/categories';
-import { createExpense, updateExpense } from '@/lib/actions';
+import { createExpense, updateExpense, deleteExpense } from '@/lib/actions';
 import { currencyFromSymbol } from '@/lib/utils';
 import { useExpenses } from '@/components/data/ExpensesContext';
+import { useConfirm } from '@/components/shared';
 import { useAddModal } from './AddModalContext';
 import type { CategoryKey, Currency as CurrencyEnum, Expense } from '@/types';
 
@@ -460,9 +462,19 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
         });
     };
 
+    // ADDED (Module 4 · UX): delete from within the edit modal (the mobile delete path).
+    const remove = () => {
+        if (!editTarget) return;
+        startTransition(async () => {
+            await deleteExpense(editTarget.id);
+            onClose();
+            refresh();
+        });
+    };
+
     return {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, pending, canSave, save,
+        note, setNote, fixed, setFixed, pending, canSave, save, remove,
     };
 }
 
@@ -482,10 +494,14 @@ function nowLabels() {
 function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, pending, canSave, save,
+        note, setNote, fixed, setFixed, pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const labels = nowLabels();
     const isEdit = editTarget !== null;
+    const confirm = useConfirm();
+    const handleDelete = async () => {
+        if (await confirm({ title: 'Delete this expense?', message: 'This permanently removes the entry.', confirmLabel: 'Delete', danger: true })) remove();
+    };
 
     return (
         <motion.div
@@ -608,6 +624,17 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
                         />
                         Recurring
                     </label>
+                    {isEdit && (
+                        <button
+                            type="button"
+                            onClick={handleDelete}
+                            disabled={pending}
+                            className="h-10 px-4 rounded-full border border-red-500/30 text-sm font-medium flex items-center gap-1.5 hover:bg-red-500/10 transition-all disabled:opacity-40"
+                            style={{ color: 'oklch(0.58 0.21 25)' }}
+                        >
+                            <TrashIcon size={14} /> Delete
+                        </button>
+                    )}
                     <div className="flex-1" />
                     <button
                         type="button"
@@ -644,10 +671,14 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
 function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, pending, canSave, save,
+        note, setNote, fixed, setFixed, pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const labels = nowLabels();
     const isEdit = editTarget !== null;
+    const confirm = useConfirm();
+    const handleDelete = async () => {
+        if (await confirm({ title: 'Delete this expense?', message: 'This permanently removes the entry.', confirmLabel: 'Delete', danger: true })) remove();
+    };
 
     return (
         <motion.div
@@ -773,6 +804,18 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
                         />
                         Recurring
                     </label>
+                    {isEdit && (
+                        <button
+                            type="button"
+                            onClick={handleDelete}
+                            disabled={pending}
+                            className="w-10 h-10 flex items-center justify-center rounded-full border border-red-500/30 hover:bg-red-500/10 transition-all disabled:opacity-40"
+                            style={{ color: 'oklch(0.58 0.21 25)' }}
+                            aria-label="Delete expense"
+                        >
+                            <TrashIcon size={15} />
+                        </button>
+                    )}
                     <div className="flex-1" />
                     <button
                         type="button"
