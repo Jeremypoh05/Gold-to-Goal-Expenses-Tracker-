@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
+import { spotlightMove, SpotlightLayer } from '@/components/shared';
 import { formatMoney } from '@/lib/utils';
 
 const INCOME_GRAD = 'linear-gradient(90deg, oklch(0.82 0.155 88), oklch(0.66 0.16 78))';
@@ -46,9 +47,11 @@ export function NetProfitPanel({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
             whileHover={{ y: -3 }}
-            className="shine-wrap shine-wrap-gold rounded-3xl bg-bg-card p-5 md:p-6 relative overflow-hidden"
+            onPointerMove={spotlightMove}
+            className="spotlight-card rounded-3xl bg-bg-card p-5 md:p-6 relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            <SpotlightLayer />
             {/* soft aura in the net's colour (slowly drifts) */}
             <div
                 className="aurora-blob absolute -top-16 -right-16 w-48 h-48 rounded-full pointer-events-none"

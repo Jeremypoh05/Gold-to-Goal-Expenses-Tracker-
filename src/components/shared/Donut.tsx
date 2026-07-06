@@ -106,7 +106,7 @@ export function Donut({
 
     return (
         <div style={{ position: 'relative', width: size, height: size }}>
-            <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+            <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', overflow: 'visible' }}>
                 <circle
                     cx={size / 2}
                     cy={size / 2}

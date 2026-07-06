@@ -585,6 +585,50 @@ body {
   .aurora-blob { animation: none; }
 }
 
+/* Cursor-following gold spotlight (see SpotlightCard). The layer sits just above
+   the surface; content renders after it, and its translucent radial keeps text
+   legible. Fades in on hover only. */
+.spotlight-card { position: relative; }
+.spotlight-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    240px circle at var(--mx, 50%) var(--my, 0px),
+    oklch(0.86 0.16 90 / 0.16),
+    transparent 68%
+  );
+}
+.spotlight-card:hover .spotlight-layer { opacity: 1; }
+
+/* Themed border glow (reactbits-style): a gold gradient that lights only the
+   border ring where the cursor is. Uses the same --mx/--my the interior spotlight
+   tracks. Masked so only the 1.5px ring shows. */
+.spotlight-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: radial-gradient(
+    220px circle at var(--mx, 50%) var(--my, 0px),
+    oklch(0.88 0.16 90 / 0.95),
+    oklch(0.80 0.15 82 / 0.35) 22%,
+    transparent 55%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+.spotlight-card:hover::after { opacity: 1; }
+
 /* @keyframes rotateBorder {
   from {
     transform: rotate(0deg);

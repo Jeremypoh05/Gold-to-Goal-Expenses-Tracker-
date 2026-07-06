@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Donut } from '@/components/shared';
+import { Donut, spotlightMove, SpotlightLayer } from '@/components/shared';
 import { formatMoney } from '@/lib/utils';
 
 // Gold shades for the income segments (kept here so legend + donut match).
@@ -46,9 +46,11 @@ export function IncomeBreakdown({
 
     return (
         <div
-            className="glass rounded-3xl p-5 md:p-6 bg-bg-card"
+            onPointerMove={spotlightMove}
+            className="glass spotlight-card rounded-3xl p-5 md:p-6 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            <SpotlightLayer />
             <div className="display text-[20px]">Income breakdown</div>
             <div className="text-xs text-ink-2 mt-0.5">Projected across the full year</div>
 

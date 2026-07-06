@@ -7,6 +7,7 @@
 import { motion } from 'framer-motion';
 import { PlusIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
+import { spotlightMove, SpotlightLayer } from '@/components/shared';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 import { incomeSourceStatus, isIncomeSourceArchived, type UiIncomeSource } from '@/lib/expense-utils';
 
@@ -45,9 +46,12 @@ export function IncomeSourcesCard({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass rounded-3xl p-6 md:p-7 bg-bg-card"
+            whileHover={{ y: -3 }}
+            onPointerMove={spotlightMove}
+            className="glass spotlight-card rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            <SpotlightLayer />
             <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                     <div className="display text-[20px]">Other income</div>

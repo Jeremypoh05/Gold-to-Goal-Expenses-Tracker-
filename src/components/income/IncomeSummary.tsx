@@ -10,6 +10,7 @@
 import { motion } from 'framer-motion';
 import { SparkleIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
+import { spotlightMove, SpotlightLayer } from '@/components/shared';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
 
 function StatCard({
@@ -26,12 +27,15 @@ function StatCard({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="rounded-2xl p-4"
+            whileHover={{ y: -2 }}
+            onPointerMove={spotlightMove}
+            className="spotlight-card rounded-2xl p-4 relative overflow-hidden"
             style={{
                 background: 'var(--color-bg-card)',
                 border: '1px solid var(--color-line-soft)',
             }}
         >
+            <SpotlightLayer />
             <div className="text-[10px] text-ink-2 uppercase tracking-[0.08em] font-semibold">
                 {label}
             </div>

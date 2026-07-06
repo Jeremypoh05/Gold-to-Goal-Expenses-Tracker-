@@ -11,6 +11,7 @@ import { useState, useMemo, useTransition, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion';
 import { PlusIcon, SparkleIcon, EditIcon, ChevronIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
+import { spotlightMove, SpotlightLayer } from '@/components/shared';
 import {
     GoalProgress,
     IncomeBreakdown,
@@ -214,9 +215,11 @@ function SalaryCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
             whileHover={{ y: -3 }}
-            className="glass shine-wrap shine-wrap-gold rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
+            onPointerMove={spotlightMove}
+            className="glass spotlight-card rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            <SpotlightLayer />
             {/* soft gold aura for a livelier surface (slowly drifts) */}
             <div className="aurora-blob absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.82 0.15 85)', opacity: 0.12, filter: 'blur(34px)' }} />
             <CardHeader
@@ -281,9 +284,11 @@ function BonusesCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
             whileHover={{ y: -3 }}
-            className="glass shine-wrap shine-wrap-gold rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
+            onPointerMove={spotlightMove}
+            className="glass spotlight-card rounded-3xl p-6 md:p-7 bg-bg-card relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            <SpotlightLayer />
             <div className="aurora-blob absolute -top-14 -right-10 w-44 h-44 rounded-full pointer-events-none" style={{ background: 'oklch(0.86 0.13 92)', opacity: 0.12, filter: 'blur(34px)' }} />
             <CardHeader
                 title="Bonuses"
@@ -356,9 +361,11 @@ function StatBand({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="glass grad-gold-soft shine-wrap shine-wrap-gold rounded-3xl p-6 md:p-8 relative overflow-hidden"
+            onPointerMove={spotlightMove}
+            className="glass grad-gold-soft spotlight-card rounded-3xl p-6 md:p-8 relative overflow-hidden"
             style={{ border: '1px solid oklch(0.88 0.08 88)' }}
         >
+            <SpotlightLayer />
             {/* Living gold aurora behind the hero band */}
             <div className="aurora-blob absolute -bottom-20 -left-16 w-72 h-72 rounded-full pointer-events-none" style={{ background: 'oklch(0.85 0.15 88)', opacity: 0.18, filter: 'blur(46px)' }} />
             {/* CHANGED (Phase 9): present-focused figures — what's actually earned, spent

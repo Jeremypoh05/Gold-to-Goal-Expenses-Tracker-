@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { spotlightMove, SpotlightLayer } from '@/components/shared';
 import { formatMoney } from '@/lib/utils';
 
 const MONTH_INITIALS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
@@ -36,9 +37,12 @@ export function MonthlyFlowChart({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
-            className="rounded-3xl bg-bg-card p-5 md:p-6"
+            whileHover={{ y: -3 }}
+            onPointerMove={spotlightMove}
+            className="spotlight-card rounded-3xl bg-bg-card p-5 md:p-6 relative overflow-hidden"
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
+            <SpotlightLayer />
             {/* Header + legend */}
             <div className="flex items-start gap-3 mb-5">
                 <div className="flex-1 min-w-0">
