@@ -69,16 +69,26 @@ export function MonthlyFlowChart({
 
             {/* Chart */}
             <div className="relative">
-                {/* Floating tooltip */}
+                {/* Floating tooltip — anchored to the top of the plot and horizontally
+                    clamped (left / center / right zones) so it can never spill past the
+                    card edges and get clipped by `overflow-hidden` (e.g. Dec on the right). */}
                 <AnimatePresence>
-                    {hover !== null && (
+                    {hover !== null && (() => {
+                        const frac = (hover + 0.5) / 12;
+                        const pos =
+                            frac < 0.22
+                                ? { left: 0 }
+                                : frac > 0.78
+                                    ? { right: 0 }
+                                    : { left: `${frac * 100}%`, transform: 'translateX(-50%)' };
+                        return (
                         <motion.div
-                            initial={{ opacity: 0, y: 6 }}
+                            initial={{ opacity: 0, y: -6 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 6 }}
+                            exit={{ opacity: 0, y: -6 }}
                             transition={{ duration: 0.15 }}
-                            className="absolute z-20 -translate-x-1/2 pointer-events-none"
-                            style={{ left: `${((hover + 0.5) / 12) * 100}%`, bottom: CHART_H + 28 }}
+                            className="absolute z-30 pointer-events-none"
+                            style={{ ...pos, top: 0 }}
                         >
                             <div
                                 className="px-3 py-2 rounded-xl whitespace-nowrap shadow-lg"
@@ -107,7 +117,8 @@ export function MonthlyFlowChart({
                                 </div>
                             </div>
                         </motion.div>
-                    )}
+                        );
+                    })()}
                 </AnimatePresence>
 
                 {/* Bars */}

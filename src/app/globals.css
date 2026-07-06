@@ -597,9 +597,9 @@ body {
   transition: opacity 0.3s ease;
   pointer-events: none;
   background: radial-gradient(
-    240px circle at var(--mx, 50%) var(--my, 0px),
-    oklch(0.86 0.16 90 / 0.16),
-    transparent 68%
+    300px circle at var(--mx, 50%) var(--my, 0px),
+    oklch(0.86 0.16 90 / 0.20),
+    transparent 70%
   );
 }
 .spotlight-card:hover .spotlight-layer { opacity: 1; }
@@ -612,16 +612,18 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1.5px;
+  padding: 2px;
   background: radial-gradient(
-    220px circle at var(--mx, 50%) var(--my, 0px),
-    oklch(0.88 0.16 90 / 0.95),
-    oklch(0.80 0.15 82 / 0.35) 22%,
-    transparent 55%
+    300px circle at var(--mx, 50%) var(--my, 0px),
+    oklch(0.90 0.17 92 / 1),
+    oklch(0.82 0.16 84 / 0.55) 24%,
+    transparent 58%
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
+  /* soft outer bloom so the ring glows like reactbits' border-glow, not just a hairline */
+  filter: drop-shadow(0 0 6px oklch(0.86 0.16 88 / 0.55));
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
