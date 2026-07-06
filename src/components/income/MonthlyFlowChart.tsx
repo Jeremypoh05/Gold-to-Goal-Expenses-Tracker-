@@ -96,29 +96,43 @@ export function MonthlyFlowChart({
                 </div>
             </div>
 
-            {/* Detail panel — a dedicated full-width row (not squeezed into the header)
-                so Income / Spent / Net are always fully legible, mobile included.
-                Height-animates open/closed; normal document flow, so it can never
-                overflow the card the way a floating tooltip did. */}
-            <AnimatePresence initial={false}>
-                {hover !== null && (() => {
-                    const net = income[hover] - expenses[hover];
-                    const projected = hover + 1 > elapsed;
-                    return (
-                        <motion.div
-                            key="detail"
-                            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                            animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
-                            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                            style={{ overflow: 'hidden' }}
+            {/* Detail panel — a permanently-reserved slot (fixed min-height, always
+                rendered) right below the header. Hovering/tapping a month only
+                crossfades its CONTENT in place; the slot itself never grows or
+                shrinks, so nothing below it ever shifts. This gets the "floating
+                tooltip" feel back (appears without disturbing layout) without the
+                overflow problems of actually floating it. */}
+            <div
+                className="rounded-2xl px-3.5 flex items-center gap-4 md:gap-6 flex-wrap mb-4 min-h-[58px] transition-colors duration-200"
+                style={
+                    hover !== null
+                        ? { background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))', border: '1px solid oklch(0.88 0.07 88)' }
+                        : { background: 'var(--color-bg-1)', border: '1px solid var(--color-line-soft)' }
+                }
+            >
+                <AnimatePresence mode="wait">
+                    {hover === null ? (
+                        <motion.span
+                            key="empty"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="text-[12px] text-ink-2"
                         >
-                            <div
-                                className="rounded-2xl p-3.5 flex items-center gap-4 md:gap-6 flex-wrap"
-                                style={{
-                                    background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
-                                    border: '1px solid oklch(0.88 0.07 88)',
-                                }}
+                            Hover or tap a month for the breakdown
+                        </motion.span>
+                    ) : (() => {
+                        const net = income[hover] - expenses[hover];
+                        const projected = hover + 1 > elapsed;
+                        return (
+                            <motion.div
+                                key="detail"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="flex items-center gap-4 md:gap-6 flex-wrap w-full"
                             >
                                 <div className="flex items-center gap-2 pr-1">
                                     <span
@@ -143,11 +157,11 @@ export function MonthlyFlowChart({
                                         color={net >= 0 ? POS : NEG}
                                     />
                                 </div>
-                            </div>
-                        </motion.div>
-                    );
-                })()}
-            </AnimatePresence>
+                            </motion.div>
+                        );
+                    })()}
+                </AnimatePresence>
+            </div>
 
             {/* Chart */}
             <div className="relative">
