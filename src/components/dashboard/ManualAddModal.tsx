@@ -142,6 +142,55 @@ function FieldRow({
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Date + Time — CHANGED (Module 5.1): real editable inputs (were static
+// display rows). Native date/time pickers keep it dependency-free and give a
+// good mobile keyboard. This is what lets you backfill a past month's entry.
+// ═══════════════════════════════════════════════════════════════
+
+function DateTimeFields({
+    date,
+    setDate,
+    time,
+    setTime,
+}: {
+    date: string;
+    setDate: (v: string) => void;
+    time: string;
+    setTime: (v: string) => void;
+}) {
+    const inputCls =
+        'w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 text-[12px] md:text-[13px] outline-none focus:border-gold-400 focus:bg-bg-card transition-all mono';
+    return (
+        <div className="grid grid-cols-2 gap-3">
+            <div>
+                <label className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5 flex items-center gap-1.5">
+                    <CalendarIcon size={12} /> Date
+                </label>
+                <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className={inputCls}
+                    aria-label="Date"
+                />
+            </div>
+            <div>
+                <label className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5 flex items-center gap-1.5">
+                    <ClockIcon size={12} /> Time
+                </label>
+                <input
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    className={inputCls}
+                    aria-label="Time"
+                />
+            </div>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Modal Body (shared between desktop + mobile)
 // ═══════════════════════════════════════════════════════════════
 
@@ -324,7 +373,13 @@ function CategoryGrid({
                                 size={isMobile ? 28 : 32}
                                 variant="filled"
                             />
-                            <span className="text-[9px] md:text-[10px] font-medium">
+                            {/* CHANGED (Module 5.1): the selected tile's background is a bright
+                                gold, so its label must use a fixed dark ink — theme ink turns
+                                white in dark mode and became unreadable on the gold. */}
+                            <span
+                                className="text-[9px] md:text-[10px] font-medium"
+                                style={isSelected ? { color: '#2a1805' } : undefined}
+                            >
                                 {CATEGORIES[k].label}
                             </span>
                         </button>
@@ -428,8 +483,17 @@ function symbolFromCurrency(c: CurrencyEnum): Currency {
     }
 }
 
+// ADDED (Module 5.1): <input type="date"/"time"> value helpers.
+function toDateValue(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function toTimeValue(d: Date): string {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
-    const { refresh } = useExpenses();
+    const { current, refresh } = useExpenses();
+    const confirm = useConfirm();
     const [amount, setAmount] = useState(editTarget ? String(editTarget.amt) : '');
     const [category, setCategory] = useState<CategoryKey>(editTarget?.cat ?? 'food');
     const [currency, setCurrency] = useState<Currency>(
@@ -437,13 +501,24 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
     );
     const [note, setNote] = useState(editTarget?.note ?? '');
     const [fixed, setFixed] = useState(editTarget?.fixed ?? false);
+    // ADDED (Module 5.1): editable date + time (was static display). New expenses
+    // default to today; edits default to the row's own date — reconstructed from the
+    // VIEWED month + the row's day (the UI Expense only carries day + "HH:MM"). This
+    // is what unblocks backfilling a past month's missed entry.
+    const initialDate = editTarget
+        ? new Date(current.year, current.month - 1, editTarget.day)
+        : new Date();
+    const [date, setDate] = useState(toDateValue(initialDate));
+    const [time, setTime] = useState(editTarget?.time || toTimeValue(new Date()));
     const [pending, startTransition] = useTransition();
 
     const amt = parseFloat(amount);
-    const canSave = Number.isFinite(amt) && amt > 0 && !pending;
+    const canSave = Number.isFinite(amt) && amt > 0 && !!date && !pending;
 
     const save = () => {
         if (!canSave) return;
+        // Build the timestamp from the picked date + time (local wall-clock).
+        const spentAt = new Date(`${date}T${(time || '09:00')}:00`).toISOString();
         startTransition(async () => {
             const fields = {
                 amount: amt,
@@ -451,14 +526,29 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
                 currency: currencyFromSymbol(currency),
                 note: note.trim(),
                 fixed,
+                spentAt,
             };
-            if (editTarget) {
-                await updateExpense(editTarget.id, fields);
-            } else {
-                await createExpense({ ...fields, source: 'manual' });
+            try {
+                if (editTarget) {
+                    await updateExpense(editTarget.id, fields);
+                } else {
+                    await createExpense({ ...fields, source: 'manual' });
+                }
+                onClose();
+                refresh();
+            } catch (err) {
+                // Most likely a closed target month (assertMonthOpen). Surface it
+                // rather than failing silently — the date picker can now land on
+                // any month, including closed ones.
+                await confirm({
+                    title: 'Could not save',
+                    message: err instanceof Error && /closed/i.test(err.message)
+                        ? <>That date falls in a <b>closed month</b>. Reopen it on the Ledger page first, then try again.</>
+                        : 'Something went wrong saving this expense. Please try again.',
+                    confirmLabel: 'Got it',
+                    hideCancel: true,
+                });
             }
-            onClose();
-            refresh();
         });
     };
 
@@ -474,16 +564,8 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
 
     return {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, pending, canSave, save, remove,
-    };
-}
-
-/** "Today · Mon, Jun 14" + "13:02" labels from the real clock (display only). */
-function nowLabels() {
-    const now = new Date();
-    return {
-        date: `Today · ${now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`,
-        time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+        note, setNote, fixed, setFixed, date, setDate, time, setTime,
+        pending, canSave, save, remove,
     };
 }
 
@@ -494,9 +576,9 @@ function nowLabels() {
 function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, pending, canSave, save, remove,
+        note, setNote, fixed, setFixed, date, setDate, time, setTime,
+        pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
-    const labels = nowLabels();
     const isEdit = editTarget !== null;
     const confirm = useConfirm();
     const handleDelete = async () => {
@@ -575,26 +657,14 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
                     <CategoryGrid category={category} setCategory={setCategory} />
                 </div>
 
-                {/* Fields grid (2 col) */}
-                <div className="px-7 pt-5 grid grid-cols-2 gap-3">
+                {/* Fields grid — CHANGED (Module 5.1): Date/Time are now real inputs. */}
+                <div className="px-7 pt-5 flex flex-col gap-3">
+                    <DateTimeFields date={date} setDate={setDate} time={time} setTime={setTime} />
                     <FieldRow
-                        label="Date"
-                        value={labels.date}
-                        icon={<CalendarIcon size={14} />}
+                        label="Payment method"
+                        value="DBS · ••3421"
+                        icon={<WalletIcon size={14} />}
                     />
-                    <FieldRow
-                        label="Time"
-                        value={labels.time}
-                        icon={<ClockIcon size={14} />}
-                        mono
-                    />
-                    <div className="col-span-2">
-                        <FieldRow
-                            label="Payment method"
-                            value="DBS · ••3421"
-                            icon={<WalletIcon size={14} />}
-                        />
-                    </div>
                 </div>
 
                 {/* Note */}
@@ -671,9 +741,9 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
 function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, pending, canSave, save, remove,
+        note, setNote, fixed, setFixed, date, setDate, time, setTime,
+        pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
-    const labels = nowLabels();
     const isEdit = editTarget !== null;
     const confirm = useConfirm();
     const handleDelete = async () => {
@@ -763,19 +833,9 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
                     <CategoryGrid category={category} setCategory={setCategory} isMobile />
                 </div>
 
-                {/* Fields stacked */}
+                {/* Fields stacked — CHANGED (Module 5.1): Date/Time are now real inputs. */}
                 <div className="px-4 pt-4 flex flex-col gap-2.5">
-                    <FieldRow
-                        label="Date"
-                        value={labels.date}
-                        icon={<CalendarIcon size={14} />}
-                    />
-                    <FieldRow
-                        label="Time"
-                        value={labels.time}
-                        icon={<ClockIcon size={14} />}
-                        mono
-                    />
+                    <DateTimeFields date={date} setDate={setDate} time={time} setTime={setTime} />
                     <FieldRow
                         label="Payment method"
                         value="DBS · ••3421"

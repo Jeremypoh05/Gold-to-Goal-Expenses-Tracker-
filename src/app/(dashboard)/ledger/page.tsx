@@ -185,7 +185,9 @@ function DayCard({
         if (monthClosed) {
             const ok = await confirm({
                 title: `${MONTH_NAMES[current.month - 1]} ${current.year} is closed`,
-                message: 'Its entries are locked. Reopen the month to delete this entry — you can close it again afterwards.',
+                message: (
+                    <>Its entries are <b>locked</b>. <b>Reopen the month</b> to delete this entry — you can close it again afterwards.</>
+                ),
                 confirmLabel: 'Reopen month',
                 cancelLabel: 'Cancel',
             });

@@ -47,9 +47,11 @@ export function AddModalProvider({ children }: { children: ReactNode }) {
             void (async () => {
                 const ok = await confirm({
                     title: `${MONTH_NAMES[m - 1]} ${y} is closed`,
-                    message: expense
-                        ? 'Its entries are locked. Reopen the month to edit or delete this entry — you can close it again afterwards.'
-                        : 'New expenses land in the current month, which is closed. Reopen it to keep logging — you can close it again afterwards.',
+                    message: expense ? (
+                        <>Its entries are <b>locked</b>. <b>Reopen the month</b> to edit or delete this entry — you can close it again afterwards.</>
+                    ) : (
+                        <>New expenses land in <b>{MONTH_NAMES[m - 1]} {y}</b>, which is <b>closed</b>. <b>Reopen it</b> to keep logging — you can close it again afterwards.</>
+                    ),
                     confirmLabel: 'Reopen month',
                     cancelLabel: 'Cancel',
                 });

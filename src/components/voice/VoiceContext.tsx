@@ -124,7 +124,9 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
             void (async () => {
                 const ok = await confirm({
                     title: 'This month is closed',
-                    message: 'Voice logs land in the current month, which is closed. Reopen it to keep logging — you can close it again afterwards.',
+                    message: (
+                        <>Voice logs land in the <b>current month</b>, which is <b>closed</b>. <b>Reopen it</b> to keep logging — you can close it again afterwards.</>
+                    ),
                     confirmLabel: 'Reopen month',
                     cancelLabel: 'Cancel',
                 });

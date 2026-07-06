@@ -755,7 +755,9 @@ function RecentTransactions({ filter, setFilter }: {
         if (monthClosed) {
             const okReopen = await confirm({
                 title: `${monthName} ${current.year} is closed`,
-                message: 'Its entries are locked. Reopen the month to delete this entry — you can close it again afterwards.',
+                message: (
+                    <>Its entries are <b>locked</b>. <b>Reopen the month</b> to delete this entry — you can close it again afterwards.</>
+                ),
                 confirmLabel: 'Reopen month',
                 cancelLabel: 'Cancel',
             });

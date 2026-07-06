@@ -52,8 +52,9 @@ export function FixedEditProvider({ children }: { children: ReactNode }) {
             if (monthClosed) {
                 const ok = await confirm({
                     title: `${MONTH_NAMES[current.month - 1]} ${current.year} is closed`,
-                    message:
-                        'Its entries are locked. Reopen the month to manage this recurring entry — or edit the rule from the Recurring page (closed months keep their recorded amounts).',
+                    message: (
+                        <>Its entries are <b>locked</b>. <b>Reopen the month</b> to manage this recurring entry — or edit the rule from the <b>Recurring page</b> (closed months keep their recorded amounts).</>
+                    ),
                     confirmLabel: 'Reopen month',
                     cancelLabel: 'Cancel',
                 });

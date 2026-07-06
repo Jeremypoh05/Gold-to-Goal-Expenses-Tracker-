@@ -19,7 +19,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export interface ConfirmOptions {
     title: string;
-    message?: string;
+    /** Plain string or JSX (so callers can bold key words like the month name). */
+    message?: React.ReactNode;
     confirmLabel?: string;
     cancelLabel?: string;
     danger?: boolean;
