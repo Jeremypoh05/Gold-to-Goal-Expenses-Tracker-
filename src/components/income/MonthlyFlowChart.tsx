@@ -15,6 +15,34 @@ const MONTH_INITIALS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', '
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const CHART_H = 150; // px — tallest bar
+const POS = 'oklch(0.72 0.15 150)';
+const NEG = 'oklch(0.64 0.19 25)';
+
+/** One labeled figure in the detail panel — stacks label above value so nothing
+ * gets truncated or hidden at narrow (mobile) widths. */
+function StatGroup({
+    label,
+    value,
+    swatch,
+    color,
+}: {
+    label: string;
+    value: string;
+    swatch?: string;
+    color?: string;
+}) {
+    return (
+        <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="inline-flex items-center gap-1.5 text-[9px] uppercase tracking-[0.08em] text-ink-2 whitespace-nowrap">
+                {swatch && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: swatch }} />}
+                {label}
+            </span>
+            <span className="mono font-semibold text-[13px] md:text-[14px] whitespace-nowrap" style={{ color: color ?? 'var(--color-ink-0)' }}>
+                {value}
+            </span>
+        </div>
+    );
+}
 
 export function MonthlyFlowChart({
     income,
@@ -43,76 +71,83 @@ export function MonthlyFlowChart({
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <SpotlightLayer />
-            {/* Header — legend by default; swaps to the hovered month's detail so the
-                readout always lives in the same fixed spot and can never float off
-                the card edges (it did as a floating tooltip: tall bars pushed it up
-                past the top, edge months pushed it past left/right). */}
-            <div className="flex items-start gap-3 mb-5 min-h-[42px]">
+            {/* Header + legend (always visible — a swap-in-place chip here got too
+                cramped to show every figure on mobile). */}
+            <div className="flex items-start gap-3 mb-4">
                 <div className="flex-1 min-w-0">
                     <div className="display text-[20px]">Monthly flow</div>
                     <div className="text-xs text-ink-2 mt-0.5">Income vs spending across the year</div>
                 </div>
-                <div className="relative flex items-center justify-end">
-                    <AnimatePresence mode="wait">
-                        {hover === null ? (
-                            <motion.div
-                                key="legend"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.15 }}
-                                className="flex items-center gap-2.5 md:gap-3 text-[11px] text-ink-2 flex-wrap justify-end"
-                            >
-                                <span className="inline-flex items-center gap-1.5">
-                                    <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.64 0.16 78))' }} />
-                                    Income
-                                </span>
-                                <span className="inline-flex items-center gap-1.5">
-                                    <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'var(--color-ink-3)' }} />
-                                    Spent
-                                </span>
-                                {/* CHANGED (Phase 9): explicit legend for the striped "projected" bars
-                                    so future/estimate months read clearly (not just as faded actuals). */}
-                                <span className="inline-flex items-center gap-1.5">
-                                    <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'repeating-linear-gradient(45deg, oklch(0.80 0.15 84) 0 2px, oklch(0.80 0.15 84 / 0.25) 2px 4px)' }} />
-                                    Projected
-                                </span>
-                            </motion.div>
-                        ) : (
-                            <motion.div
-                                key="detail"
-                                initial={{ opacity: 0, y: -4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -4 }}
-                                transition={{ duration: 0.15 }}
-                                className="flex items-center gap-2 md:gap-3 px-3 py-1.5 rounded-full text-[11px] flex-wrap justify-end"
-                                style={{ background: 'var(--color-bg-1)', border: '1px solid var(--color-line-soft)' }}
-                            >
-                                <span
-                                    className="font-semibold uppercase tracking-[0.06em]"
-                                    style={{ color: hover + 1 > elapsed ? 'var(--color-gold-600)' : 'var(--color-ink-1)' }}
-                                >
-                                    {MONTH_SHORT[hover]}
-                                    {hover + 1 > elapsed && ' · Proj'}
-                                </span>
-                                <span className="hidden sm:inline text-ink-2">
-                                    Income <span className="mono font-semibold text-ink-0">{formatMoney(income[hover])}</span>
-                                </span>
-                                <span className="hidden sm:inline text-ink-2">
-                                    Spent <span className="mono font-semibold text-ink-0">{formatMoney(expenses[hover])}</span>
-                                </span>
-                                <span
-                                    className="mono font-semibold"
-                                    style={{ color: income[hover] - expenses[hover] >= 0 ? 'oklch(0.72 0.15 150)' : 'oklch(0.64 0.19 25)' }}
-                                >
-                                    {income[hover] - expenses[hover] >= 0 ? '+' : '−'}
-                                    {formatMoney(Math.abs(income[hover] - expenses[hover]))}
-                                </span>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                <div className="flex items-center gap-2.5 md:gap-3 text-[11px] text-ink-2 flex-wrap justify-end">
+                    <span className="inline-flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.64 0.16 78))' }} />
+                        Income
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'var(--color-ink-3)' }} />
+                        Spent
+                    </span>
+                    {/* CHANGED (Phase 9): explicit legend for the striped "projected" bars
+                        so future/estimate months read clearly (not just as faded actuals). */}
+                    <span className="inline-flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'repeating-linear-gradient(45deg, oklch(0.80 0.15 84) 0 2px, oklch(0.80 0.15 84 / 0.25) 2px 4px)' }} />
+                        Projected
+                    </span>
                 </div>
             </div>
+
+            {/* Detail panel — a dedicated full-width row (not squeezed into the header)
+                so Income / Spent / Net are always fully legible, mobile included.
+                Height-animates open/closed; normal document flow, so it can never
+                overflow the card the way a floating tooltip did. */}
+            <AnimatePresence initial={false}>
+                {hover !== null && (() => {
+                    const net = income[hover] - expenses[hover];
+                    const projected = hover + 1 > elapsed;
+                    return (
+                        <motion.div
+                            key="detail"
+                            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                            animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
+                            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                            style={{ overflow: 'hidden' }}
+                        >
+                            <div
+                                className="rounded-2xl p-3.5 flex items-center gap-4 md:gap-6 flex-wrap"
+                                style={{
+                                    background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
+                                    border: '1px solid oklch(0.88 0.07 88)',
+                                }}
+                            >
+                                <div className="flex items-center gap-2 pr-1">
+                                    <span
+                                        className="w-2 h-2 rounded-full flex-shrink-0"
+                                        style={{ background: projected ? 'var(--color-gold-600)' : 'var(--color-ink-1)' }}
+                                    />
+                                    <span className="text-[13px] font-semibold whitespace-nowrap">
+                                        {MONTH_SHORT[hover]}
+                                        {projected && (
+                                            <span className="ml-1.5 text-[9px] font-bold uppercase tracking-[0.06em]" style={{ color: 'var(--color-gold-600)' }}>
+                                                Projected
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-4 md:gap-7 flex-1 justify-between md:justify-end flex-wrap">
+                                    <StatGroup label="Income" value={formatMoney(income[hover])} swatch="oklch(0.78 0.155 85)" />
+                                    <StatGroup label="Spent" value={formatMoney(expenses[hover])} swatch="var(--color-ink-3)" />
+                                    <StatGroup
+                                        label="Net"
+                                        value={`${net >= 0 ? '+' : '−'}${formatMoney(Math.abs(net))}`}
+                                        color={net >= 0 ? POS : NEG}
+                                    />
+                                </div>
+                            </div>
+                        </motion.div>
+                    );
+                })()}
+            </AnimatePresence>
 
             {/* Chart */}
             <div className="relative">
