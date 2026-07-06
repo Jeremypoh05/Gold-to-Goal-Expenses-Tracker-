@@ -43,84 +43,79 @@ export function MonthlyFlowChart({
             style={{ border: '1px solid var(--color-line-soft)' }}
         >
             <SpotlightLayer />
-            {/* Header + legend */}
-            <div className="flex items-start gap-3 mb-5">
+            {/* Header — legend by default; swaps to the hovered month's detail so the
+                readout always lives in the same fixed spot and can never float off
+                the card edges (it did as a floating tooltip: tall bars pushed it up
+                past the top, edge months pushed it past left/right). */}
+            <div className="flex items-start gap-3 mb-5 min-h-[42px]">
                 <div className="flex-1 min-w-0">
                     <div className="display text-[20px]">Monthly flow</div>
                     <div className="text-xs text-ink-2 mt-0.5">Income vs spending across the year</div>
                 </div>
-                <div className="flex items-center gap-2.5 md:gap-3 text-[11px] text-ink-2 flex-wrap justify-end">
-                    <span className="inline-flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.64 0.16 78))' }} />
-                        Income
-                    </span>
-                    <span className="inline-flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'var(--color-ink-3)' }} />
-                        Spent
-                    </span>
-                    {/* CHANGED (Phase 9): explicit legend for the striped "projected" bars
-                        so future/estimate months read clearly (not just as faded actuals). */}
-                    <span className="inline-flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'repeating-linear-gradient(45deg, oklch(0.80 0.15 84) 0 2px, oklch(0.80 0.15 84 / 0.25) 2px 4px)' }} />
-                        Projected
-                    </span>
+                <div className="relative flex items-center justify-end">
+                    <AnimatePresence mode="wait">
+                        {hover === null ? (
+                            <motion.div
+                                key="legend"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="flex items-center gap-2.5 md:gap-3 text-[11px] text-ink-2 flex-wrap justify-end"
+                            >
+                                <span className="inline-flex items-center gap-1.5">
+                                    <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'linear-gradient(180deg, oklch(0.82 0.155 88), oklch(0.64 0.16 78))' }} />
+                                    Income
+                                </span>
+                                <span className="inline-flex items-center gap-1.5">
+                                    <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'var(--color-ink-3)' }} />
+                                    Spent
+                                </span>
+                                {/* CHANGED (Phase 9): explicit legend for the striped "projected" bars
+                                    so future/estimate months read clearly (not just as faded actuals). */}
+                                <span className="inline-flex items-center gap-1.5">
+                                    <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'repeating-linear-gradient(45deg, oklch(0.80 0.15 84) 0 2px, oklch(0.80 0.15 84 / 0.25) 2px 4px)' }} />
+                                    Projected
+                                </span>
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key="detail"
+                                initial={{ opacity: 0, y: -4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.15 }}
+                                className="flex items-center gap-2 md:gap-3 px-3 py-1.5 rounded-full text-[11px] flex-wrap justify-end"
+                                style={{ background: 'var(--color-bg-1)', border: '1px solid var(--color-line-soft)' }}
+                            >
+                                <span
+                                    className="font-semibold uppercase tracking-[0.06em]"
+                                    style={{ color: hover + 1 > elapsed ? 'var(--color-gold-600)' : 'var(--color-ink-1)' }}
+                                >
+                                    {MONTH_SHORT[hover]}
+                                    {hover + 1 > elapsed && ' · Proj'}
+                                </span>
+                                <span className="hidden sm:inline text-ink-2">
+                                    Income <span className="mono font-semibold text-ink-0">{formatMoney(income[hover])}</span>
+                                </span>
+                                <span className="hidden sm:inline text-ink-2">
+                                    Spent <span className="mono font-semibold text-ink-0">{formatMoney(expenses[hover])}</span>
+                                </span>
+                                <span
+                                    className="mono font-semibold"
+                                    style={{ color: income[hover] - expenses[hover] >= 0 ? 'oklch(0.72 0.15 150)' : 'oklch(0.64 0.19 25)' }}
+                                >
+                                    {income[hover] - expenses[hover] >= 0 ? '+' : '−'}
+                                    {formatMoney(Math.abs(income[hover] - expenses[hover]))}
+                                </span>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
 
             {/* Chart */}
             <div className="relative">
-                {/* Floating tooltip — anchored to the top of the plot and horizontally
-                    clamped (left / center / right zones) so it can never spill past the
-                    card edges and get clipped by `overflow-hidden` (e.g. Dec on the right). */}
-                <AnimatePresence>
-                    {hover !== null && (() => {
-                        const frac = (hover + 0.5) / 12;
-                        const pos =
-                            frac < 0.22
-                                ? { left: 0 }
-                                : frac > 0.78
-                                    ? { right: 0 }
-                                    : { left: `${frac * 100}%`, transform: 'translateX(-50%)' };
-                        return (
-                        <motion.div
-                            initial={{ opacity: 0, y: -6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -6 }}
-                            transition={{ duration: 0.15 }}
-                            className="absolute z-30 pointer-events-none"
-                            style={{ ...pos, top: 0 }}
-                        >
-                            <div
-                                className="px-3 py-2 rounded-xl whitespace-nowrap shadow-lg"
-                                style={{ background: 'oklch(0.20 0.015 75)', color: '#fff' }}
-                            >
-                                <div className="text-[10px] uppercase tracking-[0.08em] mb-1">
-                                    <span className="opacity-60">{MONTH_SHORT[hover]}</span>
-                                    {hover + 1 > elapsed && (
-                                        <span style={{ color: 'oklch(0.86 0.15 88)', fontWeight: 700 }}> · projected</span>
-                                    )}
-                                </div>
-                                <div className="flex items-center justify-between gap-4 text-[11px]">
-                                    <span className="opacity-70">Income</span>
-                                    <span className="mono font-semibold">{formatMoney(income[hover])}</span>
-                                </div>
-                                <div className="flex items-center justify-between gap-4 text-[11px]">
-                                    <span className="opacity-70">Spent</span>
-                                    <span className="mono font-semibold">{formatMoney(expenses[hover])}</span>
-                                </div>
-                                <div className="flex items-center justify-between gap-4 text-[11px] mt-0.5 pt-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.15)' }}>
-                                    <span className="opacity-70">Net</span>
-                                    <span className="mono font-semibold" style={{ color: income[hover] - expenses[hover] >= 0 ? 'oklch(0.85 0.14 145)' : 'oklch(0.8 0.13 30)' }}>
-                                        {income[hover] - expenses[hover] >= 0 ? '+' : '−'}
-                                        {formatMoney(Math.abs(income[hover] - expenses[hover]))}
-                                    </span>
-                                </div>
-                            </div>
-                        </motion.div>
-                        );
-                    })()}
-                </AnimatePresence>
-
                 {/* Bars */}
                 <div className="flex items-end gap-1 md:gap-2" style={{ height: CHART_H }}>
                     {MONTH_INITIALS.map((_, i) => {
