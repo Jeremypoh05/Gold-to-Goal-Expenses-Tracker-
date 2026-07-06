@@ -81,6 +81,24 @@ model User {
   salaryPeriods  SalaryPeriod[]
   incomeSources  IncomeSource[]
   fixedExpenses  FixedExpense[]
+  monthCloses    MonthClose[]
+}
+
+/// ADDED (Module 5): a per-month hard close. The mere existence of a row for
+/// (userId, year, month) means that month is locked — no expense can be
+/// created/edited/deleted (manual or voice) with a spentAt falling in it until
+/// the row is removed (reopened). Scope is expenses only; income (salary/
+/// bonuses/other income sources) is NOT locked by this.
+model MonthClose {
+  id       Int      @id @default(autoincrement())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  year     Int
+  month    Int // 1–12
+  closedAt DateTime @default(now())
+
+  @@unique([userId, year, month])
+  @@index([userId])
 }
 
 /// ADDED (Module 4): user-defined fixed/recurring expenses (rent, transport, 家用…).

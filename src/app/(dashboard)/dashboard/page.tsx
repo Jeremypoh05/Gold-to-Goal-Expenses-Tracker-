@@ -727,7 +727,7 @@ function RecentTransactions({ filter, setFilter }: {
     filter: FilterMode;
     setFilter: (v: FilterMode) => void;
 }) {
-    const { current, expenses, refresh } = useExpenses();
+    const { current, expenses, monthClosed, refresh } = useExpenses();
     const { open: openManualEdit } = useAddModal();
     const { openFixedEdit } = useFixedEdit();
     const confirm = useConfirm();
@@ -750,6 +750,17 @@ function RecentTransactions({ filter, setFilter }: {
     // Always confirm first.
     const handleDelete = async (t: Expense) => {
         const isRecurring = !!(t.fixed && t.fixedSourceId);
+        // ADDED (Module 5): a plain entry in a closed month can't be deleted — the
+        // recurring-rule delete stays allowed (rule-level action, out of scope).
+        if (!isRecurring && monthClosed) {
+            await confirm({
+                title: 'This month is closed',
+                message: 'Reopen this month on the Ledger page to delete its entries.',
+                confirmLabel: 'Got it',
+                hideCancel: true,
+            });
+            return;
+        }
         const ok = await confirm(
             isRecurring
                 ? {

@@ -13,6 +13,8 @@ import {
     DownloadIcon,
     SortIcon,
     ChevronIcon,
+    LockIcon,
+    UnlockIcon,
 } from "@/components/icons";
 import { AnimatedNumber } from "@/components/shared/AnimatedNumber";
 import { CATEGORIES } from "@/data/categories";
@@ -22,7 +24,7 @@ import type { Expense, CategoryKey } from "@/types";
 import { useAddModal } from '@/components/dashboard/AddModalContext';
 import { useFixedEdit } from '@/components/fixed';
 import { useConfirm } from '@/components/shared';
-import { deleteExpense, deleteFixedExpense } from '@/lib/actions';
+import { deleteExpense, deleteFixedExpense, closeMonth, reopenMonth } from '@/lib/actions';
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -155,7 +157,7 @@ function DayCard({
     entries: Expense[];
     index: number;
 }) {
-    const { current, refresh } = useExpenses();
+    const { current, monthClosed, refresh } = useExpenses();
     const { open: openEdit } = useAddModal();
     const { openFixedEdit } = useFixedEdit();
     const confirm = useConfirm();
@@ -178,6 +180,18 @@ function DayCard({
     // just the entry. Always confirm first.
     const handleDelete = async (t: Expense) => {
         const isRecurring = !!(t.fixed && t.fixedSourceId);
+        // ADDED (Module 5): a plain entry in a closed month can't be deleted — the
+        // recurring-rule delete stays allowed (it's a rule-level administrative
+        // action, out of the month lock's scope, same as editing a recurring rule).
+        if (!isRecurring && monthClosed) {
+            await confirm({
+                title: 'This month is closed',
+                message: 'Reopen this month to delete its entries.',
+                confirmLabel: 'Got it',
+                hideCancel: true,
+            });
+            return;
+        }
         const ok = await confirm(
             isRecurring
                 ? {
@@ -458,9 +472,36 @@ export default function LedgerPage() {
     const [range, setRange] = useState<TimeRange>("month");
     const [filter, setFilter] = useState<FilterId>("all");
     const { open: openAddModal } = useAddModal();
-    const { current, expenses } = useExpenses();
+    const { current, expenses, monthClosed, refresh } = useExpenses();
+    const confirm = useConfirm();
+    const [closePending, startCloseTransition] = useTransition();
 
     const monthName = MONTH_NAMES[current.month - 1];
+
+    // ADDED (Module 5): the actual close/reopen control for this feature — lives
+    // on the Ledger page since it's the month-scoped ledger view.
+    const handleToggleClose = () => {
+        if (monthClosed) {
+            startCloseTransition(async () => {
+                await reopenMonth(current.year, current.month);
+                refresh();
+            });
+            return;
+        }
+        void (async () => {
+            const ok = await confirm({
+                title: `Close ${monthName} ${current.year}?`,
+                message:
+                    'No expenses can be added, edited, or deleted for this month (manual or voice) until you reopen it. Income stays editable.',
+                confirmLabel: 'Close month',
+            });
+            if (!ok) return;
+            startCloseTransition(async () => {
+                await closeMonth(current.year, current.month);
+                refresh();
+            });
+        })();
+    };
 
     // For now, we always view current month.
     // TODO Phase 4: This will become URL-based and respect TopBar month selection.
@@ -622,6 +663,22 @@ export default function LedgerPage() {
                         <span className="hidden sm:inline">Export</span>
                     </button>
 
+                    {/* ADDED (Module 5): the close/reopen control for this month's ledger. */}
+                    <button
+                        onClick={handleToggleClose}
+                        disabled={closePending}
+                        className={cn(
+                            "h-10 px-3 md:px-4 rounded-full text-sm font-medium flex items-center gap-2 transition-all border disabled:opacity-50",
+                            monthClosed
+                                ? "border-line hover:border-ink-2 bg-bg-card text-ink-1"
+                                : "border-line hover:border-ink-2 bg-bg-card text-ink-1 hover:text-red-500",
+                        )}
+                        aria-label={monthClosed ? "Reopen month" : "Close month"}
+                    >
+                        {monthClosed ? <UnlockIcon size={14} /> : <LockIcon size={14} />}
+                        <span className="hidden sm:inline">{monthClosed ? "Reopen" : "Close month"}</span>
+                    </button>
+
                     <button
                         onClick={() => openAddModal()}
                         className="shine-wrap h-10 px-4 md:px-5 rounded-full text-sm font-semibold flex items-center gap-2 transition-all hover:scale-[1.02]"
@@ -639,6 +696,30 @@ export default function LedgerPage() {
                     </button>
                 </div>
             </motion.div>
+
+            {/* ADDED (Module 5): closed-month notice */}
+            {monthClosed && (
+                <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                    className="rounded-2xl px-4 py-3 flex items-center gap-3"
+                    style={{ background: 'oklch(0.95 0.02 60 / 0.6)', border: '1px solid oklch(0.82 0.03 60)' }}
+                >
+                    <LockIcon size={16} className="text-ink-1 flex-shrink-0" />
+                    <div className="flex-1 text-[13px] text-ink-1">
+                        <b>{monthName} {current.year} is closed.</b>{' '}
+                        <span className="text-ink-2">Reopen it to add, edit, or delete expenses.</span>
+                    </div>
+                    <button
+                        onClick={handleToggleClose}
+                        disabled={closePending}
+                        className="h-8 px-3.5 rounded-full text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all disabled:opacity-50 flex-shrink-0"
+                    >
+                        Reopen
+                    </button>
+                </motion.div>
+            )}
 
             {/* Filter + Utility row */}
             <motion.div

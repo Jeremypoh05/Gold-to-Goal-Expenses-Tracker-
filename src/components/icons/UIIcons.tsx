@@ -347,6 +347,45 @@ export function DownloadIcon({ size = 16, className }: IconProps) {
     );
 }
 
+// ADDED (Module 5): lock/unlock glyphs for the monthly close feature.
+export function LockIcon({ size = 14, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <rect x="5" y="11" width="14" height="10" rx="2.5" />
+            <path d="M8 11 V7 a4 4 0 0 1 8 0 V11" />
+        </svg>
+    );
+}
+
+export function UnlockIcon({ size = 14, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <rect x="5" y="11" width="14" height="10" rx="2.5" />
+            <path d="M8 11 V7 a4 4 0 0 1 7.5 -1.8" />
+        </svg>
+    );
+}
+
 export function SortIcon({ size = 14, className }: IconProps) {
     return (
         <svg

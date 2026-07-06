@@ -21,4 +21,6 @@ export {
   SearchIcon,
   DownloadIcon,
   SortIcon,
+  LockIcon,
+  UnlockIcon,
 } from "./UIIcons";

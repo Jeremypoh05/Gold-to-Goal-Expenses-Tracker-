@@ -46,6 +46,19 @@ async function requireUserId(): Promise<string> {
   return userId;
 }
 
+/** ADDED (Module 5): defense-in-depth — every expense mutation re-checks this,
+ *  even though the UI already disables the relevant buttons for a closed month. */
+async function assertMonthOpen(userId: string, year: number, month: number) {
+  const closed = await prisma.monthClose.findUnique({
+    where: { userId_year_month: { userId, year, month } },
+  });
+  if (closed) {
+    throw new Error(
+      "This month is closed. Reopen it on the Ledger page to make changes.",
+    );
+  }
+}
+
 export interface ExpenseInput {
   amount: number;
   category: CategoryKey;
@@ -64,10 +77,13 @@ export interface ExpenseInput {
 export async function createExpense(input: ExpenseInput) {
   const userId = await requireUserId();
 
+  const spentAt = input.spentAt ? new Date(input.spentAt) : new Date();
+  await assertMonthOpen(userId, spentAt.getFullYear(), spentAt.getMonth() + 1);
+
   const row = await prisma.expense.create({
     data: {
       userId,
-      spentAt: input.spentAt ? new Date(input.spentAt) : new Date(),
+      spentAt,
       category: input.category,
       amount: input.amount,
       currency: input.currency,
@@ -94,6 +110,16 @@ export async function updateExpense(
   const owned = await prisma.expense.findFirst({ where: { id, userId } });
   if (!owned) throw new Error("Expense not found");
 
+  // The row's current month must be open; if the edit also moves it to a
+  // different month (rare — the manual-add modal doesn't expose a date field
+  // today, but the check stays correct if that ever changes), that month must
+  // be open too.
+  await assertMonthOpen(userId, owned.spentAt.getFullYear(), owned.spentAt.getMonth() + 1);
+  if (input.spentAt !== undefined) {
+    const newDate = new Date(input.spentAt);
+    await assertMonthOpen(userId, newDate.getFullYear(), newDate.getMonth() + 1);
+  }
+
   const row = await prisma.expense.update({
     where: { id },
     data: {
@@ -115,8 +141,10 @@ export async function updateExpense(
 
 export async function deleteExpense(id: number) {
   const userId = await requireUserId();
-  // deleteMany with the userId guard = atomic ownership-checked delete.
-  await prisma.expense.deleteMany({ where: { id, userId } });
+  const owned = await prisma.expense.findFirst({ where: { id, userId } });
+  if (!owned) return;
+  await assertMonthOpen(userId, owned.spentAt.getFullYear(), owned.spentAt.getMonth() + 1);
+  await prisma.expense.delete({ where: { id } });
   revalidateDashboard();
 }
 
@@ -184,6 +212,28 @@ export async function updateIncomeSettings(input: IncomeSettingsInput) {
 export async function fetchMonthData(year: number, month: number) {
   await requireUserId();
   return getMonthDashboardData(year, month);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADDED (Module 5): monthly account closing (hard lock). Closing a month
+// blocks add/edit/delete of expenses (manual or voice) dated in it, enforced
+// by assertMonthOpen above. Scope is expenses only — income stays editable.
+// ─────────────────────────────────────────────────────────────
+
+export async function closeMonth(year: number, month: number) {
+  const userId = await requireUserId();
+  await prisma.monthClose.upsert({
+    where: { userId_year_month: { userId, year, month } },
+    update: {},
+    create: { userId, year, month },
+  });
+  revalidateDashboard();
+}
+
+export async function reopenMonth(year: number, month: number) {
+  const userId = await requireUserId();
+  await prisma.monthClose.deleteMany({ where: { userId, year, month } });
+  revalidateDashboard();
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -23,6 +23,9 @@ export interface ConfirmOptions {
     confirmLabel?: string;
     cancelLabel?: string;
     danger?: boolean;
+    /** Single-button "info" mode (no Cancel) — for messages that just need an
+     *  acknowledgement rather than a yes/no decision (e.g. "month is closed"). */
+    hideCancel?: boolean;
 }
 
 type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
@@ -87,13 +90,15 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                             )}
                             <div className="flex items-center gap-2.5 mt-6">
                                 <div className="flex-1" />
-                                <button
-                                    type="button"
-                                    onClick={() => settle(false)}
-                                    className="h-10 px-4 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all"
-                                >
-                                    {opts.cancelLabel ?? 'Cancel'}
-                                </button>
+                                {!opts.hideCancel && (
+                                    <button
+                                        type="button"
+                                        onClick={() => settle(false)}
+                                        className="h-10 px-4 rounded-full border border-line bg-bg-card text-sm font-medium hover:border-ink-2 transition-all"
+                                    >
+                                        {opts.cancelLabel ?? 'Cancel'}
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     autoFocus

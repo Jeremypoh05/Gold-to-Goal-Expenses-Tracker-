@@ -23,6 +23,11 @@ interface ExpensesContextValue extends DashboardData {
   goToMonth: (delta: number) => void;
   /** Re-fetch the currently-viewed month (call after a mutation). */
   refresh: () => void;
+  /** ADDED (Module 5): whether the REAL current month (today) is closed —
+   *  independent of whichever month is being browsed. New expenses (manual
+   *  "+"/"Add row" and voice logging) always land on today, so gating those
+   *  entry points needs this rather than the viewed month's `monthClosed`. */
+  todayClosed: boolean;
 }
 
 const ExpensesContext = createContext<ExpensesContextValue | null>(null);
@@ -35,9 +40,19 @@ export function ExpensesProvider({
   children: ReactNode;
 }) {
   const [data, setData] = useState(initial);
+  // `initial` is always fetched via getDashboardData() (real now()), so at
+  // mount it always represents today's month — a safe seed for todayClosed.
+  const [todayClosed, setTodayClosed] = useState(initial.monthClosed);
   const [pending, startTransition] = useTransition();
 
   const canGoNext = data.current.day === 0; // only past months have day === 0
+
+  // Whenever a fetch happens to land on the real current month (day !== 0),
+  // sync todayClosed from it too — covers closing/reopening today's own month.
+  const applyFetched = (next: DashboardData) => {
+    setData(next);
+    if (next.current.day !== 0) setTodayClosed(next.monthClosed);
+  };
 
   const goToMonth = (delta: number) => {
     if (delta > 0 && !canGoNext) return; // never navigate into the future
@@ -51,19 +66,19 @@ export function ExpensesProvider({
       year += 1;
     }
     startTransition(async () => {
-      setData(await fetchMonthData(year, month));
+      applyFetched(await fetchMonthData(year, month));
     });
   };
 
   const refresh = () => {
     startTransition(async () => {
-      setData(await fetchMonthData(data.current.year, data.current.month));
+      applyFetched(await fetchMonthData(data.current.year, data.current.month));
     });
   };
 
   return (
     <ExpensesContext.Provider
-      value={{ ...data, pending, canGoNext, goToMonth, refresh }}
+      value={{ ...data, pending, canGoNext, goToMonth, refresh, todayClosed }}
     >
       {children}
     </ExpensesContext.Provider>

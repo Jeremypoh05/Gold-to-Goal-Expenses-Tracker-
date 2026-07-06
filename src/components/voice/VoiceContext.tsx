@@ -14,6 +14,7 @@ import {
     type ReactNode,
 } from 'react';
 import { useExpenses } from '@/components/data/ExpensesContext';
+import { useConfirm } from '@/components/shared';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/actions';
 import type { VoiceLog, CategoryKey, Currency } from '@/types';
 
@@ -55,7 +56,8 @@ const VoiceContext = createContext<VoiceContextValue | null>(null);
 const TOAST_MS = 5000;
 
 export function VoiceProvider({ children }: { children: ReactNode }) {
-    const { voiceLogs, refresh } = useExpenses(); // server truth (voice-sourced expenses)
+    const { voiceLogs, refresh, todayClosed } = useExpenses(); // server truth (voice-sourced expenses)
+    const confirm = useConfirm();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [toast, setToast] = useState<ToastData | null>(null);
     const [isPending, startTransition] = useTransition();
@@ -110,7 +112,20 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    const openModal = () => setIsModalOpen(true);
+    // ADDED (Module 5): a single choke point — every mic trigger across the app
+    // (bottom-tab orb, dashboard CTAs, /voice hero) calls this same openModal.
+    const openModal = () => {
+        if (todayClosed) {
+            void confirm({
+                title: 'This month is closed',
+                message: 'Reopen the current month on the Ledger page to log expenses by voice.',
+                confirmLabel: 'Got it',
+                hideCancel: true,
+            });
+            return;
+        }
+        setIsModalOpen(true);
+    };
     const closeModal = () => setIsModalOpen(false);
 
     return (

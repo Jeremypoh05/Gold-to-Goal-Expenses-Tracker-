@@ -49,6 +49,9 @@ export const getOrCreateUser = cache(async () => {
 /** The dashboard payload: the viewing month, this month's expenses (UI shape), income. */
 export interface DashboardData {
   current: MonthInfo;
+  /** ADDED (Module 5): true when this month has been hard-closed — the UI should
+   *  block add/edit/delete/voice for it and offer a Reopen action instead. */
+  monthClosed: boolean;
   expenses: ReturnType<typeof toUiExpense>[];
   /** Voice-sourced expenses, in the richer VoiceLog shape (transcript/lang/status). */
   voiceLogs: ReturnType<typeof toUiVoiceLog>[];
@@ -96,7 +99,7 @@ export async function getMonthDashboardData(
   // ADDED (Phase 8.2): the prior calendar month, for the month-over-month delta.
   const prevMonthStart = new Date(year, month - 2, 1);
 
-  const [rows, bonuses, prevAgg, periods, sources] = await Promise.all([
+  const [rows, bonuses, prevAgg, periods, sources, monthClose] = await Promise.all([
     prisma.expense.findMany({
       where: { userId: user.id, spentAt: { gte: monthStart, lt: monthEnd } },
       orderBy: { spentAt: "desc" },
@@ -111,6 +114,9 @@ export async function getMonthDashboardData(
     }),
     prisma.salaryPeriod.findMany({ where: { userId: user.id } }),
     prisma.incomeSource.findMany({ where: { userId: user.id } }),
+    prisma.monthClose.findUnique({
+      where: { userId_year_month: { userId: user.id, year, month } },
+    }),
   ]);
 
   // CHANGED (Phase 9): salary/gross/deductions now come from the SalaryPeriod
@@ -125,6 +131,7 @@ export async function getMonthDashboardData(
 
   return {
     current,
+    monthClosed: !!monthClose,
     expenses: rows.map(toUiExpense),
     // Voice logs are the same rows where source = voice (single source of truth).
     voiceLogs: rows.filter((r) => r.source === "voice").map(toUiVoiceLog),
@@ -252,6 +259,13 @@ const cmpYM = (aY: number, aM: number, bY: number, bM: number) =>
   aY !== bY ? aY - bY : aM - bM;
 const nextYM = (y: number, m: number) => (m >= 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 });
 
+/** ADDED (Module 5): months this user has hard-closed, as a `"y-m"` key set —
+ *  fixed-expense generation must never create a row in one of these. */
+async function getClosedMonthKeys(userId: string): Promise<Set<string>> {
+  const rows = await prisma.monthClose.findMany({ where: { userId } });
+  return new Set(rows.map((r) => `${r.year}-${r.month}`));
+}
+
 /**
  * Lazily materialize due fixed-expense rows up to today, forward-only. For each
  * active item we walk from the month after its watermark (or its start month if
@@ -270,6 +284,8 @@ export async function syncFixedExpenses(): Promise<void> {
   const items = await prisma.fixedExpense.findMany({
     where: { userId: user.id, active: true },
   });
+  // ADDED (Module 5): never auto-generate into a hard-closed month.
+  const closedKeys = await getClosedMonthKeys(user.id);
 
   for (const it of items) {
     // Starting cursor = month after the watermark, floored at the start month.
@@ -298,7 +314,9 @@ export async function syncFixedExpenses(): Promise<void> {
       const due = Math.min(it.dueDay, daysInMonth(cy, cm));
       // In the current month, only generate once the due day has arrived.
       if (cy === curY && cm === curM && due > curD) break;
-      toCreate.push({ y: cy, m: cm, due });
+      // Closed months still advance the watermark (so they're never retried) but
+      // never get a generated row.
+      if (!closedKeys.has(`${cy}-${cm}`)) toCreate.push({ y: cy, m: cm, due });
       wmY = cy;
       wmM = cm;
       const n = nextYM(cy, cm);
@@ -364,6 +382,8 @@ export async function resyncFixedExpense(id: number): Promise<void> {
   const curY = now.getFullYear();
   const curM = now.getMonth() + 1;
   const curD = now.getDate();
+  // ADDED (Module 5): never re-materialize into a hard-closed month.
+  const closedKeys = await getClosedMonthKeys(user.id);
 
   let cy = it.startYear;
   let cm = it.startMonth;
@@ -375,7 +395,7 @@ export async function resyncFixedExpense(id: number): Promise<void> {
     if (it.endYear != null && it.endMonth != null && cmpYM(cy, cm, it.endYear, it.endMonth) > 0) break;
     const due = Math.min(it.dueDay, daysInMonth(cy, cm));
     if (cy === curY && cm === curM && due > curD) break;
-    toCreate.push({ y: cy, m: cm, due });
+    if (!closedKeys.has(`${cy}-${cm}`)) toCreate.push({ y: cy, m: cm, due });
     wmY = cy;
     wmM = cm;
     const n = nextYM(cy, cm);
