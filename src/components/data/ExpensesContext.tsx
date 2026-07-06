@@ -62,6 +62,21 @@ export function ExpensesProvider({
     if (next.current.day !== 0) setTodayClosed(next.monthClosed);
   };
 
+  // CHANGED (Module 5.1 · robustness): a single fetch runner that CATCHES errors.
+  // A rejected fetchMonthData used to reject inside the transition — leaving the
+  // dev "Rendering" overlay stuck and the view stale until a manual page refresh
+  // (the reopen-then-edit hang the user hit). Now a failed fetch just keeps the
+  // current data; the next refresh()/mutation recovers cleanly.
+  const runFetch = (token: number, year: number, month: number) => {
+    startTransition(async () => {
+      try {
+        applyFetched(token, await fetchMonthData(year, month));
+      } catch (err) {
+        console.error("[ExpensesContext] month fetch failed", err);
+      }
+    });
+  };
+
   const goToMonth = (delta: number) => {
     if (delta > 0 && !canGoNext) return; // never navigate into the future
     let month = data.current.month + delta;
@@ -73,17 +88,11 @@ export function ExpensesProvider({
       month = 1;
       year += 1;
     }
-    const token = ++reqId.current;
-    startTransition(async () => {
-      applyFetched(token, await fetchMonthData(year, month));
-    });
+    runFetch(++reqId.current, year, month);
   };
 
   const refresh = () => {
-    const token = ++reqId.current;
-    startTransition(async () => {
-      applyFetched(token, await fetchMonthData(data.current.year, data.current.month));
-    });
+    runFetch(++reqId.current, data.current.year, data.current.month);
   };
 
   return (

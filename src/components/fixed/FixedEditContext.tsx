@@ -48,7 +48,12 @@ export function FixedEditProvider({ children }: { children: ReactNode }) {
         // own modal and is deliberately NOT gated (rule administration is month-
         // agnostic; the server freezes closed months' rows on its own). So if the
         // viewed month is closed, offer to reopen it and then continue.
-        startTransition(async () => {
+        // CHANGED (Module 5.1 · fix): the closed-month confirm is awaited OUTSIDE
+        // startTransition. Awaiting a user dialog *inside* the transition kept
+        // `pending` true for the whole time it was open — and because the modal's
+        // Save/Delete are disabled while `pending`, they could come up stuck. Only
+        // the actual server work (reopen + fetch defs) belongs in the transition.
+        void (async () => {
             if (monthClosed) {
                 const ok = await confirm({
                     title: `${MONTH_NAMES[current.month - 1]} ${current.year} is closed`,
@@ -59,19 +64,29 @@ export function FixedEditProvider({ children }: { children: ReactNode }) {
                     cancelLabel: 'Cancel',
                 });
                 if (!ok) return;
-                await reopenMonth(current.year, current.month);
-                refresh();
             }
-            const items = await fetchFixedExpenses();
-            const target = items.find((f) => f.id === sourceId);
-            if (target) {
-                setItem(target);
-                setOpen(true);
-            } else if (fallbackRow) {
-                // Definition was deleted → treat the row as a plain expense.
-                openManualEdit(fallbackRow);
-            }
-        });
+            startTransition(async () => {
+                try {
+                    if (monthClosed) {
+                        await reopenMonth(current.year, current.month);
+                        refresh();
+                    }
+                    const items = await fetchFixedExpenses();
+                    const target = items.find((f) => f.id === sourceId);
+                    if (target) {
+                        setItem(target);
+                        setOpen(true);
+                    } else if (fallbackRow) {
+                        // Definition was deleted → treat the row as a plain expense.
+                        openManualEdit(fallbackRow);
+                    }
+                } catch {
+                    // Couldn't load the definition — fall back to the plain editor if we
+                    // have the row, so the entry is still fixable. Never strand silently.
+                    if (fallbackRow) openManualEdit(fallbackRow);
+                }
+            });
+        })();
     };
 
     const close = () => setOpen(false);
@@ -79,35 +94,67 @@ export function FixedEditProvider({ children }: { children: ReactNode }) {
     const handleSave = (v: FixedExpenseForm) => {
         if (v.id === undefined) return;
         startTransition(async () => {
-            // Warn if this edit spans closed months (they stay frozen).
-            const ok = await guardClosedMonths({
+            // Ask how to handle any closed months this edit spans.
+            const g = await guardClosedMonths({
                 startYear: v.startYear,
                 startMonth: v.startMonth,
                 endYear: v.endYear,
                 endMonth: v.endMonth,
             });
-            if (!ok) return;
-            await updateFixedExpense(v.id!, {
-                label: v.label,
-                note: v.note,
-                emoji: v.emoji,
-                category: v.category,
-                amount: v.monthlyAmount,
-                dueDay: v.dueDay,
-                startYear: v.startYear,
-                startMonth: v.startMonth,
-                endYear: v.endYear,
-                endMonth: v.endMonth,
-            });
-            setOpen(false);
+            if (!g.proceed) return;
+            // CHANGED (Module 5.1 · robustness): try/catch so a server-side throw
+            // (e.g. a race where the month closes mid-edit) can't strand the modal
+            // in a stuck "Rendering" state — surface it and still resync the view.
+            try {
+                await updateFixedExpense(v.id!, {
+                    label: v.label,
+                    note: v.note,
+                    emoji: v.emoji,
+                    category: v.category,
+                    amount: v.monthlyAmount,
+                    dueDay: v.dueDay,
+                    startYear: v.startYear,
+                    startMonth: v.startMonth,
+                    endYear: v.endYear,
+                    endMonth: v.endMonth,
+                }, g.overrideClosed);
+                setOpen(false);
+            } catch {
+                await confirm({
+                    title: 'Couldn’t save',
+                    message: <>Something went wrong updating this recurring entry. Please try again.</>,
+                    confirmLabel: 'OK',
+                    hideCancel: true,
+                });
+            }
             refresh();
         });
     };
 
     const handleDelete = (id: number) => {
         startTransition(async () => {
-            await deleteFixedExpense(id);
-            setOpen(false);
+            // Warn if the rule has entries in closed months (kept by default).
+            const g = await guardClosedMonths(
+                {
+                    startYear: item?.startYear ?? new Date().getFullYear(),
+                    startMonth: item?.startMonth ?? 1,
+                    endYear: item?.endYear ?? null,
+                    endMonth: item?.endMonth ?? null,
+                },
+                'delete',
+            );
+            if (!g.proceed) return;
+            try {
+                await deleteFixedExpense(id, g.overrideClosed);
+                setOpen(false);
+            } catch {
+                await confirm({
+                    title: 'Couldn’t delete',
+                    message: <>Something went wrong removing this recurring entry. Please try again.</>,
+                    confirmLabel: 'OK',
+                    hideCancel: true,
+                });
+            }
             refresh();
         });
     };
@@ -115,15 +162,24 @@ export function FixedEditProvider({ children }: { children: ReactNode }) {
     const handleChangeAmount = (v: { id: number; fromYear: number; fromMonth: number; newAmount: number }) => {
         startTransition(async () => {
             // A rate change only touches months from the change point forward.
-            const ok = await guardClosedMonths({
+            const g = await guardClosedMonths({
                 startYear: v.fromYear,
                 startMonth: v.fromMonth,
                 endYear: item?.endYear ?? null,
                 endMonth: item?.endMonth ?? null,
             });
-            if (!ok) return;
-            await changeFixedAmount(v.id, { fromYear: v.fromYear, fromMonth: v.fromMonth, newAmount: v.newAmount });
-            setOpen(false);
+            if (!g.proceed) return;
+            try {
+                await changeFixedAmount(v.id, { fromYear: v.fromYear, fromMonth: v.fromMonth, newAmount: v.newAmount }, g.overrideClosed);
+                setOpen(false);
+            } catch {
+                await confirm({
+                    title: 'Couldn’t apply the change',
+                    message: <>Something went wrong applying the new amount. Please try again.</>,
+                    confirmLabel: 'OK',
+                    hideCancel: true,
+                });
+            }
             refresh();
         });
     };

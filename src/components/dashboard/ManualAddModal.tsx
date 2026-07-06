@@ -4,11 +4,10 @@ import { useState, useEffect, useRef, useTransition } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     CategoryTile,
-    CalendarIcon,
-    WalletIcon,
     SparkleIcon,
     TrashIcon,
 } from '@/components/icons';
+import { DateTimeFields } from './DateTimePicker';
 import { CATEGORIES } from '@/data/categories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/actions';
 import { currencyFromSymbol } from '@/lib/utils';
@@ -64,129 +63,6 @@ function CheckIcon({ size = 16 }: { size?: number }) {
         >
             <path d="M5 12 L10 17 L19 7" />
         </svg>
-    );
-}
-
-function ClockIcon({ size = 16 }: { size?: number }) {
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 7 V12 L15 14" />
-        </svg>
-    );
-}
-
-function ChevronDownIcon({ size = 12 }: { size?: number }) {
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M6 9 L12 15 L18 9" />
-        </svg>
-    );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Field row (label + input-like display)
-// ═══════════════════════════════════════════════════════════════
-
-function FieldRow({
-    label,
-    value,
-    icon,
-    mono = false,
-}: {
-    label: string;
-    value: string;
-    icon: React.ReactNode;
-    mono?: boolean;
-}) {
-    return (
-        <div>
-            <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">
-                {label}
-            </div>
-            <button
-                className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 flex items-center gap-2 hover:bg-bg-card transition-colors cursor-pointer text-left"
-                type="button"
-            >
-                <span className="text-ink-1 flex-shrink-0">{icon}</span>
-                <span
-                    className={`flex-1 text-[12px] md:text-[13px] font-medium truncate ${mono ? 'mono' : ''
-                        }`}
-                >
-                    {value}
-                </span>
-                <span className="text-ink-3 flex-shrink-0">
-                    <ChevronDownIcon size={12} />
-                </span>
-            </button>
-        </div>
-    );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Date + Time — CHANGED (Module 5.1): real editable inputs (were static
-// display rows). Native date/time pickers keep it dependency-free and give a
-// good mobile keyboard. This is what lets you backfill a past month's entry.
-// ═══════════════════════════════════════════════════════════════
-
-function DateTimeFields({
-    date,
-    setDate,
-    time,
-    setTime,
-}: {
-    date: string;
-    setDate: (v: string) => void;
-    time: string;
-    setTime: (v: string) => void;
-}) {
-    const inputCls =
-        'w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 text-[12px] md:text-[13px] outline-none focus:border-gold-400 focus:bg-bg-card transition-all mono';
-    return (
-        <div className="grid grid-cols-2 gap-3">
-            <div>
-                <label className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5 flex items-center gap-1.5">
-                    <CalendarIcon size={12} /> Date
-                </label>
-                <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className={inputCls}
-                    aria-label="Date"
-                />
-            </div>
-            <div>
-                <label className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5 flex items-center gap-1.5">
-                    <ClockIcon size={12} /> Time
-                </label>
-                <input
-                    type="time"
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                    className={inputCls}
-                    aria-label="Time"
-                />
-            </div>
-        </div>
     );
 }
 
@@ -500,7 +376,6 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
         editTarget?.currency ? symbolFromCurrency(editTarget.currency) : 'S$',
     );
     const [note, setNote] = useState(editTarget?.note ?? '');
-    const [fixed, setFixed] = useState(editTarget?.fixed ?? false);
     // ADDED (Module 5.1): editable date + time (was static display). New expenses
     // default to today; edits default to the row's own date — reconstructed from the
     // VIEWED month + the row's day (the UI Expense only carries day + "HH:MM"). This
@@ -520,12 +395,16 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
         // Build the timestamp from the picked date + time (local wall-clock).
         const spentAt = new Date(`${date}T${(time || '09:00')}:00`).toISOString();
         startTransition(async () => {
+            // NOTE (Module 5.1): manual expenses are never "recurring" — real
+            // recurrence lives on the Recurring page (FixedExpense rules). The old
+            // manual "Recurring" checkbox only set this flag with no actual
+            // recurrence, so it was removed; `fixed` is left to the DB default (false)
+            // on create and untouched on edit (so generated rows keep their flag).
             const fields = {
                 amount: amt,
                 category,
                 currency: currencyFromSymbol(currency),
                 note: note.trim(),
-                fixed,
                 spentAt,
             };
             try {
@@ -564,7 +443,7 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
 
     return {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, date, setDate, time, setTime,
+        note, setNote, date, setDate, time, setTime,
         pending, canSave, save, remove,
     };
 }
@@ -576,7 +455,7 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
 function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, date, setDate, time, setTime,
+        note, setNote, date, setDate, time, setTime,
         pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const isEdit = editTarget !== null;
@@ -660,11 +539,6 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
                 {/* Fields grid — CHANGED (Module 5.1): Date/Time are now real inputs. */}
                 <div className="px-7 pt-5 flex flex-col gap-3">
                     <DateTimeFields date={date} setDate={setDate} time={time} setTime={setTime} />
-                    <FieldRow
-                        label="Payment method"
-                        value="DBS · ••3421"
-                        icon={<WalletIcon size={14} />}
-                    />
                 </div>
 
                 {/* Note */}
@@ -685,15 +559,6 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
                         borderTop: '1px solid var(--color-line-soft)',
                     }}
                 >
-                    <label className="flex items-center gap-2 text-[12px] text-ink-1 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={fixed}
-                            onChange={(e) => setFixed(e.target.checked)}
-                            className="w-4 h-4 cursor-pointer accent-gold-500"
-                        />
-                        Recurring
-                    </label>
                     {isEdit && (
                         <button
                             type="button"
@@ -741,7 +606,7 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
 function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget: Expense | null }) {
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
-        note, setNote, fixed, setFixed, date, setDate, time, setTime,
+        note, setNote, date, setDate, time, setTime,
         pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const isEdit = editTarget !== null;
@@ -836,11 +701,6 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
                 {/* Fields stacked — CHANGED (Module 5.1): Date/Time are now real inputs. */}
                 <div className="px-4 pt-4 flex flex-col gap-2.5">
                     <DateTimeFields date={date} setDate={setDate} time={time} setTime={setTime} />
-                    <FieldRow
-                        label="Payment method"
-                        value="DBS · ••3421"
-                        icon={<WalletIcon size={14} />}
-                    />
                 </div>
 
                 {/* Note */}
@@ -855,15 +715,6 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
 
                 {/* Footer */}
                 <div className="px-4 pt-4 flex items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-[11px] text-ink-1 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={fixed}
-                            onChange={(e) => setFixed(e.target.checked)}
-                            className="w-4 h-4 cursor-pointer accent-gold-500"
-                        />
-                        Recurring
-                    </label>
                     {isEdit && (
                         <button
                             type="button"

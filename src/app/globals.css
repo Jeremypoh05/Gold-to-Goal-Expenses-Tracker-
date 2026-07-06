@@ -86,6 +86,11 @@
 }
 
 .dark {
+  /* ADDED (polish): tell the UA to render native form controls (date/time
+     pickers + their calendar/clock indicator icons, scrollbars) in dark — the
+     picker glyphs were black-on-dark and invisible before. */
+  color-scheme: dark;
+
   /* Surfaces — warm charcoal-brown so gold stays cohesive */
   --color-bg-0: oklch(0.17 0.012 70);
   --color-bg-1: oklch(0.21 0.014 68);
@@ -569,6 +574,23 @@ body {
   -webkit-text-fill-color: transparent;
   color: transparent;
   animation: gradient-pan 7s linear infinite;
+}
+
+/* ADDED (polish): gold gradient for headline AMOUNTS (ledger / calendar title
+   totals). Static (not animated — a counting number shouldn't also shimmer);
+   inline-block so -webkit-background-clip:text works on an inline span. Mirrors
+   the income page's ink→gold treatment but stays fully gold for the figure. */
+@utility text-gradient-amount {
+  display: inline-block;
+  background-image: linear-gradient(100deg, oklch(0.82 0.155 88), oklch(0.62 0.150 74));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+/* Dark mode: brighten so the gradient stays legible on charcoal surfaces. */
+.dark .text-gradient-amount {
+  background-image: linear-gradient(100deg, oklch(0.88 0.145 90), oklch(0.74 0.160 80));
 }
 
 /* Drifting blurred blob for a living gold aurora behind hero cards. */

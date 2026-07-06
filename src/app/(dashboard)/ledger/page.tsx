@@ -15,6 +15,7 @@ import {
     ChevronIcon,
     LockIcon,
     UnlockIcon,
+    RepeatIcon,
 } from "@/components/icons";
 import { AnimatedNumber } from "@/components/shared/AnimatedNumber";
 import { CATEGORIES } from "@/data/categories";
@@ -143,6 +144,33 @@ function FilterChips({
         </div>
     );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Stale-rule hint — ADDED (Module 5.1): a generated recurring row whose amount
+// no longer matches its rule's current amount. Happens when the rule was edited
+// "open months only" while THIS row's month was closed, so the row kept its old
+// figure. Purely informational (doesn't touch the name); title explains + how to
+// align. Amber so it reads as "heads-up", legible in light + dark.
+// ═══════════════════════════════════════════════════════════════
+
+function StaleRuleHint({ amt, ruleAmount }: { amt: number; ruleAmount: number }) {
+    return (
+        <span
+            title={`This recurring's amount is now ${formatMoney(ruleAmount)}, but this entry kept ${formatMoney(amt)} because the month was closed when the rule changed. Reopen the month and re-save the rule to align it.`}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold whitespace-nowrap cursor-help"
+            style={{
+                background: 'color-mix(in oklch, oklch(0.75 0.15 68) 16%, transparent)',
+                color: 'oklch(0.72 0.15 66)',
+                border: '1px solid color-mix(in oklch, oklch(0.75 0.15 68) 42%, transparent)',
+            }}
+        >
+            <RepeatIcon size={9} /> rule now {formatMoney(ruleAmount)}
+        </span>
+    );
+}
+
+const isStaleRule = (t: Expense) =>
+    !!t.fixed && t.ruleAmount != null && t.ruleAmount !== t.amt;
 
 // ═══════════════════════════════════════════════════════════════
 // Day Card
@@ -310,6 +338,11 @@ function DayCard({
                                 </td>
                                 <td className="text-[13px]">
                                     <span className="truncate block">{t.note}</span>
+                                    {isStaleRule(t) && (
+                                        <span className="mt-1 inline-block">
+                                            <StaleRuleHint amt={t.amt} ruleAmount={t.ruleAmount!} />
+                                        </span>
+                                    )}
                                 </td>
                                 <td>
                                     <div className="flex gap-1 flex-wrap">
@@ -403,6 +436,11 @@ function DayCard({
                                 )}
                                 <span className="mono">{t.time}</span>
                             </div>
+                            {isStaleRule(t) && (
+                                <div className="mt-1">
+                                    <StaleRuleHint amt={t.amt} ruleAmount={t.ruleAmount!} />
+                                </div>
+                            )}
                         </div>
                         <div className="mono text-[13px] font-semibold whitespace-nowrap">
                             −{formatMoney(t.amt)}
@@ -639,7 +677,7 @@ export default function LedgerPage() {
                             {filteredExpenses.length === 1 ? 'entry' : 'entries'}
                         </span>
                         <span className="text-ink-3 font-light mx-2">•</span>
-                        <span style={{ color: 'var(--color-gold-700)' }}>
+                        <span className="text-gradient-amount">
                             −<AnimatedNumber value={rangeTotal} format="money" duration={1200} />
                         </span>
                     </h1>

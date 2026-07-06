@@ -9,6 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/generated/prisma/client";
 import { toUiExpense, suggestFixedMetaLocal } from "@/lib/expense-utils";
 import {
   getMonthDashboardData,
@@ -514,6 +515,9 @@ export async function addFixedExpense(input: FixedExpenseInput) {
 export async function updateFixedExpense(
   id: number,
   input: Partial<FixedExpenseInput>,
+  // CHANGED (Module 5.1 · override): when true, the redefine also rewrites any
+  // closed months the rule spans (user opted in via the closed-month guard).
+  overrideClosed = false,
 ) {
   const userId = await requireUserId();
   const owned = await prisma.fixedExpense.findFirst({ where: { id, userId } });
@@ -542,7 +546,7 @@ export async function updateFixedExpense(
   // new values, so a changed start month / amount / label is reflected across every
   // affected month (ledger, calendar, dashboard, income). To change the rate from a
   // point in time while KEEPING past months, use changeFixedAmount instead.
-  await resyncFixedExpense(id);
+  await resyncFixedExpense(id, overrideClosed);
 
   revalidateDashboard();
 }
@@ -553,12 +557,17 @@ export async function updateFixedExpense(
  *  CHANGED (Module 5.1): rows in CLOSED months are kept — a closed month's books
  *  never change. Deleting the rule detaches them (fixedSourceId → null via the
  *  relation's onDelete: SetNull), so they live on as plain frozen entries. */
-export async function deleteFixedExpense(id: number) {
+export async function deleteFixedExpense(id: number, overrideClosed = false) {
   const userId = await requireUserId();
   const owned = await prisma.fixedExpense.findFirst({ where: { id, userId } });
   if (!owned) return;
 
-  const closedKeys = await getClosedMonthKeys(userId);
+  // CHANGED (Module 5.1 · override): by default a closed month's generated row is
+  // KEPT (detached) when the rule is deleted — a closed month's books never change.
+  // When the user explicitly opts in (overrideClosed), delete those rows too.
+  const closedKeys = overrideClosed
+    ? new Set<string>()
+    : await getClosedMonthKeys(userId);
   const rows = await prisma.expense.findMany({
     where: { userId, fixedSourceId: id },
     select: { id: true, spentAt: true },
@@ -587,6 +596,9 @@ export async function deleteFixedExpense(id: number) {
 export async function changeFixedAmount(
   id: number,
   input: { fromYear: number; fromMonth: number; newAmount: number },
+  // CHANGED (Module 5.1 · override): when true, closed months from the change
+  // point forward are also rewritten to the new amount (user opted in).
+  overrideClosed = false,
 ) {
   const userId = await requireUserId();
   const src = await prisma.fixedExpense.findFirst({ where: { id, userId } });
@@ -607,7 +619,10 @@ export async function changeFixedAmount(
   // ADDED (Module 5): a closed month's row is frozen — never delete it even
   // though it falls on/after the change point (it just keeps its old amount;
   // the new segment's generation already skips closed months on its own).
-  const closedKeys = await getClosedMonthKeys(userId);
+  // (Module 5.1) …unless the user chose to override — then rewrite them too.
+  const closedKeys = overrideClosed
+    ? new Set<string>()
+    : await getClosedMonthKeys(userId);
   const candidates = await prisma.expense.findMany({
     where: { userId, fixedSourceId: id, spentAt: { gte: fromStart } },
     select: { id: true, spentAt: true },
@@ -616,19 +631,23 @@ export async function changeFixedAmount(
     .filter((r) => !closedKeys.has(`${r.spentAt.getFullYear()}-${r.spentAt.getMonth() + 1}`))
     .map((r) => r.id);
 
-  await prisma.$transaction([
+  // Build the ops in order so we can pick the created segment's id back out.
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  if (deletableIds.length > 0) {
     // Remove any generated rows at/after the change month (old-amount rows,
-    // excluding closed months) — the new segment will regenerate the rest at
-    // the new amount on next sync.
-    ...(deletableIds.length > 0
-      ? [prisma.expense.deleteMany({ where: { id: { in: deletableIds } } })]
-      : []),
-    // Cap the old definition at the month before the change.
+    // excluding closed months unless overriding) — the new segment regenerates them.
+    ops.push(prisma.expense.deleteMany({ where: { id: { in: deletableIds } } }));
+  }
+  // Cap the old definition at the month before the change.
+  ops.push(
     prisma.fixedExpense.update({
       where: { id },
       data: { endYear: prevYear, endMonth: prevMonth },
     }),
-    // New ongoing (or end-inheriting) segment at the new amount.
+  );
+  const createIdx = ops.length;
+  // New ongoing (or end-inheriting) segment at the new amount.
+  ops.push(
     prisma.fixedExpense.create({
       data: {
         userId,
@@ -646,7 +665,14 @@ export async function changeFixedAmount(
         active: true,
       },
     }),
-  ]);
+  );
+
+  const results = await prisma.$transaction(ops);
+  // CHANGED (Module 5.1): materialize the new segment right away (was left to the
+  // lazy dashboard-layout sync) so the new amount shows immediately after refresh()
+  // — and, when overriding, so the closed months actually get regenerated.
+  const newSeg = results[createIdx] as { id: number };
+  await resyncFixedExpense(newSeg.id, overrideClosed);
   revalidateDashboard();
 }
 

@@ -207,7 +207,7 @@ export default function CalendarPage() {
                             {filteredExpenses.length === 1 ? 'entry' : 'entries'}
                         </span>
                         <span className="text-ink-3 font-light mx-2">/</span>
-                        <span style={{ color: 'var(--color-gold-700)' }}>
+                        <span className="text-gradient-amount">
                             −<AnimatedNumber value={filteredTotal} format="money" duration={1200} />
                         </span>
                     </h1>

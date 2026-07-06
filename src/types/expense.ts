@@ -30,6 +30,11 @@ export interface Expense {
   fixed?: boolean; // Is this a recurring fixed expense?
   fixedSourceId?: number | null; // ADDED (Module 4): the FixedExpense that generated this row
   currency?: Currency; // ADDED (Phase 8): carried so edits round-trip the right currency
+  // ADDED (Module 5.1): the linked recurring rule's CURRENT amount. For a generated
+  // row this normally equals `amt`; it differs only when the rule was edited
+  // "open months only" while this row's month was closed (so the row kept its old
+  // amount). The ledger uses the mismatch to flag the row as stale-from-closure.
+  ruleAmount?: number | null;
 }
 
 export interface MonthInfo {

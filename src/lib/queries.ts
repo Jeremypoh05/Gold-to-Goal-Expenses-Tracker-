@@ -119,6 +119,29 @@ export async function getMonthDashboardData(
     }),
   ]);
 
+  // ADDED (Module 5.1): attach each generated row's linked rule's CURRENT amount,
+  // so the ledger can flag rows that went stale while their month was closed (the
+  // rule changed "open months only", this row kept its old amount). One small query
+  // scoped to the fixed sources referenced by THIS month's rows.
+  const fixedIds = [
+    ...new Set(
+      rows.filter((r) => r.fixedSourceId != null).map((r) => r.fixedSourceId as number),
+    ),
+  ];
+  const ruleAmountById = new Map<number, number>();
+  if (fixedIds.length > 0) {
+    const defs = await prisma.fixedExpense.findMany({
+      where: { userId: user.id, id: { in: fixedIds } },
+      select: { id: true, amount: true },
+    });
+    for (const d of defs) ruleAmountById.set(d.id, Number(d.amount));
+  }
+  const uiExpenses = rows.map((r) => {
+    const u = toUiExpense(r);
+    if (r.fixedSourceId != null) u.ruleAmount = ruleAmountById.get(r.fixedSourceId) ?? null;
+    return u;
+  });
+
   // CHANGED (Phase 9): salary/gross/deductions now come from the SalaryPeriod
   // active in the viewing month (was the deprecated flat User.monthlySalary).
   const active = activeSalaryForMonth(periods.map(toUiSalaryPeriod), year, month);
@@ -132,7 +155,7 @@ export async function getMonthDashboardData(
   return {
     current,
     monthClosed: !!monthClose,
-    expenses: rows.map(toUiExpense),
+    expenses: uiExpenses,
     // Voice logs are the same rows where source = voice (single source of truth).
     voiceLogs: rows.filter((r) => r.source === "voice").map(toUiVoiceLog),
     prevMonthTotal: Number(prevAgg._sum.amount ?? 0),
@@ -361,8 +384,16 @@ export async function syncFixedExpenses(): Promise<void> {
  * add or edit so a changed start month / amount is reflected across every affected
  * month immediately (ledger, calendar, dashboard, income) — unlike the lazy,
  * forward-only sync. History-preserving rate changes use `changeFixedAmount`.
+ *
+ * CHANGED (Module 5.1 · override): `overrideClosed` lifts the closed-month freeze
+ * for THIS call only — when true, closed months in the rule's range are cleared
+ * and regenerated at the new values too (the user explicitly opted in via the
+ * closed-month guard). Defaults false, preserving the "closed = frozen" invariant.
  */
-export async function resyncFixedExpense(id: number): Promise<void> {
+export async function resyncFixedExpense(
+  id: number,
+  overrideClosed = false,
+): Promise<void> {
   const user = await getOrCreateUser();
   const it = await prisma.fixedExpense.findFirst({ where: { id, userId: user.id } });
   if (!it) return;
@@ -371,7 +402,11 @@ export async function resyncFixedExpense(id: number): Promise<void> {
   // must never delete (or later recreate) a generated row that falls in one.
   // Only rows in OPEN months are cleared for regeneration; a closed month's
   // row survives untouched at whatever it already was.
-  const closedKeys = await getClosedMonthKeys(user.id);
+  // (Module 5.1) …unless the user explicitly chose to override — then treat the
+  // closed set as empty so those months are rewritten like any other.
+  const closedKeys = overrideClosed
+    ? new Set<string>()
+    : await getClosedMonthKeys(user.id);
   const existingRows = await prisma.expense.findMany({
     where: { userId: user.id, fixedSourceId: id },
     select: { id: true, spentAt: true },

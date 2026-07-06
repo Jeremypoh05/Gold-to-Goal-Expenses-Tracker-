@@ -119,14 +119,14 @@ export default function FixedExpensesPage() {
     const handleSave = (v: FixedExpenseForm) => {
         startTransition(async () => {
             if (v.id !== undefined) {
-                // Warn if this edit spans closed months (they stay frozen).
-                const ok = await guardClosedMonths({
+                // Ask how to handle any closed months this edit spans.
+                const g = await guardClosedMonths({
                     startYear: v.startYear,
                     startMonth: v.startMonth,
                     endYear: v.endYear,
                     endMonth: v.endMonth,
                 });
-                if (!ok) return;
+                if (!g.proceed) return;
                 await updateFixedExpense(v.id, {
                     label: v.label,
                     note: v.note,
@@ -138,7 +138,7 @@ export default function FixedExpensesPage() {
                     startMonth: v.startMonth,
                     endYear: v.endYear,
                     endMonth: v.endMonth,
-                });
+                }, g.overrideClosed);
             } else {
                 await addFixedExpense({
                     label: v.label,
@@ -160,7 +160,18 @@ export default function FixedExpensesPage() {
 
     const handleDelete = (id: number) => {
         startTransition(async () => {
-            await deleteFixedExpense(id);
+            // Warn if the rule has entries in closed months (kept by default).
+            const g = await guardClosedMonths(
+                {
+                    startYear: editing?.startYear ?? nowY,
+                    startMonth: editing?.startMonth ?? 1,
+                    endYear: editing?.endYear ?? null,
+                    endMonth: editing?.endMonth ?? null,
+                },
+                'delete',
+            );
+            if (!g.proceed) return;
+            await deleteFixedExpense(id, g.overrideClosed);
             setModalOpen(false);
             refreshAll();
         });
@@ -169,14 +180,14 @@ export default function FixedExpensesPage() {
     const handleChangeAmount = (v: { id: number; fromYear: number; fromMonth: number; newAmount: number }) => {
         startTransition(async () => {
             // A rate change only touches months from the change point forward.
-            const ok = await guardClosedMonths({
+            const g = await guardClosedMonths({
                 startYear: v.fromYear,
                 startMonth: v.fromMonth,
                 endYear: editing?.endYear ?? null,
                 endMonth: editing?.endMonth ?? null,
             });
-            if (!ok) return;
-            await changeFixedAmount(v.id, { fromYear: v.fromYear, fromMonth: v.fromMonth, newAmount: v.newAmount });
+            if (!g.proceed) return;
+            await changeFixedAmount(v.id, { fromYear: v.fromYear, fromMonth: v.fromMonth, newAmount: v.newAmount }, g.overrideClosed);
             setModalOpen(false);
             refreshAll();
         });
