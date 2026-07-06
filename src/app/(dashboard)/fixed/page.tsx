@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useTransition, useMemo } from 'react'
 import { motion } from 'framer-motion';
 import { PlusIcon, RepeatIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
-import { FixedExpenseModal, FixedTile, type FixedExpenseForm } from '@/components/fixed';
+import { FixedExpenseModal, FixedTile, useClosedMonthGuard, type FixedExpenseForm } from '@/components/fixed';
 import {
     fetchFixedExpenses,
     addFixedExpense,
@@ -47,6 +47,7 @@ function metaLine(f: UiFixedExpense): string {
 
 export default function FixedExpensesPage() {
     const { current, refresh } = useExpenses();
+    const guardClosedMonths = useClosedMonthGuard();
     const [pending, startTransition] = useTransition();
     const [items, setItems] = useState<UiFixedExpense[]>([]);
     const [loaded, setLoaded] = useState(false);
@@ -118,6 +119,14 @@ export default function FixedExpensesPage() {
     const handleSave = (v: FixedExpenseForm) => {
         startTransition(async () => {
             if (v.id !== undefined) {
+                // Warn if this edit spans closed months (they stay frozen).
+                const ok = await guardClosedMonths({
+                    startYear: v.startYear,
+                    startMonth: v.startMonth,
+                    endYear: v.endYear,
+                    endMonth: v.endMonth,
+                });
+                if (!ok) return;
                 await updateFixedExpense(v.id, {
                     label: v.label,
                     note: v.note,
@@ -159,6 +168,14 @@ export default function FixedExpensesPage() {
 
     const handleChangeAmount = (v: { id: number; fromYear: number; fromMonth: number; newAmount: number }) => {
         startTransition(async () => {
+            // A rate change only touches months from the change point forward.
+            const ok = await guardClosedMonths({
+                startYear: v.fromYear,
+                startMonth: v.fromMonth,
+                endYear: editing?.endYear ?? null,
+                endMonth: editing?.endMonth ?? null,
+            });
+            if (!ok) return;
             await changeFixedAmount(v.id, { fromYear: v.fromYear, fromMonth: v.fromMonth, newAmount: v.newAmount });
             setModalOpen(false);
             refreshAll();

@@ -221,6 +221,16 @@ export async function fetchMonthData(year: number, month: number) {
 // by assertMonthOpen above. Scope is expenses only — income stays editable.
 // ─────────────────────────────────────────────────────────────
 
+/** All months this user has hard-closed (for client-side edit warnings). */
+export async function fetchClosedMonths(): Promise<{ year: number; month: number }[]> {
+  const userId = await requireUserId();
+  const rows = await prisma.monthClose.findMany({
+    where: { userId },
+    select: { year: true, month: true },
+  });
+  return rows;
+}
+
 export async function closeMonth(year: number, month: number) {
   const userId = await requireUserId();
   await prisma.monthClose.upsert({

@@ -290,6 +290,33 @@ export function fixedExpenseStatus(
 }
 
 /**
+ * ADDED (Module 5.1): which of a recurring rule's affected months are hard-closed.
+ * Walks [start, min(today, end)] and returns the closed ones, so the edit flow can
+ * warn "these months keep their old amount". `closed` is the `"y-m"` key set from
+ * the server. For a rate change, pass the change month as the start.
+ */
+export function closedMonthsInRange(
+  closed: Set<string>,
+  startYear: number,
+  startMonth: number,
+  endYear: number | null,
+  endMonth: number | null,
+  nowYear: number,
+  nowMonth: number,
+): { year: number; month: number }[] {
+  const out: { year: number; month: number }[] = [];
+  let cy = startYear;
+  let cm = startMonth;
+  // Never look past today (unmaterialized future months can't be closed) or the end.
+  while (cmpYM(cy, cm, nowYear, nowMonth) <= 0) {
+    if (endYear != null && endMonth != null && cmpYM(cy, cm, endYear, endMonth) > 0) break;
+    if (closed.has(`${cy}-${cm}`)) out.push({ year: cy, month: cm });
+    if (cm >= 12) { cy += 1; cm = 1; } else { cm += 1; }
+  }
+  return out;
+}
+
+/**
  * Local (no-AI) fallback that maps a label to a sensible emoji + category, so
  * fixed items get a friendly glyph even without ANTHROPIC_API_KEY. Handles common
  * EN + zh keywords. The Claude Haiku suggester (server action) uses this as its
