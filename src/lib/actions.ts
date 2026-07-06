@@ -15,6 +15,7 @@ import {
   getYearSummary,
   getFixedExpenses,
   resyncFixedExpense,
+  getClosedMonthKeys,
 } from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
 
@@ -578,12 +579,25 @@ export async function changeFixedAmount(
 
   const fromStart = new Date(fromYear, fromMonth - 1, 1);
 
+  // ADDED (Module 5): a closed month's row is frozen — never delete it even
+  // though it falls on/after the change point (it just keeps its old amount;
+  // the new segment's generation already skips closed months on its own).
+  const closedKeys = await getClosedMonthKeys(userId);
+  const candidates = await prisma.expense.findMany({
+    where: { userId, fixedSourceId: id, spentAt: { gte: fromStart } },
+    select: { id: true, spentAt: true },
+  });
+  const deletableIds = candidates
+    .filter((r) => !closedKeys.has(`${r.spentAt.getFullYear()}-${r.spentAt.getMonth() + 1}`))
+    .map((r) => r.id);
+
   await prisma.$transaction([
-    // Remove any generated rows at/after the change month (old-amount rows) —
-    // the new segment will regenerate them at the new amount on next sync.
-    prisma.expense.deleteMany({
-      where: { userId, fixedSourceId: id, spentAt: { gte: fromStart } },
-    }),
+    // Remove any generated rows at/after the change month (old-amount rows,
+    // excluding closed months) — the new segment will regenerate the rest at
+    // the new amount on next sync.
+    ...(deletableIds.length > 0
+      ? [prisma.expense.deleteMany({ where: { id: { in: deletableIds } } })]
+      : []),
     // Cap the old definition at the month before the change.
     prisma.fixedExpense.update({
       where: { id },

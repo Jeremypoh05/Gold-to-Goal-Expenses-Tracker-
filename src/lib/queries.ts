@@ -260,8 +260,8 @@ const cmpYM = (aY: number, aM: number, bY: number, bM: number) =>
 const nextYM = (y: number, m: number) => (m >= 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 });
 
 /** ADDED (Module 5): months this user has hard-closed, as a `"y-m"` key set —
- *  fixed-expense generation must never create a row in one of these. */
-async function getClosedMonthKeys(userId: string): Promise<Set<string>> {
+ *  fixed-expense generation must never create OR delete a row in one of these. */
+export async function getClosedMonthKeys(userId: string): Promise<Set<string>> {
   const rows = await prisma.monthClose.findMany({ where: { userId } });
   return new Set(rows.map((r) => `${r.year}-${r.month}`));
 }
@@ -367,8 +367,21 @@ export async function resyncFixedExpense(id: number): Promise<void> {
   const it = await prisma.fixedExpense.findFirst({ where: { id, userId: user.id } });
   if (!it) return;
 
-  // Clear existing generated rows for this item — the definition is the source of truth.
-  await prisma.expense.deleteMany({ where: { userId: user.id, fixedSourceId: id } });
+  // ADDED (Module 5): a closed month's data is frozen — redefining the rule
+  // must never delete (or later recreate) a generated row that falls in one.
+  // Only rows in OPEN months are cleared for regeneration; a closed month's
+  // row survives untouched at whatever it already was.
+  const closedKeys = await getClosedMonthKeys(user.id);
+  const existingRows = await prisma.expense.findMany({
+    where: { userId: user.id, fixedSourceId: id },
+    select: { id: true, spentAt: true },
+  });
+  const deletableIds = existingRows
+    .filter((r) => !closedKeys.has(`${r.spentAt.getFullYear()}-${r.spentAt.getMonth() + 1}`))
+    .map((r) => r.id);
+  if (deletableIds.length > 0) {
+    await prisma.expense.deleteMany({ where: { id: { in: deletableIds } } });
+  }
 
   if (!it.active) {
     await prisma.fixedExpense.update({
@@ -382,8 +395,6 @@ export async function resyncFixedExpense(id: number): Promise<void> {
   const curY = now.getFullYear();
   const curM = now.getMonth() + 1;
   const curD = now.getDate();
-  // ADDED (Module 5): never re-materialize into a hard-closed month.
-  const closedKeys = await getClosedMonthKeys(user.id);
 
   let cy = it.startYear;
   let cm = it.startMonth;
