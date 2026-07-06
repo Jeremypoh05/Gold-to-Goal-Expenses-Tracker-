@@ -103,7 +103,7 @@ export function MonthlyFlowChart({
                 tooltip" feel back (appears without disturbing layout) without the
                 overflow problems of actually floating it. */}
             <div
-                className="rounded-2xl px-3.5 flex items-center gap-4 md:gap-6 flex-wrap mb-4 min-h-[58px] transition-colors duration-200"
+                className="rounded-2xl px-3.5 py-2.5 md:py-0 flex items-center mb-4 min-h-[70px] md:min-h-[58px] transition-colors duration-200"
                 style={
                     hover !== null
                         ? { background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))', border: '1px solid oklch(0.88 0.07 88)' }
@@ -132,9 +132,9 @@ export function MonthlyFlowChart({
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
                                 transition={{ duration: 0.15 }}
-                                className="flex items-center gap-4 md:gap-6 flex-wrap w-full"
+                                className="flex flex-col md:flex-row md:items-center gap-1.5 md:gap-6 w-full"
                             >
-                                <div className="flex items-center gap-2 pr-1">
+                                <div className="flex items-center gap-2">
                                     <span
                                         className="w-2 h-2 rounded-full flex-shrink-0"
                                         style={{ background: projected ? 'var(--color-gold-600)' : 'var(--color-ink-1)' }}
@@ -148,7 +148,9 @@ export function MonthlyFlowChart({
                                         )}
                                     </span>
                                 </div>
-                                <div className="flex items-center gap-4 md:gap-7 flex-1 justify-between md:justify-end flex-wrap">
+                                {/* Fixed 3-column grid — Income / Spent / Net always land in the
+                                    same slots and never reflow unpredictably at narrow widths. */}
+                                <div className="grid grid-cols-3 gap-2 md:flex md:items-center md:gap-7 md:flex-1 md:justify-end">
                                     <StatGroup label="Income" value={formatMoney(income[hover])} swatch="oklch(0.78 0.155 85)" />
                                     <StatGroup label="Spent" value={formatMoney(expenses[hover])} swatch="var(--color-ink-3)" />
                                     <StatGroup
@@ -173,8 +175,7 @@ export function MonthlyFlowChart({
                         return (
                             <div
                                 key={i}
-                                className="flex-1 h-full flex items-end justify-center gap-[2px] md:gap-1 cursor-pointer rounded-md transition-colors"
-                                style={{ background: active ? 'var(--color-bg-1)' : 'transparent' }}
+                                className="relative flex-1 h-full flex items-end justify-center gap-[2px] md:gap-1 cursor-pointer rounded-md"
                                 // CHANGED (Phase 9): pointer-aware so touch works — hover on
                                 // mouse only (touch fires a spurious leave that closed the
                                 // tooltip instantly on mobile); tap toggles and holds it open.
@@ -186,6 +187,14 @@ export function MonthlyFlowChart({
                                 }}
                                 onClick={() => setHover((p) => (p === i ? null : i))}
                             >
+                                {/* Highlight sits behind the bars (not on them) and at low
+                                    opacity — a full-strength fill here read as too loud. */}
+                                {active && (
+                                    <div
+                                        className="absolute inset-0 rounded-md pointer-events-none"
+                                        style={{ background: 'var(--color-bg-1)', opacity: 0.4 }}
+                                    />
+                                )}
                                 <motion.div
                                     initial={{ height: 0 }}
                                     animate={{ height: Math.max(2, (income[i] / max) * (CHART_H - 6)) }}
