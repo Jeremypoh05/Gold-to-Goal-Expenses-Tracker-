@@ -614,26 +614,29 @@ export default function LedgerPage() {
 
     return (
         <div className="px-4 md:px-8 py-5 md:py-7 pb-16 max-w-[1320px] mx-auto flex flex-col gap-5 md:gap-6">
-            {/* Header */}
+            {/* Header — CHANGED (Module 5.1): the heading + amount now own their row
+                (the controls dropped to a right-aligned row below), and the amount is
+                nowrap + tabular so the counting AnimatedNumber can't make the line
+                wrap/unwrap and jump between one and two rows as it grows. */}
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                className="flex flex-col md:flex-row md:items-end gap-3"
+                className="flex flex-col gap-4"
             >
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0">
                     <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         Ledger · {rangeDisplay}
                     </div>
                     <h1
-                        className="display mt-0.5 md:mt-1"
-                        style={{ fontSize: "clamp(28px, 5vw, 44px)", lineHeight: 1.05 }}
+                        className="display mt-0.5 md:mt-1 whitespace-nowrap"
+                        style={{ fontSize: "clamp(26px, 5vw, 44px)", lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}
                     >
                         {filteredExpenses.length}{' '}
                         <span className="text-ink-2 font-medium">
                             {filteredExpenses.length === 1 ? 'entry' : 'entries'}
                         </span>
-                        <span className="text-black font-light mx-2">•</span>
+                        <span className="text-ink-3 font-light mx-2">•</span>
                         <span style={{ color: 'var(--color-gold-700)' }}>
                             −<AnimatedNumber value={rangeTotal} format="money" duration={1200} />
                         </span>
@@ -643,7 +646,7 @@ export default function LedgerPage() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap md:justify-end">
                     <TimeRangeSegment
                         value={range}
                         onChange={setRange}

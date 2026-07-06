@@ -10,7 +10,7 @@
 // `current.day` is today's date only when viewing the actual current month (server
 // sets it to 0 otherwise), so `canGoNext === (current.day === 0)` — you can move
 // forward only from a past month, never into the future.
-import { createContext, useContext, useState, useTransition, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, useTransition, type ReactNode } from "react";
 import { fetchMonthData } from "@/lib/actions";
 import type { DashboardData } from "@/lib/queries";
 
@@ -45,11 +45,19 @@ export function ExpensesProvider({
   const [todayClosed, setTodayClosed] = useState(initial.monthClosed);
   const [pending, startTransition] = useTransition();
 
+  // CHANGED (Module 5.1): a monotonic request token. goToMonth and refresh both
+  // fire off async fetches; if the user navigates (or closes/reopens) fast, an
+  // earlier fetch can resolve AFTER a later one and clobber the current view with
+  // stale data (the bug: reopen looked broken after rapid month switching). Only
+  // the result of the newest request is applied; older ones are dropped.
+  const reqId = useRef(0);
+
   const canGoNext = data.current.day === 0; // only past months have day === 0
 
   // Whenever a fetch happens to land on the real current month (day !== 0),
   // sync todayClosed from it too — covers closing/reopening today's own month.
-  const applyFetched = (next: DashboardData) => {
+  const applyFetched = (token: number, next: DashboardData) => {
+    if (token !== reqId.current) return; // a newer request superseded this one
     setData(next);
     if (next.current.day !== 0) setTodayClosed(next.monthClosed);
   };
@@ -65,14 +73,16 @@ export function ExpensesProvider({
       month = 1;
       year += 1;
     }
+    const token = ++reqId.current;
     startTransition(async () => {
-      applyFetched(await fetchMonthData(year, month));
+      applyFetched(token, await fetchMonthData(year, month));
     });
   };
 
   const refresh = () => {
+    const token = ++reqId.current;
     startTransition(async () => {
-      applyFetched(await fetchMonthData(data.current.year, data.current.month));
+      applyFetched(token, await fetchMonthData(data.current.year, data.current.month));
     });
   };
 
