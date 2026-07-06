@@ -12,13 +12,16 @@ import { createContext, useContext, useState, useTransition, type ReactNode } fr
 import { FixedExpenseModal, type FixedExpenseForm } from './FixedExpenseModal';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { useAddModal } from '@/components/dashboard/AddModalContext';
+import { useConfirm } from '@/components/shared';
 import {
     fetchFixedExpenses,
     updateFixedExpense,
     deleteFixedExpense,
     changeFixedAmount,
     suggestFixedMeta,
+    reopenMonth,
 } from '@/lib/actions';
+import { MONTH_NAMES } from '@/lib/utils';
 import type { UiFixedExpense } from '@/lib/expense-utils';
 import type { Expense } from '@/types';
 
@@ -30,14 +33,32 @@ interface FixedEditContextValue {
 const FixedEditContext = createContext<FixedEditContextValue | null>(null);
 
 export function FixedEditProvider({ children }: { children: ReactNode }) {
-    const { current, refresh } = useExpenses();
+    const { current, monthClosed, refresh } = useExpenses();
     const { open: openManualEdit } = useAddModal();
+    const confirm = useConfirm();
     const [item, setItem] = useState<UiFixedExpense | null>(null);
     const [open, setOpen] = useState(false);
     const [pending, startTransition] = useTransition();
 
     const openFixedEdit = (sourceId: number, fallbackRow?: Expense) => {
+        // ADDED (Module 5.1): openFixedEdit is only ever invoked from a row inside
+        // the VIEWED month (ledger / dashboard Recent) — the Recurring page has its
+        // own modal and is deliberately NOT gated (rule administration is month-
+        // agnostic; the server freezes closed months' rows on its own). So if the
+        // viewed month is closed, offer to reopen it and then continue.
         startTransition(async () => {
+            if (monthClosed) {
+                const ok = await confirm({
+                    title: `${MONTH_NAMES[current.month - 1]} ${current.year} is closed`,
+                    message:
+                        'Its entries are locked. Reopen the month to manage this recurring entry — or edit the rule from the Recurring page (closed months keep their recorded amounts).',
+                    confirmLabel: 'Reopen month',
+                    cancelLabel: 'Cancel',
+                });
+                if (!ok) return;
+                await reopenMonth(current.year, current.month);
+                refresh();
+            }
             const items = await fetchFixedExpenses();
             const target = items.find((f) => f.id === sourceId);
             if (target) {

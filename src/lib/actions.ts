@@ -539,13 +539,28 @@ export async function updateFixedExpense(
 
 /** Remove a fixed-expense definition AND its auto-generated Expense rows, so the
  *  recurring entries disappear from the ledger/calendar/dashboard when the rule is
- *  deleted (they were system-generated, not hand-entered). */
+ *  deleted (they were system-generated, not hand-entered).
+ *  CHANGED (Module 5.1): rows in CLOSED months are kept — a closed month's books
+ *  never change. Deleting the rule detaches them (fixedSourceId → null via the
+ *  relation's onDelete: SetNull), so they live on as plain frozen entries. */
 export async function deleteFixedExpense(id: number) {
   const userId = await requireUserId();
   const owned = await prisma.fixedExpense.findFirst({ where: { id, userId } });
   if (!owned) return;
+
+  const closedKeys = await getClosedMonthKeys(userId);
+  const rows = await prisma.expense.findMany({
+    where: { userId, fixedSourceId: id },
+    select: { id: true, spentAt: true },
+  });
+  const deletableIds = rows
+    .filter((r) => !closedKeys.has(`${r.spentAt.getFullYear()}-${r.spentAt.getMonth() + 1}`))
+    .map((r) => r.id);
+
   await prisma.$transaction([
-    prisma.expense.deleteMany({ where: { userId, fixedSourceId: id } }),
+    ...(deletableIds.length > 0
+      ? [prisma.expense.deleteMany({ where: { id: { in: deletableIds } } })]
+      : []),
     prisma.fixedExpense.delete({ where: { id } }),
   ]);
   revalidateDashboard();

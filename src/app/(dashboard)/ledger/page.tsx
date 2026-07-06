@@ -180,23 +180,24 @@ function DayCard({
     // just the entry. Always confirm first.
     const handleDelete = async (t: Expense) => {
         const isRecurring = !!(t.fixed && t.fixedSourceId);
-        // ADDED (Module 5): a plain entry in a closed month can't be deleted — the
-        // recurring-rule delete stays allowed (it's a rule-level administrative
-        // action, out of the month lock's scope, same as editing a recurring rule).
-        if (!isRecurring && monthClosed) {
-            await confirm({
-                title: 'This month is closed',
-                message: 'Reopen this month to delete its entries.',
-                confirmLabel: 'Got it',
-                hideCancel: true,
+        // CHANGED (Module 5.1): NO row in a closed month can be deleted — recurring
+        // included. Confirming reopens the month and continues into the delete flow.
+        if (monthClosed) {
+            const ok = await confirm({
+                title: `${MONTH_NAMES[current.month - 1]} ${current.year} is closed`,
+                message: 'Its entries are locked. Reopen the month to delete this entry — you can close it again afterwards.',
+                confirmLabel: 'Reopen month',
+                cancelLabel: 'Cancel',
             });
-            return;
+            if (!ok) return;
+            await reopenMonth(current.year, current.month);
+            refresh();
         }
         const ok = await confirm(
             isRecurring
                 ? {
                       title: `Delete recurring “${t.note}”?`,
-                      message: 'This removes the recurring rule and every entry it has generated, across all months.',
+                      message: 'This removes the recurring rule and every entry it has generated across open months. Entries in closed months are kept.',
                       confirmLabel: 'Delete rule',
                       danger: true,
                   }
@@ -341,8 +342,10 @@ function DayCard({
                                     −{formatMoney(t.amt)}
                                 </td>
                                 <td>
-                                    {/* CHANGED (Module 4 · UX): always-visible (muted→bright), not group-hover gated. */}
-                                    <div className="flex gap-1.5 justify-end">
+                                    {/* CHANGED (Module 4 · UX): always-visible (muted→bright), not group-hover gated.
+                                        CHANGED (Module 5.1): dimmed while the month is closed — clicking
+                                        still works and offers to reopen. */}
+                                    <div className={cn('flex gap-1.5 justify-end', monthClosed && 'opacity-35')}>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); editRow(t); }}
                                             className="w-9 h-9 flex items-center justify-center rounded-lg text-ink-2 border border-transparent hover:border-line hover:bg-bg-2 hover:text-gold-700 hover:scale-105 active:scale-95 transition-all"
@@ -697,25 +700,43 @@ export default function LedgerPage() {
                 </div>
             </motion.div>
 
-            {/* ADDED (Module 5): closed-month notice */}
+            {/* ADDED (Module 5): closed-month notice.
+                CHANGED (Module 5.1): theme-aware surface (the old hardcoded light
+                gray made the copy unreadable in dark mode) + stronger ink + a
+                prominent gold Reopen button. */}
             {monthClosed && (
                 <motion.div
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
                     className="rounded-2xl px-4 py-3 flex items-center gap-3"
-                    style={{ background: 'oklch(0.95 0.02 60 / 0.6)', border: '1px solid oklch(0.82 0.03 60)' }}
+                    style={{
+                        background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
+                        border: '1px solid oklch(0.88 0.07 88)',
+                    }}
                 >
-                    <LockIcon size={16} className="text-ink-1 flex-shrink-0" />
-                    <div className="flex-1 text-[13px] text-ink-1">
+                    <div
+                        className="w-9 h-9 rounded-[10px] bg-bg-card flex items-center justify-center flex-shrink-0"
+                        style={{ color: 'var(--color-gold-700)' }}
+                    >
+                        <LockIcon size={16} />
+                    </div>
+                    <div className="flex-1 text-[13px] text-ink-0">
                         <b>{monthName} {current.year} is closed.</b>{' '}
-                        <span className="text-ink-2">Reopen it to add, edit, or delete expenses.</span>
+                        <span className="text-ink-1">Its entries are locked — reopen to add, edit, or delete.</span>
                     </div>
                     <button
                         onClick={handleToggleClose}
                         disabled={closePending}
-                        className="h-8 px-3.5 rounded-full text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all disabled:opacity-50 flex-shrink-0"
+                        className="h-9 px-4 rounded-full text-xs font-semibold transition-all hover:brightness-[1.03] disabled:opacity-50 flex-shrink-0 flex items-center gap-1.5"
+                        style={{
+                            background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))',
+                            color: '#1a120a',
+                            boxShadow: 'var(--shadow-gold)',
+                            border: '1px solid oklch(0.85 0.14 88)',
+                        }}
                     >
+                        <UnlockIcon size={13} />
                         Reopen
                     </button>
                 </motion.div>

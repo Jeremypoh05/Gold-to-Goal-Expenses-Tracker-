@@ -34,7 +34,7 @@ import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open the vo
 import { useAddModal } from '@/components/dashboard/AddModalContext';
 import { useFixedEdit } from '@/components/fixed';
 import { useConfirm } from '@/components/shared';
-import { deleteExpense, deleteFixedExpense } from '@/lib/actions';
+import { deleteExpense, deleteFixedExpense, reopenMonth } from '@/lib/actions';
 import type { CategoryKey, Expense } from '@/types';
 
 // ═══════════════════════════════════════════════════════════════
@@ -750,22 +750,24 @@ function RecentTransactions({ filter, setFilter }: {
     // Always confirm first.
     const handleDelete = async (t: Expense) => {
         const isRecurring = !!(t.fixed && t.fixedSourceId);
-        // ADDED (Module 5): a plain entry in a closed month can't be deleted — the
-        // recurring-rule delete stays allowed (rule-level action, out of scope).
-        if (!isRecurring && monthClosed) {
-            await confirm({
-                title: 'This month is closed',
-                message: 'Reopen this month on the Ledger page to delete its entries.',
-                confirmLabel: 'Got it',
-                hideCancel: true,
+        // CHANGED (Module 5.1): NO row in a closed month can be deleted — recurring
+        // included. Confirming reopens the month and continues into the delete flow.
+        if (monthClosed) {
+            const okReopen = await confirm({
+                title: `${monthName} ${current.year} is closed`,
+                message: 'Its entries are locked. Reopen the month to delete this entry — you can close it again afterwards.',
+                confirmLabel: 'Reopen month',
+                cancelLabel: 'Cancel',
             });
-            return;
+            if (!okReopen) return;
+            await reopenMonth(current.year, current.month);
+            refresh();
         }
         const ok = await confirm(
             isRecurring
                 ? {
                       title: `Delete recurring “${t.note}”?`,
-                      message: 'This removes the recurring rule and every entry it has generated, across all months.',
+                      message: 'This removes the recurring rule and every entry it has generated across open months. Entries in closed months are kept.',
                       confirmLabel: 'Delete rule',
                       danger: true,
                   }

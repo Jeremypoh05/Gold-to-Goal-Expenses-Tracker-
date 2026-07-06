@@ -15,7 +15,7 @@ import {
 } from 'react';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { useConfirm } from '@/components/shared';
-import { createExpense, updateExpense, deleteExpense } from '@/lib/actions';
+import { createExpense, updateExpense, deleteExpense, reopenMonth } from '@/lib/actions';
 import type { VoiceLog, CategoryKey, Currency } from '@/types';
 
 /** A freshly captured entry (before id/time/day are assigned). */
@@ -114,14 +114,25 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
 
     // ADDED (Module 5): a single choke point — every mic trigger across the app
     // (bottom-tab orb, dashboard CTAs, /voice hero) calls this same openModal.
+    // CHANGED (Module 5.1): blocked → "Reopen month?" decision; confirming
+    // reopens the current month and continues straight into voice capture.
     const openModal = () => {
         if (todayClosed) {
-            void confirm({
-                title: 'This month is closed',
-                message: 'Reopen the current month on the Ledger page to log expenses by voice.',
-                confirmLabel: 'Got it',
-                hideCancel: true,
-            });
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = now.getMonth() + 1;
+            void (async () => {
+                const ok = await confirm({
+                    title: 'This month is closed',
+                    message: 'Voice logs land in the current month, which is closed. Reopen it to keep logging — you can close it again afterwards.',
+                    confirmLabel: 'Reopen month',
+                    cancelLabel: 'Cancel',
+                });
+                if (!ok) return;
+                await reopenMonth(y, m);
+                refresh();
+                setIsModalOpen(true);
+            })();
             return;
         }
         setIsModalOpen(true);
