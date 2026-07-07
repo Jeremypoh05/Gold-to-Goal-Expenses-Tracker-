@@ -288,7 +288,7 @@ export default function FixedExpensesPage() {
                                 style={{ border: '1.5px dashed var(--color-line)', background: 'var(--color-bg-1)' }}
                             >
                                 <div className="text-[14px] font-medium text-ink-1">Add your first fixed expense</div>
-                                <div className="text-[12px] text-ink-2 mt-1">Rent, phone, transport, 家用, subscriptions…</div>
+                                <div className="text-[12px] text-ink-2 mt-1">Rent, phone, transport, family support, subscriptions…</div>
                             </button>
                         ) : (
                             <div className="text-[13px] text-ink-2 py-10 text-center">Nothing archived yet.</div>

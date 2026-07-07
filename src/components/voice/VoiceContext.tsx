@@ -26,6 +26,7 @@ export interface NewVoiceLog {
     amt: number;
     currency: Currency;
     note: string;
+    tags?: string[]; // ADDED (Voice AI): AI-suggested tags from the utterance
     status: 'confirmed' | 'edited';
 }
 
@@ -83,6 +84,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
                 category: entry.cat,
                 currency: entry.currency,
                 note: entry.note,
+                tags: entry.tags ?? [],
                 source: 'voice',
                 transcript: entry.transcript,
                 lang: entry.lang,

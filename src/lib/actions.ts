@@ -230,6 +230,128 @@ export async function suggestExpenseMeta(
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// ADDED (Voice AI module): real speech-to-text + Claude parsing. The client
+// records audio (MediaRecorder — works on Chrome/Edge/Firefox + iOS Safari) and
+// posts the blob here. We transcribe with OpenAI (Claude has no STT), then parse
+// the transcript into a structured expense with Claude Haiku. Local heuristics
+// are the fallback if either provider is unavailable, so the flow degrades
+// gracefully. SECURITY: only the audio + its transcript are sent to the STT /
+// parse providers — no amounts, dates, or other rows.
+// ─────────────────────────────────────────────────────────────
+
+export interface VoiceParseResult {
+  ok: boolean;
+  transcript: string;
+  lang: string;
+  parsed:
+    | { category: CategoryKey; amount: number; currency: Currency; note: string; tags: string[] }
+    | null;
+  error?: "no-key" | "no-audio" | "stt-failed" | "empty" | "parse-failed";
+}
+
+/** Offline heuristic parse of a transcript — the fallback when Claude is unavailable. */
+function parseVoiceLocal(transcript: string): NonNullable<VoiceParseResult["parsed"]> & { lang: string } {
+  const meta = suggestExpenseMetaLocal(transcript);
+  const numMatch = transcript.replace(/,/g, "").match(/\d+(?:\.\d{1,2})?/);
+  const amount = numMatch ? parseFloat(numMatch[0]) : 0;
+  const l = transcript.toLowerCase();
+  let currency: Currency = "SGD";
+  if (/\b(rm|ringgit)\b/.test(l)) currency = "MYR";
+  else if (/\b(us ?dollars?|usd)\b/.test(l)) currency = "USD";
+  else if (/(yuan|rmb|人民币|元)/.test(l)) currency = "CNY";
+  const hasCJK = /[一-鿿]/.test(transcript);
+  const hasLatin = /[a-z]/i.test(transcript);
+  const lang = hasCJK && hasLatin ? "zh+en" : hasCJK ? "zh" : "en";
+  return { category: meta.category, amount, currency, note: transcript.slice(0, 120), tags: meta.tags, lang };
+}
+
+export async function transcribeExpense(formData: FormData): Promise<VoiceParseResult> {
+  await requireUserId();
+  const base: VoiceParseResult = { ok: false, transcript: "", lang: "en", parsed: null };
+
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!openaiKey) return { ...base, error: "no-key" };
+
+  const audio = formData.get("audio");
+  if (!(audio instanceof Blob) || audio.size === 0) return { ...base, error: "no-audio" };
+
+  // 1) Speech → text (OpenAI; raw fetch keeps us SDK-free per AGENTS.md).
+  let transcript = "";
+  try {
+    const stt = new FormData();
+    stt.append("file", audio, (audio as File).name || "voice.webm");
+    // gpt-4o-transcribe (over -mini) for best accuracy on accents + mixed input.
+    stt.append("model", "gpt-4o-transcribe");
+    // CHANGED (Voice AI · multilingual): a prompt that primes code-switching.
+    // Without it Whisper collapses a mixed sentence into one language (e.g.
+    // "15 ringgit" → "15 林吉特"). This keeps English/Malay words in Latin script.
+    stt.append(
+      "prompt",
+      "The speaker mixes English, Mandarin Chinese, and Malay (Singapore/Malaysia). " +
+        "Transcribe faithfully, keeping English and Malay words in Latin script " +
+        "(e.g. food court, mee goreng, nasi lemak, wanton mee, kopi, Grab, ringgit, girlfriend).",
+    );
+    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${openaiKey}` },
+      body: stt,
+    });
+    if (!r.ok) return { ...base, error: "stt-failed" };
+    const j = (await r.json()) as { text?: string };
+    transcript = (j.text ?? "").trim();
+  } catch {
+    return { ...base, error: "stt-failed" };
+  }
+  if (!transcript) return { ...base, error: "empty" };
+
+  // 2) Transcript → structured expense (Claude Haiku; local fallback on any failure).
+  const local = parseVoiceLocal(transcript);
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return { ok: true, transcript, lang: local.lang, parsed: local };
+  }
+  try {
+    const client = new Anthropic({ apiKey: anthropicKey });
+    const msg = await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 220,
+      system:
+        `You extract ONE expense from a short spoken note. The speaker may freely mix English, Mandarin, ` +
+        `Malay, Manglish, and Singlish in one sentence — understand the mixed input naturally. ` +
+        `Context is Singapore/Malaysia; default currency is SGD unless the note clearly indicates otherwise. ` +
+        `Valid categories: ${VALID_CATEGORIES.join(", ")}. ` +
+        `Reply with ONLY compact JSON, no prose: ` +
+        `{"category":"<one>","amount":<number>,"currency":"SGD|MYR|CNY|USD","note":"<short clean note or empty>","tags":["t1","t2"],"lang":"<en|zh|zh+en|Singlish>"}. ` +
+        `amount = the numeric price (convert spoken numbers e.g. "twenty eight" → 28). ` +
+        `currency: default SGD; ringgit/RM → MYR; US dollars/USD → USD; yuan/rmb/人民币/元 → CNY. ` +
+        `note: concise, no filler words (e.g. "Grab to airport"); empty string if there's nothing meaningful. ` +
+        `tags: up to 3, short, lowercase, no '#', no spaces (use hyphens), relevant (merchant/person/occasion).`,
+      messages: [{ role: "user", content: transcript }],
+    });
+    const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return { ok: true, transcript, lang: local.lang, parsed: local };
+    const p = JSON.parse(match[0]) as {
+      category?: unknown; amount?: unknown; currency?: unknown; note?: unknown; tags?: unknown; lang?: unknown;
+    };
+    const category = VALID_CATEGORIES.includes(p.category as CategoryKey)
+      ? (p.category as CategoryKey)
+      : local.category;
+    const amountNum = Number(p.amount);
+    const amount = Number.isFinite(amountNum) && amountNum > 0 ? amountNum : local.amount;
+    const currency = (["SGD", "MYR", "CNY", "USD"] as const).includes(p.currency as Currency)
+      ? (p.currency as Currency)
+      : "SGD";
+    const note = typeof p.note === "string" ? p.note.trim().slice(0, 120) : local.note;
+    const tags = Array.isArray(p.tags) ? normalizeTags(p.tags.map((t) => String(t))).slice(0, 3) : [];
+    const lang = typeof p.lang === "string" && p.lang.trim() ? p.lang.trim().slice(0, 12) : local.lang;
+    return { ok: true, transcript, lang, parsed: { category, amount, currency, note, tags } };
+  } catch {
+    return { ok: true, transcript, lang: local.lang, parsed: local };
+  }
+}
+
 export interface BonusInput {
   year: number;
   month: number;

@@ -502,7 +502,7 @@ function VoiceCTACard() {
                     <span className="text-ink-2">I&apos;ll write it down.</span>
                 </div>
                 <p className="text-xs leading-[1.55] text-ink-1 mt-3">
-                    &ldquo;早餐吃了5块&rdquo; · &ldquo;Grab 到机场 28&rdquo; · &ldquo;Shopping at Uniqlo 148&rdquo; — I categorize, amount, and remember your style.
+                    Just say what you spent — e.g. &ldquo;Grab to the airport, twenty-eight dollars&rdquo; — and I&apos;ll set the amount, category and note for you.
                 </p>
             </div>
 

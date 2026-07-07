@@ -15,7 +15,7 @@ export const VOICE_SAMPLES: VoiceSample[] = [
     id: 1,
     lang: "zh+en",
     transcript:
-      "今天购物了一个 Uniqlo 衬衫 148 dollars, 嗯… actually no note please",
+      "Bought a Uniqlo shirt today, 148 dollars — actually, no note please",
     parsed: { cat: "shop", amt: 148, note: "", currency: "SGD" },
     learned: "You prefer minimal notes on Shopping",
     ms: 0.4,
@@ -31,7 +31,7 @@ export const VOICE_SAMPLES: VoiceSample[] = [
   {
     id: 3,
     lang: "zh",
-    transcript: "早餐吃了5块, kaya toast + kopi",
+    transcript: "Breakfast was five dollars, kaya toast and kopi",
     parsed: { cat: "food", amt: 5, note: "Kaya toast + kopi", currency: "SGD" },
     learned: "Breakfast spots → Food",
     ms: 0.3,
@@ -54,7 +54,7 @@ export const INITIAL_VOICE_LOGS: VoiceLog[] = [
   {
     id: 101,
     lang: "zh",
-    transcript: "早餐 kaya toast + kopi 5块",
+    transcript: "Breakfast kaya toast and kopi, five dollars",
     cat: "food",
     amt: 5.0,
     currency: "SGD",
@@ -66,7 +66,7 @@ export const INITIAL_VOICE_LOGS: VoiceLog[] = [
   {
     id: 102,
     lang: "zh+en",
-    transcript: "lunch 鸡饭 chicken rice 12.80",
+    transcript: "lunch chicken rice 12.80",
     cat: "food",
     amt: 12.8,
     currency: "SGD",

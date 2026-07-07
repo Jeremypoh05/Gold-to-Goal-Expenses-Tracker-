@@ -23,7 +23,7 @@ function CheckIcon({ size = 16 }: { size?: number }) {
 
 // "How it works" steps — fills the lower half + teaches the flow.
 const STEPS = [
-    { Icon: MicIcon, title: 'Speak', desc: 'EN · 中文 · Singlish' },
+    { Icon: MicIcon, title: 'Speak', desc: 'English · Mandarin · Malay · Singlish' },
     { Icon: SparkleIcon, title: 'Honey parses', desc: 'Amount · category · note' },
     { Icon: CheckIcon, title: 'Confirm', desc: 'Save or edit in a tap' },
 ];
@@ -72,8 +72,8 @@ function TalkToLogHero({ onOpen }: { onOpen: () => void }) {
                 Talk to log
             </h1>
             <p className="relative z-10 text-[13px] text-ink-1 mt-2 max-w-[420px]">
-                Just say it in English, 中文 or Singlish — Honey parses the amount,
-                category and note, and remembers your style.
+                Just say it in English, Mandarin, Malay, or Singlish — Honey parses the
+                amount, category and note, and remembers your style.
             </p>
 
             {/* Mic with sonar ripples + breathing glow (always animating) */}
