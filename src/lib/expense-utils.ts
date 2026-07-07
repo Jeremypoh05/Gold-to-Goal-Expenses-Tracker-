@@ -393,6 +393,60 @@ export function suggestFixedMetaLocal(label: string): {
   return { emoji: "📌", category: "bills" };
 }
 
+// ─────────────────────────────────────────────────────────────
+// ADDED (AI Suggest module): local expense category + tag suggester. Used as the
+// fallback for suggestExpenseMeta when the Claude call is unavailable (no API
+// key / no credit / error) so the "AI suggests" card ALWAYS has something useful
+// to show — the feature degrades gracefully instead of silently disappearing.
+// ─────────────────────────────────────────────────────────────
+
+// First rule whose keyword the note contains wins — order = priority.
+const EXPENSE_CAT_RULES: { cat: CategoryKey; match: string[] }[] = [
+  { cat: "food", match: ["lunch", "dinner", "breakfast", "brunch", "supper", "coffee", "cafe", "restaurant", "food", "meal", "makan", "grocery", "groceries", "snack", "drinks", "bubble tea", "餐", "咖啡", "菜", "饭", "吃", "food court", "hawker"] },
+  { cat: "trans", match: ["flight", "flights", "airfare", "plane", "taxi", "grab", "gojek", "uber", "mrt", "bus", "train", "petrol", "fuel", "parking", "transport", "travel", "trip", "hotel", "airbnb", "机票", "交通", "车费"] },
+  { cat: "shop", match: ["buy", "buying", "bought", "iphone", "phone", "laptop", "clothes", "clothing", "shoes", "shopping", "mall", "lazada", "shopee", "amazon", "taobao", "store", "gadget", "electronics", "furniture", "购物", "衣服"] },
+  { cat: "ent", match: ["movie", "cinema", "game", "gaming", "concert", "netflix", "spotify", "ktv", "karaoke", "entertainment", "bar", "club", "娱乐", "电影"] },
+  { cat: "health", match: ["doctor", "clinic", "medicine", "pharmacy", "gym", "dental", "dentist", "hospital", "health", "supplement", "医", "药", "健身"] },
+  { cat: "bills", match: ["rent", "electric", "electricity", "water bill", "internet", "wifi", "insurance", "utility", "utilities", "subscription", "phone bill", "水电", "房租", "保险", "账单"] },
+];
+
+// Dropped from note-derived tags — verbs, fillers, and generic money words.
+const TAG_STOPWORDS = new Set([
+  "the", "and", "for", "with", "from", "into", "some", "this", "that", "was", "were",
+  "buy", "buying", "bought", "get", "got", "pay", "paid", "paying", "price", "cost",
+  "spent", "spend", "expense", "bill", "new", "today", "yesterday", "went", "going",
+  "about", "just", "very", "really", "then", "than", "when", "where",
+]);
+
+/** Pull candidate tag words out of a free-text note (≥3 letters, not a stopword). */
+function noteTags(note: string): string[] {
+  const words = note.toLowerCase().split(/[^a-z0-9一-鿿]+/).filter(Boolean);
+  const picked: string[] = [];
+  for (const w of words) {
+    if (w.length < 3 || TAG_STOPWORDS.has(w)) continue;
+    if (!picked.includes(w)) picked.push(w);
+  }
+  return picked;
+}
+
+/** Local (offline) best-fit category + up to 3 tags for an expense note. */
+export function suggestExpenseMetaLocal(note: string): {
+  category: CategoryKey;
+  tags: string[];
+} {
+  const l = note.trim().toLowerCase();
+  let category: CategoryKey = "other";
+  if (l) {
+    for (const rule of EXPENSE_CAT_RULES) {
+      if (rule.match.some((m) => l.includes(m))) {
+        category = rule.cat;
+        break;
+      }
+    }
+  }
+  return { category, tags: normalizeTags(noteTags(note)).slice(0, 3) };
+}
+
 /** Map DB Bonus rows to the UI bonus shape. */
 export function toUiBonus(rows: DbBonus[]) {
   return rows

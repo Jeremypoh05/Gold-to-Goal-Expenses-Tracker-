@@ -9,7 +9,7 @@ import {
 } from '@/components/icons';
 import { DateTimeFields } from './DateTimePicker';
 import { CATEGORIES } from '@/data/categories';
-import { createExpense, updateExpense, deleteExpense, fetchTagSuggestions } from '@/lib/actions';
+import { createExpense, updateExpense, deleteExpense, fetchTagSuggestions, suggestExpenseMeta } from '@/lib/actions';
 import { currencyFromSymbol } from '@/lib/utils';
 import { normalizeTag, normalizeTags, MAX_TAGS } from '@/lib/expense-utils';
 import { useExpenses } from '@/components/data/ExpensesContext';
@@ -356,30 +356,114 @@ function TagsSection({ tags, addTag, removeTag, draft, setDraft, suggestions }: 
     );
 }
 
-function AISuggestCard({ isMobile }: { isMobile?: boolean }) {
+// ═══════════════════════════════════════════════════════════════
+// AI suggest — CHANGED (AI Suggest module): was a hardcoded stub with a dead
+// Apply button. Now real: as you type the note it (debounced) asks Claude Haiku
+// for a best-fit category + up to 3 tags; Apply sets the category and merges the
+// tags (respecting the max-5 cap). Hides itself when there's nothing to suggest.
+// ═══════════════════════════════════════════════════════════════
+
+interface AISuggestion {
+    category: CategoryKey;
+    tags: string[];
+}
+
+function AISuggestCard({
+    suggestion,
+    loading,
+    category,
+    tags,
+    onSetCategory,
+    onAddTag,
+    onApplyAll,
+    isMobile,
+}: {
+    suggestion: AISuggestion | null;
+    loading: boolean;
+    category: CategoryKey;
+    tags: string[];
+    onSetCategory: (c: CategoryKey) => void;
+    onAddTag: (t: string) => void;
+    onApplyAll: () => void;
+    isMobile?: boolean;
+}) {
+    // Nothing to show yet — keep the modal uncluttered.
+    if (!loading && !suggestion) return null;
+
+    // Which suggested tags aren't already picked (so tapped ones drop away).
+    const freshTags = suggestion ? suggestion.tags.filter((t) => !tags.includes(t)) : [];
+    const catMatches = suggestion ? category === suggestion.category : true;
+    const atCap = tags.length >= MAX_TAGS;
+    // Something left to apply? (either the category differs or there are new tags)
+    const canApplyAll = !!suggestion && (!catMatches || freshTags.length > 0);
+
     return (
         <div
-            className="rounded-xl p-3 flex items-center gap-2.5"
+            className="rounded-xl p-3 flex items-start gap-2.5"
             style={{
                 background:
                     'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))',
                 border: '1px dashed oklch(0.85 0.10 88)',
             }}
         >
-            <SparkleIcon
-                size={isMobile ? 14 : 16}
-                className="text-gold-600 flex-shrink-0"
-            />
-            <div className="flex-1 text-[11px] md:text-xs text-ink-1 leading-snug">
-                <b>AI suggests</b> · Similar entry from Apr 16 was tagged{' '}
-                <b>#maxwell #lunch</b>. Apply tags?
-            </div>
-            <button
-                type="button"
-                className="px-3 h-7 rounded-full text-[10px] md:text-xs font-medium border border-line bg-bg-card hover:border-ink-2 transition-all flex-shrink-0"
+            <motion.div
+                animate={loading ? { scale: [1, 1.15, 1], opacity: [0.6, 1, 0.6] } : { scale: 1, opacity: 1 }}
+                transition={loading ? { duration: 1.1, repeat: Infinity } : { duration: 0.2 }}
+                className="flex-shrink-0 mt-0.5"
             >
-                Apply
-            </button>
+                <SparkleIcon size={isMobile ? 14 : 16} className="text-gold-600" />
+            </motion.div>
+
+            <div className="flex-1 min-w-0 text-[11px] md:text-xs text-ink-1 leading-snug">
+                {loading ? (
+                    <span className="text-ink-2">Analyzing your note…</span>
+                ) : suggestion ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <b className="mr-0.5">Suggested</b>
+                        {/* Category pill — tap to apply the suggested category. */}
+                        <button
+                            type="button"
+                            onClick={() => onSetCategory(suggestion.category)}
+                            disabled={catMatches}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium transition-all disabled:opacity-60 disabled:cursor-default enabled:hover:brightness-[0.97] enabled:active:scale-95"
+                            style={{
+                                background: 'var(--color-bg-card)',
+                                border: '1px solid var(--color-line)',
+                                color: 'var(--color-ink-1)',
+                            }}
+                            title={catMatches ? 'Category applied' : `Set category to ${CATEGORIES[suggestion.category].label}`}
+                        >
+                            <CategoryTile kind={suggestion.category} size={14} variant="filled" />
+                            {CATEGORIES[suggestion.category].label}
+                            {catMatches && <CheckIcon size={11} />}
+                        </button>
+                        {/* Tag chips — tap each to add it (cap-aware). */}
+                        {freshTags.map((t) => (
+                            <TagChip
+                                key={t}
+                                label={t}
+                                muted
+                                onClick={atCap ? undefined : () => onAddTag(t)}
+                            />
+                        ))}
+                        {!catMatches || freshTags.length > 0 ? (
+                            <span className="text-ink-3">· tap to apply</span>
+                        ) : (
+                            <span className="text-ink-3">· all applied</span>
+                        )}
+                    </div>
+                ) : null}
+            </div>
+
+            {canApplyAll && (
+                <button
+                    type="button"
+                    onClick={onApplyAll}
+                    className="px-3 h-7 rounded-full text-[10px] md:text-xs font-medium border border-line bg-bg-card hover:border-ink-2 hover:text-gold-700 transition-all flex-shrink-0"
+                >
+                    Apply all
+                </button>
+            )}
         </div>
     );
 }
@@ -436,6 +520,47 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
         );
     };
     const removeTag = (t: string) => setTags((prev) => prev.filter((x) => x !== t));
+
+    // ADDED (AI Suggest module): debounced category + tag suggestion from the note.
+    // Only fires once the note is meaningful AND has changed since we last asked
+    // (so opening an edit with a prefilled note doesn't burn an API call). Apply is
+    // explicit — we never auto-overwrite the user's category/tags.
+    const [aiSuggestion, setAiSuggestion] = useState<AISuggestion | null>(null);
+    const [aiLoading, setAiLoading] = useState(false);
+    const lastQueried = useRef((editTarget?.note ?? '').trim());
+    useEffect(() => {
+        const q = note.trim();
+        if (q.length < 3 || q === lastQueried.current) return;
+        const id = setTimeout(async () => {
+            lastQueried.current = q;
+            setAiLoading(true);
+            try {
+                const s = await suggestExpenseMeta(q);
+                // Only surface a genuinely useful hint (a no-key fallback is other/[]).
+                setAiSuggestion(s.tags.length > 0 || s.category !== 'other' ? s : null);
+            } catch {
+                setAiSuggestion(null);
+            } finally {
+                setAiLoading(false);
+            }
+        }, 600);
+        return () => clearTimeout(id);
+    }, [note, editTarget]);
+
+    const applySuggestion = () => {
+        if (!aiSuggestion) return;
+        setCategory(aiSuggestion.category);
+        setTags((prev) => {
+            const merged = [...prev];
+            for (const t of aiSuggestion.tags) {
+                if (merged.length >= MAX_TAGS) break;
+                if (!merged.includes(t)) merged.push(t);
+            }
+            return merged;
+        });
+        setAiSuggestion(null); // collapse the card once applied
+    };
+
     // ADDED (Module 5.1): editable date + time (was static display). New expenses
     // default to today; edits default to the row's own date — reconstructed from the
     // VIEWED month + the row's day (the UI Expense only carries day + "HH:MM"). This
@@ -511,6 +636,7 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
         amount, setAmount, category, setCategory, currency, setCurrency,
         note, setNote, date, setDate, time, setTime,
         tags, addTag, removeTag, tagDraft, setTagDraft, tagSuggestions,
+        aiSuggestion, aiLoading, applySuggestion,
         pending, canSave, save, remove,
     };
 }
@@ -524,6 +650,7 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
         amount, setAmount, category, setCategory, currency, setCurrency,
         note, setNote, date, setDate, time, setTime,
         tags, addTag, removeTag, tagDraft, setTagDraft, tagSuggestions,
+        aiSuggestion, aiLoading, applySuggestion,
         pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const isEdit = editTarget !== null;
@@ -628,7 +755,15 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
 
                 {/* AI suggest */}
                 <div className="px-7 pt-4">
-                    <AISuggestCard />
+                    <AISuggestCard
+                        suggestion={aiSuggestion}
+                        loading={aiLoading}
+                        category={category}
+                        tags={tags}
+                        onSetCategory={setCategory}
+                        onAddTag={addTag}
+                        onApplyAll={applySuggestion}
+                    />
                 </div>
 
                 {/* Footer */}
@@ -688,6 +823,7 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
         amount, setAmount, category, setCategory, currency, setCurrency,
         note, setNote, date, setDate, time, setTime,
         tags, addTag, removeTag, tagDraft, setTagDraft, tagSuggestions,
+        aiSuggestion, aiLoading, applySuggestion,
         pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const isEdit = editTarget !== null;
@@ -803,7 +939,16 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
 
                 {/* AI suggest */}
                 <div className="px-4 pt-3">
-                    <AISuggestCard isMobile />
+                    <AISuggestCard
+                        suggestion={aiSuggestion}
+                        loading={aiLoading}
+                        category={category}
+                        tags={tags}
+                        onSetCategory={setCategory}
+                        onAddTag={addTag}
+                        onApplyAll={applySuggestion}
+                        isMobile
+                    />
                 </div>
 
                 {/* Footer */}

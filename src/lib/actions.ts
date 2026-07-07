@@ -10,7 +10,12 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
-import { toUiExpense, suggestFixedMetaLocal, normalizeTags } from "@/lib/expense-utils";
+import {
+  toUiExpense,
+  suggestFixedMetaLocal,
+  suggestExpenseMetaLocal,
+  normalizeTags,
+} from "@/lib/expense-utils";
 import {
   getMonthDashboardData,
   getYearSummary,
@@ -172,6 +177,57 @@ export async function fetchTagSuggestions(): Promise<string[]> {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 24)
     .map(([t]) => t);
+}
+
+/**
+ * ADDED (AI Suggest module): from a short expense note, suggest a best-fit category
+ * and up to 3 tags via Claude Haiku. Powers the ManualAddModal "AI suggests" card
+ * (Apply fills category + merges tags). Falls back to {other, []} when the key is
+ * unset / note empty / anything fails, so the card simply won't show a suggestion.
+ * SECURITY: only the note text is ever sent — no amount, date, or other expenses.
+ * Note: the note may contain names; this is the user's own data, sent solely to
+ * power the feature they enabled. Tags are normalized to match the tag system.
+ */
+export async function suggestExpenseMeta(
+  note: string,
+): Promise<{ category: CategoryKey; tags: string[] }> {
+  // Local keyword suggester — the always-available fallback. Real AI (below)
+  // upgrades this whenever the Claude call succeeds; if the key is unset, out of
+  // credit, or errors, the user still gets useful category + tag suggestions.
+  const fallback = suggestExpenseMetaLocal(note);
+  const trimmed = note.trim().slice(0, 120);
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || trimmed.length < 3) return fallback;
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 120,
+      system:
+        `You categorize a personal expense from its short note and suggest up to 3 tags. ` +
+        `Valid categories: ${VALID_CATEGORIES.join(", ")}. ` +
+        `Reply with ONLY a compact JSON object, no prose: {"category":"<one category>","tags":["tag1","tag2"]}. ` +
+        `Tags must be short, lowercase, no '#', no spaces (use hyphens), and specific to the note ` +
+        `(e.g. merchant, people, occasion). Pick the single closest category.`,
+      messages: [{ role: "user", content: trimmed }],
+    });
+    const text = msg.content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return fallback;
+    const parsed = JSON.parse(match[0]) as { category?: unknown; tags?: unknown };
+    const category = VALID_CATEGORIES.includes(parsed.category as CategoryKey)
+      ? (parsed.category as CategoryKey)
+      : fallback.category;
+    const tags = Array.isArray(parsed.tags)
+      ? normalizeTags(parsed.tags.map((t) => String(t))).slice(0, 3)
+      : [];
+    return { category, tags };
+  } catch {
+    return fallback;
+  }
 }
 
 export interface BonusInput {
