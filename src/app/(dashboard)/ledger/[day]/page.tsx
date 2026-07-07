@@ -14,6 +14,7 @@ import {
     ArrowIcon,
 } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
+import { TagChip } from '@/components/shared';
 import { CATEGORIES } from '@/data/categories';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import {
@@ -410,6 +411,7 @@ function TimelineEntry({
     note,
     amount,
     voice,
+    tags,
     isLast,
     index,
 }: {
@@ -418,6 +420,7 @@ function TimelineEntry({
     note: string;
     amount: number;
     voice?: boolean;
+    tags?: string[];
     isLast: boolean;
     index: number;
 }) {
@@ -476,6 +479,14 @@ function TimelineEntry({
                             </span>
                         )}
                     </div>
+                    {/* ADDED (Tags module) */}
+                    {tags && tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                            {tags.map((tag) => (
+                                <TagChip key={tag} label={tag} dense />
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -674,6 +685,7 @@ export default function DailyDetailPage() {
                                 note={t.note}
                                 amount={t.amt}
                                 voice={t.voice}
+                                tags={t.tags}
                                 isLast={i === dayExpenses.length - 1}
                                 index={i}
                             />

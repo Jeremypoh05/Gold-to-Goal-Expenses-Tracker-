@@ -9,10 +9,11 @@ import {
 } from '@/components/icons';
 import { DateTimeFields } from './DateTimePicker';
 import { CATEGORIES } from '@/data/categories';
-import { createExpense, updateExpense, deleteExpense } from '@/lib/actions';
+import { createExpense, updateExpense, deleteExpense, fetchTagSuggestions } from '@/lib/actions';
 import { currencyFromSymbol } from '@/lib/utils';
+import { normalizeTag, normalizeTags, MAX_TAGS } from '@/lib/expense-utils';
 import { useExpenses } from '@/components/data/ExpensesContext';
-import { useConfirm } from '@/components/shared';
+import { useConfirm, TagChip } from '@/components/shared';
 import { useAddModal } from './AddModalContext';
 import type { CategoryKey, Currency as CurrencyEnum, Expense } from '@/types';
 
@@ -279,37 +280,78 @@ function NoteSection({ note, setNote }: Pick<ModalBodyProps, 'note' | 'setNote'>
                 placeholder="What was this expense for?"
                 className="w-full px-3 py-2.5 border border-line rounded-xl bg-bg-1 text-[12px] md:text-[13px] outline-none focus:border-gold-400 focus:bg-bg-card transition-all"
             />
-            {/* Tag suggestions */}
-            <div className="flex gap-1.5 mt-2 flex-wrap">
-                <button
-                    type="button"
-                    className="chip cursor-pointer hover:bg-bg-card transition-colors"
-                    style={{ fontSize: 10 }}
-                >
-                    + tag
-                </button>
-                <button
-                    type="button"
-                    className="chip cursor-pointer hover:bg-bg-card transition-colors"
-                    style={{ fontSize: 10 }}
-                >
-                    @Maxwell
-                </button>
-                <button
-                    type="button"
-                    className="chip cursor-pointer hover:bg-bg-card transition-colors"
-                    style={{ fontSize: 10 }}
-                >
-                    w/ Joyce
-                </button>
-                <button
-                    type="button"
-                    className="chip cursor-pointer hover:bg-bg-card transition-colors"
-                    style={{ fontSize: 10 }}
-                >
-                    #work-lunch
-                </button>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Tags — CHANGED (Tags module): the old `+ tag`/`@Maxwell`/`#work-lunch`
+// buttons were dead stubs. This is a real editor: add via input (Enter or
+// comma), remove via the chip ×, Backspace on an empty input drops the last
+// chip. Persistent suggestions (past tags) show as tappable "Recent" chips.
+// Capped at MAX_TAGS, normalized identically to the server.
+// ═══════════════════════════════════════════════════════════════
+
+interface TagsSectionProps {
+    tags: string[];
+    addTag: (raw: string) => void;
+    removeTag: (t: string) => void;
+    draft: string;
+    setDraft: (v: string) => void;
+    suggestions: string[];
+}
+
+function TagsSection({ tags, addTag, removeTag, draft, setDraft, suggestions }: TagsSectionProps) {
+    const atMax = tags.length >= MAX_TAGS;
+    // Only offer suggestions not already picked, and only ones that survive
+    // normalization to something new (so a partially-typed draft doesn't dup).
+    const remaining = suggestions
+        .filter((s) => !tags.includes(s))
+        .slice(0, 8);
+
+    return (
+        <div>
+            <div className="flex items-center justify-between mb-1.5">
+                <div className="text-[10px] md:text-[11px] text-ink-2 uppercase tracking-[0.06em] font-semibold">
+                    Tags
+                </div>
+                <div className="text-[10px] text-ink-3">{tags.length}/{MAX_TAGS}</div>
             </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 px-2 py-2 border border-line rounded-xl bg-bg-1 focus-within:border-gold-400 transition-all">
+                {tags.map((t) => (
+                    <TagChip key={t} label={t} onRemove={() => removeTag(t)} />
+                ))}
+                {atMax ? (
+                    <span className="text-[10px] text-ink-3 px-1">Max {MAX_TAGS} tags</span>
+                ) : (
+                    <input
+                        type="text"
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ',') {
+                                e.preventDefault();
+                                addTag(draft);
+                            } else if (e.key === 'Backspace' && draft === '' && tags.length) {
+                                removeTag(tags[tags.length - 1]);
+                            }
+                        }}
+                        placeholder={tags.length ? 'Add tag…' : 'e.g. lunch, maxwell, work'}
+                        className="flex-1 min-w-24 bg-transparent text-[12px] md:text-[13px] outline-none py-0.5"
+                        aria-label="Add a tag"
+                    />
+                )}
+            </div>
+
+            {!atMax && remaining.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2 items-center">
+                    <span className="text-[10px] text-ink-3">Recent:</span>
+                    {remaining.map((s) => (
+                        <TagChip key={s} label={s} muted onClick={() => addTag(s)} />
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
@@ -376,6 +418,24 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
         editTarget?.currency ? symbolFromCurrency(editTarget.currency) : 'S$',
     );
     const [note, setNote] = useState(editTarget?.note ?? '');
+    // ADDED (Tags module): persistent tags. `draft` = the in-progress text not yet
+    // committed to a chip; folded into the saved list so a typed-but-not-Entered tag
+    // isn't lost. Suggestions = the user's past tags (frequency-ranked, fetched once).
+    const [tags, setTags] = useState<string[]>(editTarget?.tags ?? []);
+    const [tagDraft, setTagDraft] = useState('');
+    const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+    useEffect(() => {
+        fetchTagSuggestions().then(setTagSuggestions).catch(() => {});
+    }, []);
+    const addTag = (raw: string) => {
+        const t = normalizeTag(raw);
+        setTagDraft('');
+        if (!t) return;
+        setTags((prev) =>
+            prev.includes(t) || prev.length >= MAX_TAGS ? prev : [...prev, t],
+        );
+    };
+    const removeTag = (t: string) => setTags((prev) => prev.filter((x) => x !== t));
     // ADDED (Module 5.1): editable date + time (was static display). New expenses
     // default to today; edits default to the row's own date — reconstructed from the
     // VIEWED month + the row's day (the UI Expense only carries day + "HH:MM"). This
@@ -400,11 +460,17 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
             // manual "Recurring" checkbox only set this flag with no actual
             // recurrence, so it was removed; `fixed` is left to the DB default (false)
             // on create and untouched on edit (so generated rows keep their flag).
+            // Fold any uncommitted draft into the saved tags so a typed-but-not-
+            // Entered tag isn't dropped; normalizeTags caps + dedupes.
+            const finalTags = normalizeTags(
+                tagDraft.trim() ? [...tags, tagDraft] : tags,
+            );
             const fields = {
                 amount: amt,
                 category,
                 currency: currencyFromSymbol(currency),
                 note: note.trim(),
+                tags: finalTags,
                 spentAt,
             };
             try {
@@ -444,6 +510,7 @@ function useManualExpenseForm(onClose: () => void, editTarget: Expense | null) {
     return {
         amount, setAmount, category, setCategory, currency, setCurrency,
         note, setNote, date, setDate, time, setTime,
+        tags, addTag, removeTag, tagDraft, setTagDraft, tagSuggestions,
         pending, canSave, save, remove,
     };
 }
@@ -456,6 +523,7 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
         note, setNote, date, setDate, time, setTime,
+        tags, addTag, removeTag, tagDraft, setTagDraft, tagSuggestions,
         pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const isEdit = editTarget !== null;
@@ -546,6 +614,18 @@ function DesktopModal({ onClose, editTarget }: { onClose: () => void; editTarget
                     <NoteSection note={note} setNote={setNote} />
                 </div>
 
+                {/* Tags — CHANGED (Tags module): real editor (was fake stubs). */}
+                <div className="px-7 pt-5">
+                    <TagsSection
+                        tags={tags}
+                        addTag={addTag}
+                        removeTag={removeTag}
+                        draft={tagDraft}
+                        setDraft={setTagDraft}
+                        suggestions={tagSuggestions}
+                    />
+                </div>
+
                 {/* AI suggest */}
                 <div className="px-7 pt-4">
                     <AISuggestCard />
@@ -607,6 +687,7 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
     const {
         amount, setAmount, category, setCategory, currency, setCurrency,
         note, setNote, date, setDate, time, setTime,
+        tags, addTag, removeTag, tagDraft, setTagDraft, tagSuggestions,
         pending, canSave, save, remove,
     } = useManualExpenseForm(onClose, editTarget);
     const isEdit = editTarget !== null;
@@ -706,6 +787,18 @@ function MobileModal({ onClose, editTarget }: { onClose: () => void; editTarget:
                 {/* Note */}
                 <div className="px-4 pt-4">
                     <NoteSection note={note} setNote={setNote} />
+                </div>
+
+                {/* Tags — CHANGED (Tags module): real editor (was fake stubs). */}
+                <div className="px-4 pt-4">
+                    <TagsSection
+                        tags={tags}
+                        addTag={addTag}
+                        removeTag={removeTag}
+                        draft={tagDraft}
+                        setDraft={setTagDraft}
+                        suggestions={tagSuggestions}
+                    />
                 </div>
 
                 {/* AI suggest */}

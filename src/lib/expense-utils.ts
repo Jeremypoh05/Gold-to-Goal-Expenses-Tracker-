@@ -22,6 +22,36 @@ function hhmm(d: Date): string {
   ).padStart(2, "0")}`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// ADDED (Tags module): persistent free-form expense tags. Shared by the client
+// (ManualAddModal) and the server action so both cap + normalize identically.
+// ─────────────────────────────────────────────────────────────
+
+/** Max tags per expense (user-chosen limit). */
+export const MAX_TAGS = 5;
+
+/** Normalize one tag: strip a leading '#', trim, collapse whitespace, lowercase,
+ *  cap length. Returns "" for anything that reduces to nothing (caller drops it). */
+export function normalizeTag(raw: string): string {
+  return raw
+    .replace(/^#+/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .slice(0, 24);
+}
+
+/** Normalize + dedupe a list of tags, capped at MAX_TAGS (order preserved). */
+export function normalizeTags(list: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const raw of list) {
+    const t = normalizeTag(raw);
+    if (t && !out.includes(t)) out.push(t);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
 /** Map a DB Expense row to the UI `Expense` (day-of-month + HH:MM) shape the views expect. */
 export function toUiExpense(row: DbExpense): Expense {
   return {
@@ -31,6 +61,7 @@ export function toUiExpense(row: DbExpense): Expense {
     cat: row.category as CategoryKey,
     amt: Number(row.amount), // Prisma Decimal → number
     note: row.note,
+    tags: row.tags ?? [], // ADDED (Tags module)
     voice: row.source === "voice",
     fixed: row.fixed,
     fixedSourceId: row.fixedSourceId,

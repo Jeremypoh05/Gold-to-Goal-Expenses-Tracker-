@@ -203,6 +203,10 @@ model Expense {
   amount      Decimal       @db.Decimal(12, 2)
   currency    Currency      @default(SGD)
   note        String
+  // ADDED (Tags module): persistent free-form tags on an expense (max 5, enforced
+  // in the server action + client). Normalized lowercase, no leading '#'. Postgres
+  // text[] scalar list; defaults to empty so existing rows read as untagged.
+  tags        String[]      @default([])
   fixed       Boolean       @default(false) // recurring fixed expense (rent, utilities…)
 
   source      ExpenseSource @default(manual)

@@ -24,7 +24,7 @@ import { formatMoney, MONTH_NAMES, WEEKDAYS_SHORT, cn } from "@/lib/utils";
 import type { Expense, CategoryKey } from "@/types";
 import { useAddModal } from '@/components/dashboard/AddModalContext';
 import { useFixedEdit } from '@/components/fixed';
-import { useConfirm } from '@/components/shared';
+import { useConfirm, TagChip } from '@/components/shared';
 import { deleteExpense, deleteFixedExpense, closeMonth, reopenMonth } from '@/lib/actions';
 
 
@@ -33,13 +33,122 @@ import { deleteExpense, deleteFixedExpense, closeMonth, reopenMonth } from '@/li
 // ═══════════════════════════════════════════════════════════════
 
 type TimeRange = "day" | "week" | "month";
-type FilterId = "all" | "voice" | "fixed" | CategoryKey;
+// CHANGED (Tags module): filter can now also be a specific tag ("tag:<name>").
+type FilterId = "all" | "voice" | "fixed" | CategoryKey | `tag:${string}`;
 
 interface FilterDef {
     id: FilterId;
     label: string;
     count: number;
     icon?: React.ReactNode;
+}
+
+// ADDED (Tags fix batch): the ledger sort is now real (was a dead "Date ↓" stub).
+type SortKey = "date-desc" | "date-asc" | "amt-desc" | "amt-asc";
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+    { key: "date-desc", label: "Newest first" },
+    { key: "date-asc", label: "Oldest first" },
+    { key: "amt-desc", label: "Amount: high → low" },
+    { key: "amt-asc", label: "Amount: low → high" },
+];
+const SORT_SHORT: Record<SortKey, string> = {
+    "date-desc": "Newest",
+    "date-asc": "Oldest",
+    "amt-desc": "Amount ↓",
+    "amt-asc": "Amount ↑",
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Sort menu — a small dropdown (click-outside to dismiss). Sorting by date
+// reorders the day cards; sorting by amount reorders entries WITHIN each day
+// (day cards stay newest-first) so the day grouping stays meaningful.
+// ═══════════════════════════════════════════════════════════════
+
+function SortMenu({ sort, onChange }: { sort: SortKey; onChange: (s: SortKey) => void }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div className="relative flex-shrink-0">
+            <button
+                onClick={() => setOpen((o) => !o)}
+                className="h-10 px-3 md:px-3.5 rounded-full text-xs font-medium text-ink-1 border border-line bg-bg-card hover:border-ink-2 inline-flex items-center gap-1.5 transition-colors"
+                aria-label="Sort entries"
+                aria-expanded={open}
+            >
+                <SortIcon size={13} />
+                <span className="hidden sm:inline">{SORT_SHORT[sort]}</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className={cn("transition-transform", open && "rotate-180")}>
+                    <path d="M6 9 L12 15 L18 9" />
+                </svg>
+            </button>
+            {open && (
+                <>
+                    <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                    <div
+                        className="absolute right-0 mt-2 z-50 w-56 rounded-2xl bg-bg-card p-1 shadow-xl"
+                        style={{ border: "1px solid var(--color-line-soft)" }}
+                    >
+                        {SORT_OPTIONS.map((o) => {
+                            const active = o.key === sort;
+                            return (
+                                <button
+                                    key={o.key}
+                                    onClick={() => {
+                                        onChange(o.key);
+                                        setOpen(false);
+                                    }}
+                                    className={cn(
+                                        "w-full text-left px-3 py-2 rounded-xl text-[13px] flex items-center justify-between transition-colors hover:bg-bg-1",
+                                        active ? "font-semibold" : "text-ink-1",
+                                    )}
+                                    style={active ? { color: "var(--color-gold-700)" } : undefined}
+                                >
+                                    {o.label}
+                                    {active && (
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M5 12 L10 17 L19 7" />
+                                        </svg>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Search box — filters entries by note text, category label, or tag.
+// ═══════════════════════════════════════════════════════════════
+
+function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+    return (
+        <div className="relative flex-1 md:max-w-[380px]">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-2 pointer-events-none">
+                <SearchIcon size={14} />
+            </div>
+            <input
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder="Search notes, categories, #tags…"
+                className="w-full h-10 border border-line bg-bg-card rounded-full pl-9 pr-9 text-[13px] outline-none focus:border-gold-400 transition-colors"
+                aria-label="Search entries"
+            />
+            {value && (
+                <button
+                    onClick={() => onChange("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-2 hover:text-ink-0 transition-colors"
+                    aria-label="Clear search"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                        <path d="M6 6 L18 18 M18 6 L6 18" />
+                    </svg>
+                </button>
+            )}
+        </div>
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -98,7 +207,18 @@ function FilterChips({
     filters: FilterDef[];
 }) {
     return (
-        <div className="flex gap-1.5 overflow-x-auto mobile-h-scroll pb-1">
+        // ADDED (Tags fix batch): mask-image right-edge fade so overflowing chips
+        // dissolve softly (hints the row scrolls; the scrollbar is hidden). The mask
+        // is over empty space when nothing overflows, so it stays invisible then.
+        <div
+            className="flex gap-1.5 overflow-x-auto mobile-h-scroll pb-1"
+            style={{
+                maskImage:
+                    "linear-gradient(to right, #000 calc(100% - 28px), transparent)",
+                WebkitMaskImage:
+                    "linear-gradient(to right, #000 calc(100% - 28px), transparent)",
+            }}
+        >
             {filters.map((f) => {
                 const isActive = value === f.id;
                 const isDisabled = f.count === 0 && f.id !== "all";
@@ -343,6 +463,14 @@ function DayCard({
                                             <StaleRuleHint amt={t.amt} ruleAmount={t.ruleAmount!} />
                                         </span>
                                     )}
+                                    {/* ADDED (Tags module) */}
+                                    {t.tags && t.tags.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {t.tags.map((tag) => (
+                                                <TagChip key={tag} label={tag} dense />
+                                            ))}
+                                        </div>
+                                    )}
                                 </td>
                                 <td>
                                     <div className="flex gap-1 flex-wrap">
@@ -441,6 +569,14 @@ function DayCard({
                                     <StaleRuleHint amt={t.amt} ruleAmount={t.ruleAmount!} />
                                 </div>
                             )}
+                            {/* ADDED (Tags module) */}
+                            {t.tags && t.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                    {t.tags.map((tag) => (
+                                        <TagChip key={tag} label={tag} dense />
+                                    ))}
+                                </div>
+                            )}
                         </div>
                         <div className="mono text-[13px] font-semibold whitespace-nowrap">
                             −{formatMoney(t.amt)}
@@ -514,6 +650,8 @@ function PeriodTotalCard({
 export default function LedgerPage() {
     const [range, setRange] = useState<TimeRange>("month");
     const [filter, setFilter] = useState<FilterId>("all");
+    const [search, setSearch] = useState(""); // ADDED (Tags fix batch)
+    const [sort, setSort] = useState<SortKey>("date-desc"); // ADDED (Tags fix batch)
     const { open: openAddModal } = useAddModal();
     const { current, expenses, monthClosed, refresh } = useExpenses();
     const confirm = useConfirm();
@@ -578,6 +716,20 @@ export default function LedgerPage() {
         const countCat = (cat: CategoryKey) =>
             baseExpensesForRange.filter((t) => t.cat === cat).length;
 
+        // ADDED (Tags module): one filter chip per distinct tag present in the
+        // current range, most-used first, so the ledger can slice by tag.
+        const tagFreq = new Map<string, number>();
+        for (const t of baseExpensesForRange)
+            for (const tag of t.tags ?? [])
+                tagFreq.set(tag, (tagFreq.get(tag) ?? 0) + 1);
+        const tagFilters: FilterDef[] = [...tagFreq.entries()]
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .map(([tag, count]) => ({
+                id: `tag:${tag}` as FilterId,
+                label: `#${tag}`,
+                count,
+            }));
+
         return [
             { id: "all", label: "All", count: baseExpensesForRange.length },
             {
@@ -597,6 +749,7 @@ export default function LedgerPage() {
             { id: "bills", label: "Bills", count: countCat("bills") },
             { id: "ent", label: "Entertainment", count: countCat("ent") },
             { id: "health", label: "Health", count: countCat("health") },
+            ...tagFilters,
         ];
     }, [baseExpensesForRange]);
 
@@ -614,32 +767,60 @@ export default function LedgerPage() {
         return filter;
     }, [filter, filters]);
 
-    // Apply filter on top of base (use effectiveFilter, not raw filter)
+    // Apply filter on top of base (use effectiveFilter, not raw filter), then the
+    // free-text search (note / category label / tag). ADDED (Tags fix batch): search.
     const filteredExpenses = useMemo(() => {
-        if (effectiveFilter === "all") return baseExpensesForRange;
-        if (effectiveFilter === "voice")
-            return baseExpensesForRange.filter((t) => t.voice);
-        if (effectiveFilter === "fixed")
-            return baseExpensesForRange.filter((t) => t.fixed);
-        return baseExpensesForRange.filter((t) => t.cat === effectiveFilter);
-    }, [baseExpensesForRange, effectiveFilter]);
+        let result: Expense[];
+        if (effectiveFilter === "all") result = baseExpensesForRange;
+        else if (effectiveFilter === "voice")
+            result = baseExpensesForRange.filter((t) => t.voice);
+        else if (effectiveFilter === "fixed")
+            result = baseExpensesForRange.filter((t) => t.fixed);
+        else if (effectiveFilter.startsWith("tag:")) {
+            const tag = effectiveFilter.slice(4);
+            result = baseExpensesForRange.filter((t) => t.tags?.includes(tag));
+        } else result = baseExpensesForRange.filter((t) => t.cat === effectiveFilter);
 
-    // Group by day
+        const q = search.trim().toLowerCase();
+        if (q) {
+            result = result.filter(
+                (t) =>
+                    t.note.toLowerCase().includes(q) ||
+                    CATEGORIES[t.cat].label.toLowerCase().includes(q) ||
+                    (t.tags ?? []).some((tag) => tag.includes(q)),
+            );
+        }
+        return result;
+    }, [baseExpensesForRange, effectiveFilter, search]);
+
+    // Group by day, then order entries within each day by the chosen sort.
+    // ADDED (Tags fix batch): sort is now real.
     const expensesByDay = useMemo(() => {
         const map: Record<number, Expense[]> = {};
         filteredExpenses.forEach((t) => {
             if (!map[t.day]) map[t.day] = [];
             map[t.day].push(t);
         });
-        Object.keys(map).forEach((d) => {
-            map[Number(d)].sort((a, b) => b.time.localeCompare(a.time));
-        });
+        const cmp = (a: Expense, b: Expense) => {
+            switch (sort) {
+                case "date-asc":
+                    return a.time.localeCompare(b.time);
+                case "amt-desc":
+                    return b.amt - a.amt;
+                case "amt-asc":
+                    return a.amt - b.amt;
+                default:
+                    return b.time.localeCompare(a.time); // date-desc
+            }
+        };
+        Object.keys(map).forEach((d) => map[Number(d)].sort(cmp));
         return map;
-    }, [filteredExpenses]);
+    }, [filteredExpenses, sort]);
 
+    // Day-card order: date sorts flip it; amount sorts keep newest-day-first.
     const sortedDays = Object.keys(expensesByDay)
         .map(Number)
-        .sort((a, b) => b - a);
+        .sort((a, b) => (sort === "date-asc" ? a - b : b - a));
 
     const rangeTotal = filteredExpenses.reduce((a, b) => a + b.amt, 0);
     const filterLabel =
@@ -668,16 +849,24 @@ export default function LedgerPage() {
                     <div className="text-[10px] md:text-[11px] text-on-soft uppercase tracking-[0.14em] font-semibold">
                         Ledger · {rangeDisplay}
                     </div>
+                    {/* CHANGED (Tags fix batch): was a single whitespace-nowrap line,
+                        which overflowed the mobile viewport and pushed the title out of
+                        view. Now a flex-wrap row — the count and the amount are each
+                        their own nowrap + tabular-nums unit, so on a narrow screen the
+                        amount drops to a second line cleanly (never clipped) and neither
+                        number can wrap/unwrap mid-count. */}
                     <h1
-                        className="display mt-0.5 md:mt-1 whitespace-nowrap"
-                        style={{ fontSize: "clamp(26px, 5vw, 44px)", lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}
+                        className="display mt-0.5 md:mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
+                        style={{ fontSize: "clamp(24px, 5vw, 44px)", lineHeight: 1.15 }}
                     >
-                        {filteredExpenses.length}{' '}
-                        <span className="text-ink-2 font-medium">
-                            {filteredExpenses.length === 1 ? 'entry' : 'entries'}
+                        <span className="whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {filteredExpenses.length}{' '}
+                            <span className="text-ink-2 font-medium">
+                                {filteredExpenses.length === 1 ? 'entry' : 'entries'}
+                            </span>
                         </span>
-                        <span className="text-ink-3 font-light mx-2">•</span>
-                        <span className="text-gradient-amount">
+                        <span className="text-ink-3 font-light">•</span>
+                        <span className="text-gradient-amount whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             −<AnimatedNumber value={rangeTotal} format="money" duration={1200} />
                         </span>
                     </h1>
@@ -686,13 +875,9 @@ export default function LedgerPage() {
                     </div>
                 </div>
 
+                {/* CHANGED (Tags fix batch): Day/Week/Month moved OUT of this button
+                    row (Export/Close/Add) down to the Search+Sort row per user request. */}
                 <div className="flex items-center gap-2 flex-wrap md:justify-end">
-                    <TimeRangeSegment
-                        value={range}
-                        onChange={setRange}
-                        isCurrentMonth={isCurrentMonth}
-                    />
-
                     <button
                         className="shine-wrap shine-wrap-light h-10 px-3 md:px-4 rounded-full text-sm font-medium hover:scale-[1.02] transition-all flex items-center gap-2"
                         style={{
@@ -785,37 +970,46 @@ export default function LedgerPage() {
                 </motion.div>
             )}
 
-            {/* Filter + Utility row */}
+            {/* Controls: real Search + Sort, with Day/Week/Month at the END.
+                CHANGED (Tags fix batch): Search/Sort were dead stubs squeezing the
+                chips; now they own this row and work. Day/Week/Month was moved here
+                (from the Export/Add button row) and pinned right. On mobile it stacks
+                below the search+sort pair and right-aligns. */}
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.5, delay: 0.1 }}
-                className="flex items-center gap-2 flex-wrap"
+                className="flex flex-col sm:flex-row sm:items-center gap-2"
             >
-                <div className="flex-1 min-w-0">
-                    <FilterChips
-                        value={effectiveFilter}
-                        onChange={setFilter}
-                        filters={filters}
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <SearchBox value={search} onChange={setSearch} />
+                    <SortMenu sort={sort} onChange={setSort} />
+                </div>
+                <div className="flex justify-end">
+                    <TimeRangeSegment
+                        value={range}
+                        onChange={setRange}
+                        isCurrentMonth={isCurrentMonth}
                     />
                 </div>
+            </motion.div>
 
-                <div className="hidden md:flex gap-2 flex-shrink-0">
-                    <button
-                        className="h-8 px-3 rounded-full text-xs font-medium text-ink-1 hover:bg-bg-2 inline-flex items-center gap-1.5 transition-colors"
-                        aria-label="Search"
-                    >
-                        <SearchIcon size={13} />
-                        <span>Search</span>
-                    </button>
-                    <button
-                        className="h-8 px-3 rounded-full text-xs font-medium text-ink-1 hover:bg-bg-2 inline-flex items-center gap-1.5 transition-colors"
-                        aria-label="Sort"
-                    >
-                        <SortIcon size={13} />
-                        <span>Date ↓</span>
-                    </button>
-                </div>
+            {/* Filter chips — full-width row. CHANGED (Tags fix batch): the earlier
+                right-edge fade DIV read as a shadow/box over the last chip. Replaced
+                with a mask-image on the scroll container itself (fades trailing chips
+                softly to transparent, no colored box, and self-hides when nothing
+                overflows) — a cleaner "there's more →" hint. */}
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5, delay: 0.15 }}
+                className="-mt-1"
+            >
+                <FilterChips
+                    value={effectiveFilter}
+                    onChange={setFilter}
+                    filters={filters}
+                />
             </motion.div>
 
             {/* Day-grouped list */}
@@ -838,12 +1032,15 @@ export default function LedgerPage() {
                     style={{ border: "1px solid var(--color-line-soft)" }}
                 >
                     <div className="text-ink-2 text-sm">
-                        No entries match this filter.
+                        {search.trim()
+                            ? `No entries match “${search.trim()}”.`
+                            : "No entries match this filter."}
                     </div>
                     <button
                         onClick={() => {
                             setFilter("all");
                             setRange("month");
+                            setSearch("");
                         }}
                         className="mt-3 text-gold-700 text-sm font-medium hover:text-gold-900 transition-colors"
                     >

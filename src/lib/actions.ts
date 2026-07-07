@@ -10,7 +10,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
-import { toUiExpense, suggestFixedMetaLocal } from "@/lib/expense-utils";
+import { toUiExpense, suggestFixedMetaLocal, normalizeTags } from "@/lib/expense-utils";
 import {
   getMonthDashboardData,
   getYearSummary,
@@ -66,6 +66,7 @@ export interface ExpenseInput {
   category: CategoryKey;
   currency: Currency;
   note: string;
+  tags?: string[]; // ADDED (Tags module): normalized + capped server-side
   fixed?: boolean;
   /** Defaults to now; callers may pass a specific timestamp. */
   spentAt?: string; // ISO string (Date isn't serializable across the boundary)
@@ -90,6 +91,7 @@ export async function createExpense(input: ExpenseInput) {
       amount: input.amount,
       currency: input.currency,
       note: input.note,
+      tags: normalizeTags(input.tags ?? []),
       fixed: input.fixed ?? false,
       source: input.source ?? "manual",
       transcript: input.transcript ?? null,
@@ -129,6 +131,7 @@ export async function updateExpense(
       ...(input.category !== undefined && { category: input.category }),
       ...(input.currency !== undefined && { currency: input.currency }),
       ...(input.note !== undefined && { note: input.note }),
+      ...(input.tags !== undefined && { tags: normalizeTags(input.tags) }),
       ...(input.fixed !== undefined && { fixed: input.fixed }),
       ...(input.spentAt !== undefined && { spentAt: new Date(input.spentAt) }),
       ...(input.transcript !== undefined && { transcript: input.transcript }),
@@ -148,6 +151,27 @@ export async function deleteExpense(id: number) {
   await assertMonthOpen(userId, owned.spentAt.getFullYear(), owned.spentAt.getMonth() + 1);
   await prisma.expense.delete({ where: { id } });
   revalidateDashboard();
+}
+
+/**
+ * ADDED (Tags module): the user's distinct past tags, most-used first — powers the
+ * "persistent" suggestion chips in the add/edit modal so tags carry across entries.
+ * Scans the most recent entries (bounded) and aggregates in JS.
+ */
+export async function fetchTagSuggestions(): Promise<string[]> {
+  const userId = await requireUserId();
+  const rows = await prisma.expense.findMany({
+    where: { userId, NOT: { tags: { isEmpty: true } } },
+    select: { tags: true },
+    orderBy: { spentAt: "desc" },
+    take: 400,
+  });
+  const freq = new Map<string, number>();
+  for (const r of rows) for (const t of r.tags) freq.set(t, (freq.get(t) ?? 0) + 1);
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 24)
+    .map(([t]) => t);
 }
 
 export interface BonusInput {

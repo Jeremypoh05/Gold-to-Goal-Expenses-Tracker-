@@ -26,6 +26,7 @@ export interface Expense {
   cat: CategoryKey;
   amt: number; // Amount in default currency (SGD)
   note: string;
+  tags?: string[]; // ADDED (Tags module): persistent free-form tags (max 5)
   voice?: boolean; // Was this logged via voice?
   fixed?: boolean; // Is this a recurring fixed expense?
   fixedSourceId?: number | null; // ADDED (Module 4): the FixedExpense that generated this row
