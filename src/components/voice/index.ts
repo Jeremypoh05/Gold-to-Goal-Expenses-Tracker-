@@ -5,6 +5,7 @@ export { VoiceLogsPanel } from "./VoiceLogsPanel";
 export { VoiceEntryEditor } from "./VoiceEntryEditor";
 export { VoiceModal } from "./VoiceModal";
 export { VoiceToast } from "./VoiceToast";
+export { FloatingVoiceButton } from "./FloatingVoiceButton";
 export {
   VoiceProvider,
   useVoice,

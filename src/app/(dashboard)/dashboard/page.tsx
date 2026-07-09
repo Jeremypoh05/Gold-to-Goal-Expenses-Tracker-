@@ -182,25 +182,9 @@ function MobileTabs({
     );
 }
 
-function FloatingVoiceButton() {
-    const { openModal } = useVoice(); // ADDED (Phase 6.1)
-    // CHANGED (Phase 6.1): opens the global voice capture modal.
-    return (
-        <button
-            type="button"
-            onClick={openModal}
-            className="hidden md:flex fixed bottom-8 right-8 z-30 w-14 h-14 rounded-full items-center justify-center cursor-pointer transition-all hover:scale-105 pulse"
-            style={{
-                background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.64 0.155 75))',
-                boxShadow: '0 12px 32px -6px oklch(0.65 0.16 78 / 0.55), 0 0 0 4px rgba(255,255,255,0.4)',
-                border: 'none',
-            }}
-            aria-label="Quick voice log"
-        >
-            <MicIcon size={24} className="text-[#1a120a]" />
-        </button>
-    );
-}
+// CHANGED (Phase A follow-up): FloatingVoiceButton moved to a global component
+// (components/voice/FloatingVoiceButton) mounted in DashboardShell, so the
+// desktop floating mic now appears on every page — not just the dashboard.
 
 // ═══════════════════════════════════════════════════════════════
 // Mobile Greeting Header
@@ -1021,8 +1005,6 @@ export default function DashboardPage() {
                     </div>
                 </div>
             </div>
-
-            <FloatingVoiceButton />
         </>
     );
 }

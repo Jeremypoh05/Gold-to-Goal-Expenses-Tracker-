@@ -82,11 +82,17 @@ export interface ExpenseInput {
   voiceStatus?: "confirmed" | "edited" | "reparsed";
 }
 
-export async function createExpense(input: ExpenseInput) {
+export async function createExpense(input: ExpenseInput, overrideClosed = false) {
   const userId = await requireUserId();
 
   const spentAt = input.spentAt ? new Date(input.spentAt) : new Date();
-  await assertMonthOpen(userId, spentAt.getFullYear(), spentAt.getMonth() + 1);
+  // CHANGED (AI Assistant · Phase A follow-up): callers may opt into writing into
+  // a closed month (e.g. voice-logging a historical expense the user explicitly
+  // chose to "add to the closed month"). The month stays closed; the row lands as
+  // a frozen entry — same override contract as the recurring-rule edits.
+  if (!overrideClosed) {
+    await assertMonthOpen(userId, spentAt.getFullYear(), spentAt.getMonth() + 1);
+  }
 
   const row = await prisma.expense.create({
     data: {
@@ -240,12 +246,28 @@ export async function suggestExpenseMeta(
 // parse providers — no amounts, dates, or other rows.
 // ─────────────────────────────────────────────────────────────
 
+// ADDED (AI Assistant · Phase A): the mic is now an intent router. Claude
+// classifies the utterance into an action; the app routes each to the right
+// confirm card. Phase A wires CREATE end-to-end (with historical dates); EDIT
+// and RECURRING are classified so the UI can acknowledge them (wired in B/C).
+export type VoiceIntent = "create" | "edit" | "recurring";
+
 export interface VoiceParseResult {
   ok: boolean;
   transcript: string;
   lang: string;
+  intent: VoiceIntent; // ADDED (Phase A): the classified action
   parsed:
-    | { category: CategoryKey; amount: number; currency: Currency; note: string; tags: string[] }
+    | {
+        category: CategoryKey;
+        amount: number;
+        currency: Currency;
+        note: string;
+        tags: string[];
+        // ADDED (Phase A): resolved expense date as an ISO string, or null = "now".
+        // "yesterday" / "on July 2" / "two days ago" → a concrete past date.
+        spentAt: string | null;
+      }
     | null;
   error?: "no-key" | "no-audio" | "stt-failed" | "empty" | "parse-failed";
 }
@@ -263,12 +285,29 @@ function parseVoiceLocal(transcript: string): NonNullable<VoiceParseResult["pars
   const hasCJK = /[一-鿿]/.test(transcript);
   const hasLatin = /[a-z]/i.test(transcript);
   const lang = hasCJK && hasLatin ? "zh+en" : hasCJK ? "zh" : "en";
-  return { category: meta.category, amount, currency, note: transcript.slice(0, 120), tags: meta.tags, lang };
+  // Offline heuristics can't resolve relative dates → spentAt stays null (= now).
+  return { category: meta.category, amount, currency, note: transcript.slice(0, 120), tags: meta.tags, lang, spentAt: null };
+}
+
+/**
+ * ADDED (Phase A): turn a resolved YYYY-MM-DD into an ISO timestamp for createExpense.
+ * Combines the past date with the current wall-clock time so the row lands mid-day
+ * (avoids the midnight TZ edge). Future dates are rejected → null (= now), matching
+ * the manual-add rule that expenses can't be in the future.
+ */
+function resolveSpentAt(dateStr: unknown, now: Date): string | null {
+  if (typeof dateStr !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+  if (Number.isNaN(dt.getTime()) || dt.getTime() > now.getTime()) return null;
+  // Same calendar day as today → treat as "now" (null) so it uses the live timestamp.
+  if (dt.toDateString() === now.toDateString()) return null;
+  return dt.toISOString();
 }
 
 export async function transcribeExpense(formData: FormData): Promise<VoiceParseResult> {
   await requireUserId();
-  const base: VoiceParseResult = { ok: false, transcript: "", lang: "en", parsed: null };
+  const base: VoiceParseResult = { ok: false, transcript: "", lang: "en", intent: "create", parsed: null };
 
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) return { ...base, error: "no-key" };
@@ -305,36 +344,74 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
   }
   if (!transcript) return { ...base, error: "empty" };
 
-  // 2) Transcript → structured expense (Claude Haiku; local fallback on any failure).
+  // 2) Transcript → intent + structured expense. The "assistant brain" runs on
+  //    claude-sonnet-5 (harder reasoning than Haiku — needed for reliable intent
+  //    classification + relative-date math). Local heuristics remain the fallback
+  //    on any failure, so the flow always degrades gracefully to a CREATE.
   const local = parseVoiceLocal(transcript);
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {
-    return { ok: true, transcript, lang: local.lang, parsed: local };
+    return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local };
   }
+
+  // Today's date, in server-local time, so Claude can resolve "yesterday",
+  // "last Monday", "on July 2" to a concrete date. (Dev server = SGT; the same
+  // TZ caveat as the manual date picker applies in a UTC prod host.)
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
+
   try {
     const client = new Anthropic({ apiKey: anthropicKey });
     const msg = await client.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 220,
+      model: "claude-sonnet-5",
+      max_tokens: 320,
+      // Simple extraction — no thinking needed; keep the voice round-trip fast.
+      thinking: { type: "disabled" },
       system:
-        `You extract ONE expense from a short spoken note. The speaker may freely mix English, Mandarin, ` +
-        `Malay, Manglish, and Singlish in one sentence — understand the mixed input naturally. ` +
-        `Context is Singapore/Malaysia; default currency is SGD unless the note clearly indicates otherwise. ` +
-        `Valid categories: ${VALID_CATEGORIES.join(", ")}. ` +
-        `Reply with ONLY compact JSON, no prose: ` +
-        `{"category":"<one>","amount":<number>,"currency":"SGD|MYR|CNY|USD","note":"<short clean note or empty>","tags":["t1","t2"],"lang":"<en|zh|zh+en|Singlish>"}. ` +
-        `amount = the numeric price (convert spoken numbers e.g. "twenty eight" → 28). ` +
-        `currency: default SGD; ringgit/RM → MYR; US dollars/USD → USD; yuan/rmb/人民币/元 → CNY. ` +
-        `note: concise, no filler words (e.g. "Grab to airport"); empty string if there's nothing meaningful. ` +
-        `tags: up to 3, short, lowercase, no '#', no spaces (use hyphens), relevant (merchant/person/occasion).`,
+        `You are a personal-finance voice assistant. Today is ${weekday}, ${todayStr}. ` +
+        `The speaker may freely mix English, Mandarin, Malay, Manglish, and Singlish in one sentence — ` +
+        `understand the mixed input naturally. Context is Singapore/Malaysia; default currency SGD.\n\n` +
+        `First CLASSIFY the utterance into one intent:\n` +
+        `- "create": logging a new expense they just made (e.g. "spent 12 on lunch", "bought a bag for 50 dollars on July 2").\n` +
+        `- "edit": changing or correcting an existing expense (e.g. "change my July-7 fried chicken to 15", "update yesterday's coffee to 6").\n` +
+        `- "recurring": setting up a repeating/monthly expense (e.g. "rent 1300 dollars every month from May", "I pay 15 monthly for Netflix").\n\n` +
+        `Then, for a "create" intent, extract the expense fields. ` +
+        `Valid categories: ${VALID_CATEGORIES.join(", ")}.\n` +
+        `Reply with ONLY compact JSON, no prose:\n` +
+        `{"intent":"create|edit|recurring","category":"<one>","amount":<number>,"currency":"SGD|MYR|CNY|USD",` +
+        `"note":"<short clean note or empty>","tags":["t1","t2"],"date":"<YYYY-MM-DD or empty>","lang":"<en|zh|zh+en|ms|Singlish>"}\n` +
+        `- amount: the numeric price (convert spoken numbers e.g. "twenty eight" → 28).\n` +
+        `- currency: default SGD; ringgit/RM → MYR; US dollars/USD → USD; yuan/rmb/人民币/元 → CNY.\n` +
+        `- note: concise, no filler (e.g. "Grab to airport"); empty string if nothing meaningful.\n` +
+        `- tags: up to 3, short, lowercase, no '#', no spaces (use hyphens), relevant (merchant/person/occasion).\n` +
+        `- date: if the speaker says WHEN the expense happened, resolve it to an absolute YYYY-MM-DD using today's date above. ` +
+        `If no date is mentioned, use "". NEVER return a future date — if it resolves after today, use "".\n` +
+        `For "edit" or "recurring" intents, still return the JSON but the other fields may be approximate.`,
       messages: [{ role: "user", content: transcript }],
     });
     const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return { ok: true, transcript, lang: local.lang, parsed: local };
+    if (!match) return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local };
     const p = JSON.parse(match[0]) as {
-      category?: unknown; amount?: unknown; currency?: unknown; note?: unknown; tags?: unknown; lang?: unknown;
+      intent?: unknown; category?: unknown; amount?: unknown; currency?: unknown;
+      note?: unknown; tags?: unknown; date?: unknown; lang?: unknown;
     };
+
+    const intent: VoiceIntent = (["create", "edit", "recurring"] as const).includes(p.intent as VoiceIntent)
+      ? (p.intent as VoiceIntent)
+      : "create";
+    const lang = typeof p.lang === "string" && p.lang.trim() ? p.lang.trim().slice(0, 12) : local.lang;
+
+    // Phase A only wires CREATE end-to-end. EDIT/RECURRING are classified so the UI
+    // can acknowledge them; their apply lands in Phase B/C, so no parsed payload yet.
+    if (intent !== "create") {
+      return { ok: true, transcript, lang, intent, parsed: null };
+    }
+
     const category = VALID_CATEGORIES.includes(p.category as CategoryKey)
       ? (p.category as CategoryKey)
       : local.category;
@@ -345,10 +422,10 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
       : "SGD";
     const note = typeof p.note === "string" ? p.note.trim().slice(0, 120) : local.note;
     const tags = Array.isArray(p.tags) ? normalizeTags(p.tags.map((t) => String(t))).slice(0, 3) : [];
-    const lang = typeof p.lang === "string" && p.lang.trim() ? p.lang.trim().slice(0, 12) : local.lang;
-    return { ok: true, transcript, lang, parsed: { category, amount, currency, note, tags } };
+    const spentAt = resolveSpentAt(p.date, now);
+    return { ok: true, transcript, lang, intent: "create", parsed: { category, amount, currency, note, tags, spentAt } };
   } catch {
-    return { ok: true, transcript, lang: local.lang, parsed: local };
+    return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local };
   }
 }
 

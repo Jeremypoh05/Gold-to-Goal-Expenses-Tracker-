@@ -12,16 +12,17 @@
 //  • re-record without leaving the modal
 //  • live waveform while listening
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MicIcon, SparkleIcon, EditIcon, CategoryTile } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { TagChip } from '@/components/shared';
 import { Waveform } from './Waveform';
-import { VoiceEntryEditor } from './VoiceEntryEditor';
+import { VoiceEntryEditor, type VoiceEntryValue } from './VoiceEntryEditor';
 import { CATEGORIES } from '@/data/categories';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useExpenses } from '@/components/data/ExpensesContext';
+import { fetchTagSuggestions } from '@/lib/actions';
 import { MONTH_NAMES } from '@/lib/utils';
 import type { NewVoiceLog } from './VoiceContext';
 import type { Expense } from '@/types';
@@ -30,6 +31,16 @@ function CheckIcon({ size = 16 }: { size?: number }) {
     return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12 L10 17 L19 7" />
+        </svg>
+    );
+}
+
+// ADDED (AI Assistant · Phase A): small calendar glyph for the date row.
+function CalendarIcon({ size = 14 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
+            <path d="M3 9h18M8 2.5v4M16 2.5v4" />
         </svg>
     );
 }
@@ -59,10 +70,29 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
     const { status, result, errorMsg, start, stop, reset } = useVoiceRecorder();
     const { expenses, current } = useExpenses();
     const [editing, setEditing] = useState(false);
+    // ADDED (Phase A follow-up): persistent tag suggestions for the editor's
+    // "Recent:" chips — same source as the manual add/edit modal.
+    const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+    useEffect(() => {
+        fetchTagSuggestions().then(setTagSuggestions).catch(() => {});
+    }, []);
 
     const parsed = result?.parsed ?? null;
     const lang = result?.lang ?? 'en';
     const transcript = result?.transcript ?? '';
+    // ADDED (Phase A): the classified intent. Only CREATE is wired end-to-end
+    // in Phase A; EDIT/RECURRING get an acknowledged "coming soon" card.
+    const intent = result?.intent ?? 'create';
+
+    // ADDED (Phase A): the resolved expense date. null spentAt = today.
+    const spentAt = parsed?.spentAt ?? null;
+    const backdated = !!spentAt;
+    const dateLabel = useMemo(() => {
+        if (!spentAt) return 'Today';
+        const d = new Date(spentAt);
+        const base = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+        return d.getFullYear() === new Date().getFullYear() ? base : `${base}, ${d.getFullYear()}`;
+    }, [spentAt]);
 
     const isRecording = status === 'listening';
     const isParsing = status === 'parsing';
@@ -83,7 +113,7 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                     : status === 'error' ? 'Hmm…'
                         : 'Got it ✨';
 
-    const saveWith = (v: { amt: number; currency: NewVoiceLog['currency']; cat: NewVoiceLog['cat']; note: string }, edited: boolean) => {
+    const saveWith = (v: VoiceEntryValue, edited: boolean) => {
         onSave({
             lang,
             transcript,
@@ -91,7 +121,8 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
             amt: v.amt,
             currency: v.currency,
             note: v.note,
-            tags: parsed?.tags ?? [],
+            tags: v.tags, // CHANGED (Phase A follow-up): tags now editable in the editor
+            spentAt: v.spentAt, // CHANGED (Phase A follow-up): date/time now editable too
             status: edited ? 'edited' : 'confirmed',
         });
         setEditing(false);
@@ -100,7 +131,10 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
 
     const confirm = () => {
         if (!parsed) return;
-        saveWith({ amt: parsed.amount, currency: parsed.currency, cat: parsed.category, note: parsed.note }, false);
+        saveWith(
+            { amt: parsed.amount, currency: parsed.currency, cat: parsed.category, note: parsed.note, tags: parsed.tags, spentAt: parsed.spentAt },
+            false,
+        );
     };
 
     return (
@@ -210,10 +244,13 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
 
                         {editing ? (
                             <VoiceEntryEditor
-                                initial={{ amt: parsed.amount, currency: parsed.currency, cat: parsed.category, note: parsed.note }}
+                                initial={{ amt: parsed.amount, currency: parsed.currency, cat: parsed.category, note: parsed.note, tags: parsed.tags, spentAt: parsed.spentAt }}
                                 onSave={(v) => saveWith(v, true)}
                                 onCancel={() => setEditing(false)}
                                 saveLabel="Save"
+                                showDateTime
+                                showTags
+                                suggestions={tagSuggestions}
                             />
                         ) : (
                             <>
@@ -229,6 +266,23 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                                     <div className="display-number" style={{ fontSize: 26 }}>
                                         <AnimatedNumber value={parsed.amount} format="money" currency={parsed.currency} duration={900} />
                                     </div>
+                                </div>
+
+                                {/* ADDED (Phase A): resolved date — highlighted when back-dated */}
+                                <div className="flex items-center gap-2 mt-3">
+                                    <span className="text-[10px] text-ink-3 uppercase tracking-[0.08em]">When</span>
+                                    <span
+                                        className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12px] font-medium"
+                                        style={
+                                            backdated
+                                                ? { background: 'color-mix(in oklch, oklch(0.72 0.155 80) 16%, transparent)', color: 'var(--color-on-soft)', border: '1px solid color-mix(in oklch, oklch(0.72 0.155 80) 42%, transparent)' }
+                                                : { background: 'var(--color-bg-1)', color: 'var(--color-ink-1)', border: '1px solid var(--color-line-soft)' }
+                                        }
+                                    >
+                                        <CalendarIcon size={13} />
+                                        {dateLabel}
+                                    </span>
+                                    {backdated && <span className="text-[11px] text-ink-3">back-dated from your voice note</span>}
                                 </div>
 
                                 {/* AI tags */}
@@ -290,6 +344,43 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* ADDED (Phase A): intent router acknowledges EDIT / RECURRING.
+                These land in Phase B / C — for now we classify + explain, so the
+                router is visibly working and nothing is logged by mistake. */}
+            {status === 'parsed' && !parsed && (intent === 'edit' || intent === 'recurring') && (
+                <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                    className="mt-4 w-full max-w-[560px] rounded-[20px] p-5 text-left"
+                    style={{ border: '1px solid oklch(0.88 0.08 88)', background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))' }}
+                >
+                    <div className="flex items-center gap-2.5 mb-2.5">
+                        <div className="w-7 h-7 rounded-[9px] flex items-center justify-center" style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.65 0.155 78))' }}>
+                            <SparkleIcon size={13} className="text-[#1a120a]" />
+                        </div>
+                        <div className="text-[13px] font-semibold">
+                            {intent === 'edit' ? 'Sounds like an edit' : 'Sounds like a recurring expense'}
+                        </div>
+                    </div>
+                    <p className="text-[13px] text-ink-1 leading-relaxed">
+                        {intent === 'edit' ? (
+                            <>I heard a request to <b>change an existing expense</b>. Editing by voice is coming in the next update — for now, tap any entry on the <b>Ledger</b> to edit it, or record a new expense to log.</>
+                        ) : (
+                            <>I heard a request to <b>set up a recurring expense</b>. Creating recurring items by voice is coming in the next update — for now, add it on the <b>Recurring</b> page, or record a one-off expense to log.</>
+                        )}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={start}
+                        className="mt-4 h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 hover:brightness-[1.03] transition-all"
+                        style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))', color: '#1a120a', boxShadow: 'var(--shadow-gold)' }}
+                    >
+                        <MicIcon size={14} /> Record again
+                    </button>
+                </motion.div>
+            )}
 
             {/* Cancel back to idle while recording */}
             {isRecording && (
