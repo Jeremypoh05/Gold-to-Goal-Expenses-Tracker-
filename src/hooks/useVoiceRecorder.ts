@@ -97,13 +97,21 @@ export function useVoiceRecorder() {
                 const fd = new FormData();
                 fd.append('audio', blob, `voice.${ext}`);
                 const res = await transcribeExpense(fd);
-                if (!res.ok || !res.parsed) {
+                // FIX (Phase B): only fail when the result is genuinely unusable
+                // (res.ok === false). This USED to also fail on `!res.parsed` — but
+                // edit/recurring intents intentionally have parsed === null (their
+                // payload is res.edit, or the UI shows a "coming soon"/"not found"
+                // card), so EVERY edit/recurring utterance wrongly showed "Could not
+                // understand". Now ok results flow to VoiceCapture, which routes by intent.
+                if (!res.ok) {
                     fail(
                         res.error === 'no-key'
                             ? "Voice AI isn't configured yet."
                             : res.error === 'empty'
                               ? "Didn't catch that — try speaking a little longer."
-                              : 'Could not understand that. Please try again.',
+                              : res.error === 'stt-failed'
+                                ? "I couldn't hear that clearly — try again, a bit louder or somewhere quieter."
+                                : 'Could not understand that. Please try again.',
                     );
                     return;
                 }
