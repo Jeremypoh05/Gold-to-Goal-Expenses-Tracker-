@@ -12,6 +12,8 @@ import { Orbs, ConfirmProvider } from '@/components/shared';
 import { AddModalProvider } from '@/components/dashboard/AddModalContext';
 import { ManualAddModal } from '@/components/dashboard/ManualAddModal';
 import { VoiceProvider, VoiceModal, VoiceToast, FloatingVoiceButton } from '@/components/voice';
+// ADDED (AI Assistant · Slice 1): global assistant chat — slide-over + launcher.
+import { AssistantProvider, AssistantPanel, AssistantLauncher } from '@/components/assistant';
 // ADDED (Module 4 · UX): global in-place "edit recurring" modal (any page can open it).
 import { FixedEditProvider } from '@/components/fixed';
 import { ExpensesProvider } from '@/components/data/ExpensesContext';
@@ -29,6 +31,7 @@ export function DashboardShell({
             <ConfirmProvider>
             <AddModalProvider>
                 <VoiceProvider>
+                    <AssistantProvider>
                     <FixedEditProvider>
                     <div className="h-screen flex relative bg-bg-0 overflow-hidden">
                         <Orbs count={3} />
@@ -50,6 +53,10 @@ export function DashboardShell({
                         {/* ADDED (Phase A follow-up): global desktop floating mic — every page */}
                         <FloatingVoiceButton />
 
+                        {/* ADDED (AI Assistant · Slice 1): global assistant launcher + panel */}
+                        <AssistantLauncher />
+                        <AssistantPanel />
+
                         {/* Modal — rendered once, controlled by context */}
                         <ManualAddModal />
 
@@ -58,6 +65,7 @@ export function DashboardShell({
                         <VoiceToast />
                     </div>
                     </FixedEditProvider>
+                    </AssistantProvider>
                 </VoiceProvider>
             </AddModalProvider>
             </ConfirmProvider>

@@ -82,6 +82,51 @@ model User {
   incomeSources  IncomeSource[]
   fixedExpenses  FixedExpense[]
   monthCloses    MonthClose[]
+  chatSessions   ChatSession[]
+  preferences    UserPreference[]
+}
+
+/// ADDED (AI Assistant · Slice 1): a persisted assistant conversation. Messages
+/// survive across visits so the chat panel / assistant page can restore history.
+model ChatSession {
+  id        Int           @id @default(autoincrement())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String? // auto-set from the first user message
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+/// ADDED (AI Assistant · Slice 1): one chat turn. Only display text is stored —
+/// tool calls/results are transient per turn (the agent re-reads live data each
+/// time, so replaying stale tool output would be wrong anyway).
+model ChatMessage {
+  id        Int         @id @default(autoincrement())
+  sessionId Int
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String // "user" | "assistant"
+  content   String
+  createdAt DateTime    @default(now())
+
+  @@index([sessionId])
+}
+
+/// ADDED (AI Assistant · Slice 1): lightweight preference store the agent reads
+/// (get_preferences) so suggestions can respect what the user values (e.g.
+/// "gaming makes me happy — don't nag"). Writes (set_preference) land in Slice 2.
+model UserPreference {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@index([userId])
 }
 
 /// ADDED (Module 5): a per-month hard close. The mere existence of a row for
