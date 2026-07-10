@@ -19,11 +19,17 @@ function CloseIcon({ size = 14 }: { size?: number }) {
 }
 
 export function VoiceModal() {
-    const { isModalOpen, closeModal, addLog } = useVoice();
+    const { isModalOpen, closeModal, addLog, editByVoice } = useVoice();
 
     // On save: store the log (provider also fires the toast), then close.
     const handleSave = (entry: Parameters<typeof addLog>[0]) => {
         addLog(entry);
+        closeModal();
+    };
+
+    // ADDED (Phase B): on an edit-by-voice confirm, apply the change, then close.
+    const handleEdit = (...args: Parameters<typeof editByVoice>) => {
+        editByVoice(...args);
         closeModal();
     };
 
@@ -92,7 +98,7 @@ export function VoiceModal() {
                                 <CloseIcon size={12} />
                             </button>
                             <div className="px-4 pt-3 pb-2">
-                                <VoiceCapture onSave={handleSave} />
+                                <VoiceCapture onSave={handleSave} onEdit={handleEdit} />
                             </div>
                         </motion.div>
                     </motion.div>
@@ -125,7 +131,7 @@ export function VoiceModal() {
                                 <CloseIcon size={14} />
                             </button>
                             <div className="p-8">
-                                <VoiceCapture onSave={handleSave} />
+                                <VoiceCapture onSave={handleSave} onEdit={handleEdit} />
                             </div>
                         </motion.div>
                     </motion.div>

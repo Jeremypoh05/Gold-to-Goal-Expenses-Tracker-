@@ -118,6 +118,7 @@ export async function createExpense(input: ExpenseInput, overrideClosed = false)
 export async function updateExpense(
   id: number,
   input: Partial<ExpenseInput>,
+  overrideClosed = false,
 ) {
   const userId = await requireUserId();
 
@@ -126,13 +127,15 @@ export async function updateExpense(
   if (!owned) throw new Error("Expense not found");
 
   // The row's current month must be open; if the edit also moves it to a
-  // different month (rare — the manual-add modal doesn't expose a date field
-  // today, but the check stays correct if that ever changes), that month must
-  // be open too.
-  await assertMonthOpen(userId, owned.spentAt.getFullYear(), owned.spentAt.getMonth() + 1);
-  if (input.spentAt !== undefined) {
-    const newDate = new Date(input.spentAt);
-    await assertMonthOpen(userId, newDate.getFullYear(), newDate.getMonth() + 1);
+  // different month, that month must be open too. CHANGED (Phase B): callers may
+  // opt into editing a row in a closed month (voice "edit anyway") — same override
+  // contract as createExpense; the month stays closed, the row just changes.
+  if (!overrideClosed) {
+    await assertMonthOpen(userId, owned.spentAt.getFullYear(), owned.spentAt.getMonth() + 1);
+    if (input.spentAt !== undefined) {
+      const newDate = new Date(input.spentAt);
+      await assertMonthOpen(userId, newDate.getFullYear(), newDate.getMonth() + 1);
+    }
   }
 
   const row = await prisma.expense.update({
@@ -252,6 +255,25 @@ export async function suggestExpenseMeta(
 // and RECURRING are classified so the UI can acknowledge them (wired in B/C).
 export type VoiceIntent = "create" | "edit" | "recurring";
 
+// ADDED (Phase B): an edit-by-voice result. `target` is the existing expense the
+// user referred to (matched from a candidate list); `changes` is only the fields
+// they asked to change → the UI shows a before→after diff before applying.
+export interface VoiceEditTarget {
+  id: number;
+  spentAt: string; // ISO
+  cat: CategoryKey;
+  amt: number;
+  currency: Currency;
+  note: string;
+  tags: string[];
+}
+export interface VoiceEditChanges {
+  amount?: number;
+  category?: CategoryKey;
+  currency?: Currency;
+  note?: string;
+}
+
 export interface VoiceParseResult {
   ok: boolean;
   transcript: string;
@@ -269,7 +291,109 @@ export interface VoiceParseResult {
         spentAt: string | null;
       }
     | null;
+  // ADDED (Phase B): populated only for intent === "edit". null = no confident match.
+  edit: { target: VoiceEditTarget; changes: VoiceEditChanges } | null;
   error?: "no-key" | "no-audio" | "stt-failed" | "empty" | "parse-failed";
+}
+
+/**
+ * ADDED (Phase B): resolve an "edit" utterance against the user's recent expenses.
+ * Sends a compact candidate list (id/date/cat/amount/note — the user's own data,
+ * powering the feature they invoked; no account numbers or other sensitive fields)
+ * + the transcript to claude-sonnet-5, which returns the matching id + the changed
+ * fields. Returns null if nothing is available or no candidate clearly matches.
+ */
+async function resolveVoiceEdit(
+  userId: string,
+  transcript: string,
+  now: Date,
+  apiKey: string,
+): Promise<{ target: VoiceEditTarget; changes: VoiceEditChanges } | null> {
+  const rows = await prisma.expense.findMany({
+    where: { userId },
+    orderBy: { spentAt: "desc" },
+    take: 60,
+    select: {
+      id: true,
+      spentAt: true,
+      category: true,
+      amount: true,
+      currency: true,
+      note: true,
+      tags: true,
+    },
+  });
+  if (rows.length === 0) return null;
+
+  const p = (n: number) => String(n).padStart(2, "0");
+  const fmt = (d: Date) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  const candidates = rows.map((r) => ({
+    id: r.id,
+    date: fmt(r.spentAt),
+    cat: r.category,
+    amt: Number(r.amount), // Prisma Decimal → number (also for clean JSON)
+    cur: r.currency,
+    note: r.note,
+  }));
+  const todayStr = fmt(now);
+  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
+
+  let matchId: number | null = null;
+  const changes: VoiceEditChanges = {};
+  try {
+    const client = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: "claude-sonnet-5",
+      max_tokens: 220,
+      thinking: { type: "disabled" },
+      system:
+        `You edit ONE existing expense. Today is ${weekday}, ${todayStr}. The user names an expense ` +
+        `(by item / merchant / date / amount) and what to change about it. Match the SINGLE best ` +
+        `candidate from the list, and extract ONLY the field(s) they asked to change. The speaker may ` +
+        `mix English, Mandarin, Malay, and Singlish. Valid categories: ${VALID_CATEGORIES.join(", ")}. ` +
+        `Reply with ONLY compact JSON, no prose: ` +
+        `{"id": <candidate id or null>, "changes": {"amount"?:<number>,"category"?:"<one>","currency"?:"SGD|MYR|CNY|USD","note"?:"<string>"}}. ` +
+        `id = the matching candidate's id, or null if none clearly matches. ` +
+        `changes = only the fields the user asked to change (e.g. "change my fried chicken to 15" → {"amount":15}). ` +
+        `Omit unchanged fields entirely; never invent a change.`,
+      messages: [
+        {
+          role: "user",
+          content: `Recent expenses (JSON):\n${JSON.stringify(candidates)}\n\nUser said: "${transcript}"`,
+        },
+      ],
+    });
+    const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]) as { id?: unknown; changes?: Record<string, unknown> };
+    matchId = typeof parsed.id === "number" ? parsed.id : null;
+    const c = parsed.changes ?? {};
+    const amt = Number(c.amount);
+    if (Number.isFinite(amt) && amt > 0) changes.amount = amt;
+    if (VALID_CATEGORIES.includes(c.category as CategoryKey)) changes.category = c.category as CategoryKey;
+    if ((["SGD", "MYR", "CNY", "USD"] as const).includes(c.currency as Currency)) changes.currency = c.currency as Currency;
+    if (typeof c.note === "string" && c.note.trim()) changes.note = c.note.trim().slice(0, 120);
+  } catch {
+    return null;
+  }
+
+  if (matchId === null) return null;
+  const row = rows.find((r) => r.id === matchId);
+  if (!row) return null;
+
+  return {
+    target: {
+      id: row.id,
+      spentAt: row.spentAt.toISOString(),
+      cat: row.category as CategoryKey,
+      amt: Number(row.amount), // Prisma Decimal → number
+      currency: row.currency,
+      note: row.note,
+      tags: row.tags ?? [],
+    },
+    changes,
+  };
 }
 
 /** Offline heuristic parse of a transcript — the fallback when Claude is unavailable. */
@@ -306,8 +430,8 @@ function resolveSpentAt(dateStr: unknown, now: Date): string | null {
 }
 
 export async function transcribeExpense(formData: FormData): Promise<VoiceParseResult> {
-  await requireUserId();
-  const base: VoiceParseResult = { ok: false, transcript: "", lang: "en", intent: "create", parsed: null };
+  const userId = await requireUserId();
+  const base: VoiceParseResult = { ok: false, transcript: "", lang: "en", intent: "create", parsed: null, edit: null };
 
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) return { ...base, error: "no-key" };
@@ -351,7 +475,7 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
   const local = parseVoiceLocal(transcript);
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {
-    return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local };
+    return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local, edit: null };
   }
 
   // Today's date, in server-local time, so Claude can resolve "yesterday",
@@ -395,7 +519,7 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
     });
     const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local };
+    if (!match) return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local, edit: null };
     const p = JSON.parse(match[0]) as {
       intent?: unknown; category?: unknown; amount?: unknown; currency?: unknown;
       note?: unknown; tags?: unknown; date?: unknown; lang?: unknown;
@@ -406,10 +530,11 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
       : "create";
     const lang = typeof p.lang === "string" && p.lang.trim() ? p.lang.trim().slice(0, 12) : local.lang;
 
-    // Phase A only wires CREATE end-to-end. EDIT/RECURRING are classified so the UI
-    // can acknowledge them; their apply lands in Phase B/C, so no parsed payload yet.
+    // EDIT (Phase B): resolve the target expense + changes from a candidate list.
+    // RECURRING (Phase C) is still just classified — no payload yet.
     if (intent !== "create") {
-      return { ok: true, transcript, lang, intent, parsed: null };
+      const edit = intent === "edit" ? await resolveVoiceEdit(userId, transcript, now, anthropicKey) : null;
+      return { ok: true, transcript, lang, intent, parsed: null, edit };
     }
 
     const category = VALID_CATEGORIES.includes(p.category as CategoryKey)
@@ -423,9 +548,9 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
     const note = typeof p.note === "string" ? p.note.trim().slice(0, 120) : local.note;
     const tags = Array.isArray(p.tags) ? normalizeTags(p.tags.map((t) => String(t))).slice(0, 3) : [];
     const spentAt = resolveSpentAt(p.date, now);
-    return { ok: true, transcript, lang, intent: "create", parsed: { category, amount, currency, note, tags, spentAt } };
+    return { ok: true, transcript, lang, intent: "create", parsed: { category, amount, currency, note, tags, spentAt }, edit: null };
   } catch {
-    return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local };
+    return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local, edit: null };
   }
 }
 

@@ -23,9 +23,26 @@ import { CATEGORIES } from '@/data/categories';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { fetchTagSuggestions } from '@/lib/actions';
+import type { VoiceEditTarget, VoiceEditChanges } from '@/lib/actions';
 import { MONTH_NAMES } from '@/lib/utils';
 import type { NewVoiceLog } from './VoiceContext';
 import type { Expense } from '@/types';
+
+// Currency symbols for the edit before→after diff (matches the editor's options).
+const CUR_SYMBOL: Record<string, string> = { SGD: 'S$', MYR: 'RM', CNY: '¥', USD: '$' };
+const money = (amt: number, cur: string) => `${CUR_SYMBOL[cur] ?? 'S$'}${amt.toFixed(2)}`;
+
+// ADDED (Phase B): one before→after row in the edit confirm card.
+function DiffRow({ label, before, after }: { label: string; before: string; after: string }) {
+    return (
+        <div className="flex items-center gap-2 text-[13px] min-w-0">
+            <span className="text-[10px] text-ink-3 uppercase tracking-[0.06em] w-16 flex-shrink-0">{label}</span>
+            <span className="text-ink-2 line-through truncate">{before}</span>
+            <span className="text-ink-3 flex-shrink-0">→</span>
+            <span className="font-semibold text-ink-0 truncate">{after}</span>
+        </div>
+    );
+}
 
 function CheckIcon({ size = 16 }: { size?: number }) {
     return (
@@ -66,7 +83,13 @@ function Spinner({ size = 20 }: { size?: number }) {
     );
 }
 
-export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void }) {
+export function VoiceCapture({
+    onSave,
+    onEdit,
+}: {
+    onSave: (entry: NewVoiceLog) => void;
+    onEdit: (target: VoiceEditTarget, changes: VoiceEditChanges) => void;
+}) {
     const { status, result, errorMsg, start, stop, reset } = useVoiceRecorder();
     const { expenses, current } = useExpenses();
     const [editing, setEditing] = useState(false);
@@ -80,9 +103,38 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
     const parsed = result?.parsed ?? null;
     const lang = result?.lang ?? 'en';
     const transcript = result?.transcript ?? '';
-    // ADDED (Phase A): the classified intent. Only CREATE is wired end-to-end
-    // in Phase A; EDIT/RECURRING get an acknowledged "coming soon" card.
+    // ADDED (Phase A): the classified intent. CREATE + EDIT (Phase B) are wired;
+    // RECURRING still gets an acknowledged "coming soon" card (Phase C).
     const intent = result?.intent ?? 'create';
+
+    // ── Phase B: edit-by-voice — the AI-matched target + the fields it changes ──
+    const edit = result?.edit ?? null;
+    const editTarget = edit?.target ?? null;
+    const editChanges = edit?.changes ?? {};
+    const editHasChanges = Object.keys(editChanges).length > 0;
+    // The resulting (after) values + which fields changed, for the before→after diff.
+    const editAfter = editTarget
+        ? {
+            amt: editChanges.amount ?? editTarget.amt,
+            currency: editChanges.currency ?? editTarget.currency,
+            cat: editChanges.category ?? editTarget.cat,
+            note: editChanges.note ?? editTarget.note,
+        }
+        : null;
+    const editAmountChanged = editChanges.amount !== undefined || editChanges.currency !== undefined;
+    const editCategoryChanged = editChanges.category !== undefined;
+    const editNoteChanged = editChanges.note !== undefined;
+    const editDateLabel = editTarget
+        ? (() => {
+            const d = new Date(editTarget.spentAt);
+            const base = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+            return d.getFullYear() === new Date().getFullYear() ? base : `${base}, ${d.getFullYear()}`;
+        })()
+        : '';
+    const confirmEdit = () => {
+        if (!editTarget || !editHasChanges) return;
+        onEdit(editTarget, editChanges);
+    };
 
     // ADDED (Phase A): the resolved expense date. null spentAt = today.
     const spentAt = parsed?.spentAt ?? null;
@@ -345,10 +397,106 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                 )}
             </AnimatePresence>
 
-            {/* ADDED (Phase A): intent router acknowledges EDIT / RECURRING.
-                These land in Phase B / C — for now we classify + explain, so the
-                router is visibly working and nothing is logged by mistake. */}
-            {status === 'parsed' && !parsed && (intent === 'edit' || intent === 'recurring') && (
+            {/* ADDED (Phase B): EDIT by voice — before→after confirm, or a graceful
+                "couldn't find it" / "no change heard" card. */}
+            {status === 'parsed' && intent === 'edit' && (
+                <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                    className="mt-4 w-full max-w-[560px] rounded-[20px] p-5 text-left"
+                    style={{ border: '1px solid oklch(0.88 0.08 88)', background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))' }}
+                >
+                    <div className="flex items-center gap-2.5 mb-3.5">
+                        <div className="w-7 h-7 rounded-[9px] flex items-center justify-center" style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.65 0.155 78))' }}>
+                            <SparkleIcon size={13} className="text-[#1a120a]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-semibold">
+                                {editTarget && editHasChanges ? 'Update this expense — confirm to save'
+                                    : editTarget ? 'I found the expense'
+                                        : "Couldn't find that expense"}
+                            </div>
+                            <div className="text-[11px] text-ink-2">Review, then tap update · nothing changes yet</div>
+                        </div>
+                    </div>
+
+                    {editTarget && editAfter ? (
+                        <>
+                            {/* Which expense */}
+                            <div className="grid items-center gap-3 p-3 rounded-[14px] mb-3" style={{ gridTemplateColumns: 'auto 1fr auto', background: 'var(--color-bg-card)', border: '1px solid var(--color-line-soft)' }}>
+                                <CategoryTile kind={editAfter.cat} size={40} variant="filled" />
+                                <div className="min-w-0">
+                                    <div className="text-[14px] font-medium truncate">{editTarget.note || CATEGORIES[editTarget.cat].label}</div>
+                                    <div className="text-[11px] text-ink-2 mt-0.5">{editDateLabel}</div>
+                                </div>
+                            </div>
+
+                            {editHasChanges ? (
+                                <div className="flex flex-col gap-2">
+                                    {editAmountChanged && (
+                                        <DiffRow label="Amount"
+                                            before={money(editTarget.amt, editTarget.currency)}
+                                            after={money(editAfter.amt, editAfter.currency)} />
+                                    )}
+                                    {editCategoryChanged && (
+                                        <DiffRow label="Category"
+                                            before={CATEGORIES[editTarget.cat].label}
+                                            after={CATEGORIES[editAfter.cat].label} />
+                                    )}
+                                    {editNoteChanged && (
+                                        <DiffRow label="Note"
+                                            before={editTarget.note || '—'}
+                                            after={editAfter.note || '—'} />
+                                    )}
+                                </div>
+                            ) : (
+                                <p className="text-[12px] text-ink-2 leading-snug">
+                                    I matched this entry but didn&apos;t catch <b>what to change</b>. Try again — e.g. &ldquo;change it to fifteen dollars&rdquo;.
+                                </p>
+                            )}
+
+                            {/* Actions */}
+                            <div className="mt-4 flex flex-col sm:flex-row gap-2.5">
+                                {editHasChanges && (
+                                    <button
+                                        type="button"
+                                        onClick={confirmEdit}
+                                        className="w-full sm:flex-1 h-11 rounded-full text-sm font-semibold flex items-center justify-center gap-2 hover:brightness-[1.03] transition-all"
+                                        style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))', color: '#1a120a', boxShadow: 'var(--shadow-gold)' }}
+                                    >
+                                        <CheckIcon size={16} /> Update
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={start}
+                                    className="flex-1 sm:flex-none h-11 px-4 rounded-full border border-line bg-bg-card text-sm font-medium flex items-center justify-center gap-1.5 hover:border-ink-2 transition-all"
+                                >
+                                    <MicIcon size={14} /> Record again
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-[13px] text-ink-1 leading-relaxed">
+                                I couldn&apos;t match that to one of your recent expenses. Try naming the item and roughly when — e.g. <span className="text-ink-0 font-medium">&ldquo;my fried chicken on July 7&rdquo;</span>.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={start}
+                                className="mt-4 h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 hover:brightness-[1.03] transition-all"
+                                style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))', color: '#1a120a', boxShadow: 'var(--shadow-gold)' }}
+                            >
+                                <MicIcon size={14} /> Record again
+                            </button>
+                        </>
+                    )}
+                </motion.div>
+            )}
+
+            {/* ADDED (Phase A): RECURRING is classified but its apply lands in Phase C. */}
+            {status === 'parsed' && intent === 'recurring' && (
                 <motion.div
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -360,16 +508,10 @@ export function VoiceCapture({ onSave }: { onSave: (entry: NewVoiceLog) => void 
                         <div className="w-7 h-7 rounded-[9px] flex items-center justify-center" style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.65 0.155 78))' }}>
                             <SparkleIcon size={13} className="text-[#1a120a]" />
                         </div>
-                        <div className="text-[13px] font-semibold">
-                            {intent === 'edit' ? 'Sounds like an edit' : 'Sounds like a recurring expense'}
-                        </div>
+                        <div className="text-[13px] font-semibold">Sounds like a recurring expense</div>
                     </div>
                     <p className="text-[13px] text-ink-1 leading-relaxed">
-                        {intent === 'edit' ? (
-                            <>I heard a request to <b>change an existing expense</b>. Editing by voice is coming in the next update — for now, tap any entry on the <b>Ledger</b> to edit it, or record a new expense to log.</>
-                        ) : (
-                            <>I heard a request to <b>set up a recurring expense</b>. Creating recurring items by voice is coming in the next update — for now, add it on the <b>Recurring</b> page, or record a one-off expense to log.</>
-                        )}
+                        I heard a request to <b>set up a recurring expense</b>. Creating recurring items by voice is coming in the next update — for now, add it on the <b>Recurring</b> page, or record a one-off expense to log.
                     </p>
                     <button
                         type="button"
