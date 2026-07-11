@@ -183,13 +183,20 @@ function AssistantText({ text, onNavigate }: { text: string; onNavigate: (target
 
                 if (!hasText && chips.length === 0) return <div key={li} className="h-2" />;
 
+                // A line that is ONLY nav chips (the model puts each [[go:…]] link on
+                // its own line). Without text, hasText is false — so these lines need
+                // their OWN vertical spacing, otherwise two stacked chips touch.
+                const chipOnly = !hasText && chips.length > 0;
+
                 return (
-                    <div key={li} className={cn(bullet && hasText && 'flex gap-1.5 pl-1')}>
+                    <div key={li} className={cn(bullet && hasText && 'flex gap-1.5 pl-1', chipOnly && 'mt-2')}>
                         {bullet && hasText && <span className="text-gold-700 flex-shrink-0">•</span>}
                         <span>
                             {hasText && renderBold(textPart, `l${li}`)}
                             {chips.length > 0 && (
-                                <span className={cn('flex flex-wrap gap-1.5', hasText && 'mt-1.5')}>
+                                // gap-y here also spaces the rare case of two chips wrapping
+                                // within a single line; gap-x keeps side-by-side chips tight.
+                                <span className={cn('flex flex-wrap gap-x-1.5 gap-y-2', hasText && 'mt-1.5')}>
                                     {chips.map((c, ci) => {
                                         const Icon = NAV_ICONS[c.target];
                                         return (
