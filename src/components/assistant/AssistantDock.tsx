@@ -118,14 +118,27 @@ export function AssistantDock() {
                     ))}
             </AnimatePresence>
 
-            {/* Main trigger */}
+            {/* Main trigger — gentle idle "breathing" so it reads as alive/tappable */}
             <motion.button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-label={expanded ? 'Close quick actions' : 'Quick actions'}
                 aria-expanded={expanded}
+                animate={
+                    expanded
+                        ? { scale: 1, boxShadow: '0 12px 32px -6px oklch(0.65 0.16 78 / 0.55)' }
+                        : {
+                              scale: [1, 1.05, 1],
+                              boxShadow: [
+                                  '0 12px 32px -6px oklch(0.65 0.16 78 / 0.5)',
+                                  '0 14px 38px -6px oklch(0.65 0.16 78 / 0.68)',
+                                  '0 12px 32px -6px oklch(0.65 0.16 78 / 0.5)',
+                              ],
+                          }
+                }
+                transition={expanded ? { duration: 0.2 } : { duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
                 whileTap={{ scale: 0.92 }}
-                whileHover={{ scale: 1.06 }}
+                whileHover={{ scale: 1.08 }}
                 className="w-14 h-14 rounded-full flex items-center justify-center cursor-pointer"
                 style={{
                     background: 'linear-gradient(135deg, oklch(0.85 0.14 90), oklch(0.64 0.16 78))',

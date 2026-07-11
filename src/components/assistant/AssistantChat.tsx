@@ -30,7 +30,6 @@ import {
 import { useConfirm } from '@/components/shared';
 import { cn } from '@/lib/utils';
 import {
-    sendAssistantMessage,
     fetchAssistantSessions,
     fetchAssistantMessages,
     deleteAssistantSession,
@@ -46,6 +45,8 @@ interface ChatMessage {
     content: string;
     createdAt: string; // ISO
     toolsUsed?: string[];
+    streaming?: boolean; // reply is still arriving (show cursor / dots)
+    stopped?: boolean; // user hit Stop mid-reply
 }
 
 // Friendly labels for the "looked at your data" chips under a reply.
@@ -144,15 +145,22 @@ function renderBold(text: string, keyBase: string): React.ReactNode {
  *  [[go:…]] navigation chips. onNavigate lets a click close the surface. */
 function AssistantText({ text, onNavigate }: { text: string; onNavigate: (target: NavTarget) => void }) {
     const lines = text.split('\n');
-    // The reply's dominant script decides the chip-label language (see NAV_DEFAULT_LABELS).
-    const replyHasCJK = CJK_RE.test(text);
+    // Decide the chip-label language from the reply's DOMINANT script — but only
+    // over the prose, with the [[go:…]] tokens stripped first (otherwise a Chinese
+    // label inside the token would make the reply look Chinese and defeat the fix).
+    // Dominant (count) rather than "contains any CJK" so an English reply that
+    // quotes a Chinese merchant note still counts as English.
+    const prose = text.replace(GO_RE, ' ');
+    const cjkCount = (prose.match(/[一-鿿]/g) ?? []).length;
+    const latinCount = (prose.match(/[A-Za-z]/g) ?? []).length;
+    const replyIsCJK = cjkCount > latinCount;
     const resolveLabel = (target: NavTarget, raw: string): string => {
         const clean = raw.trim();
         const labelHasCJK = CJK_RE.test(clean);
         // Keep the model's label only if it's non-empty AND its script matches the
         // reply (this also rejects bilingual "中文/English" labels). Else use the default.
-        if (clean && labelHasCJK === replyHasCJK) return clean;
-        return NAV_DEFAULT_LABELS[target][replyHasCJK ? 'zh' : 'en'];
+        if (clean && labelHasCJK === replyIsCJK) return clean;
+        return NAV_DEFAULT_LABELS[target][replyIsCJK ? 'zh' : 'en'];
     };
     return (
         <>
@@ -406,6 +414,7 @@ export function AssistantChat({
     const [copiedKey, setCopiedKey] = useState<string | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const keyCounter = useRef(0);
+    const abortRef = useRef<AbortController | null>(null);
     const nextKey = () => `m${++keyCounter.current}`;
 
     const handleNavigate = useCallback(
@@ -451,48 +460,107 @@ export function AssistantChat({
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }, [messages, sending]);
 
+    // Streams the reply from /api/assistant (SSE): text arrives token-by-token so
+    // the user reads it as it's written and can Stop early. Falls back to a plain
+    // error bubble if the stream fails.
     const send = useCallback(
         async (text: string) => {
             const message = text.trim();
             if (!message || sending) return;
             setInput('');
             setShowHistory(false);
+
+            const asstKey = nextKey();
             setMessages((prev) => [
                 ...prev,
                 { key: nextKey(), role: 'user', content: message, createdAt: new Date().toISOString() },
+                {
+                    key: asstKey,
+                    role: 'assistant',
+                    content: '',
+                    createdAt: new Date().toISOString(),
+                    toolsUsed: [],
+                    streaming: true,
+                },
             ]);
             setSending(true);
+
+            const patch = (fn: (m: ChatMessage) => ChatMessage) =>
+                setMessages((prev) => prev.map((m) => (m.key === asstKey ? fn(m) : m)));
+
+            const ctrl = new AbortController();
+            abortRef.current = ctrl;
             try {
-                const res = await sendAssistantMessage({ sessionId, message });
-                setSessionId(res.sessionId);
-                setMessages((prev) => [
-                    ...prev,
-                    {
-                        key: nextKey(),
-                        role: 'assistant',
-                        content: res.reply,
-                        createdAt: new Date().toISOString(),
-                        toolsUsed: res.toolsUsed,
-                    },
-                ]);
-                // Refresh the session list quietly (new session / bumped order).
+                const res = await fetch('/api/assistant', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId, message }),
+                    signal: ctrl.signal,
+                });
+                if (!res.ok || !res.body) throw new Error('stream failed');
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
+                let streamErrored = false;
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const parts = buf.split('\n\n');
+                    buf = parts.pop() ?? '';
+                    for (const part of parts) {
+                        const line = part.trim();
+                        if (!line.startsWith('data:')) continue;
+                        let data: { type: string; text?: string; name?: string; sessionId?: number };
+                        try {
+                            data = JSON.parse(line.slice(5).trim());
+                        } catch {
+                            continue;
+                        }
+                        if (data.type === 'session' && typeof data.sessionId === 'number') {
+                            setSessionId(data.sessionId);
+                        } else if (data.type === 'text' && data.text) {
+                            patch((m) => ({ ...m, content: m.content + data.text }));
+                        } else if (data.type === 'tool' && data.name) {
+                            patch((m) => ({ ...m, toolsUsed: [...(m.toolsUsed ?? []), data.name!] }));
+                        } else if (data.type === 'error') {
+                            streamErrored = true;
+                        }
+                    }
+                }
+                patch((m) => ({
+                    ...m,
+                    streaming: false,
+                    content:
+                        m.content ||
+                        (streamErrored
+                            ? 'Something went wrong reaching the assistant. Please try again.'
+                            : m.content),
+                }));
                 fetchAssistantSessions().then(setSessions).catch(() => {});
-            } catch {
-                setMessages((prev) => [
-                    ...prev,
-                    {
-                        key: nextKey(),
-                        role: 'assistant',
-                        content: 'Something went wrong sending that. Please try again.',
-                        createdAt: new Date().toISOString(),
-                    },
-                ]);
+            } catch (e) {
+                const aborted = e instanceof DOMException && e.name === 'AbortError';
+                patch((m) => ({
+                    ...m,
+                    streaming: false,
+                    stopped: aborted && !!m.content,
+                    content:
+                        m.content ||
+                        (aborted ? 'Stopped.' : 'Something went wrong sending that. Please try again.'),
+                }));
+                // A stopped turn still persisted server-side — refresh the list.
+                fetchAssistantSessions().then(setSessions).catch(() => {});
             } finally {
                 setSending(false);
+                abortRef.current = null;
             }
         },
         [sending, sessionId],
     );
+
+    /** Stop the in-flight reply (aborts the fetch → the route aborts upstream). */
+    const stop = useCallback(() => abortRef.current?.abort(), []);
 
     const mic = useChatMic(
         (text) => setInput((cur) => (cur ? `${cur} ${text}` : text)),
@@ -736,20 +804,42 @@ export function AssistantChat({
                                     }
                                 >
                                     {m.role === 'assistant' ? (
-                                        <AssistantText text={m.content} onNavigate={handleNavigate} />
+                                        m.streaming && !m.content ? (
+                                            // Pre-first-token: typing dots inside the bubble.
+                                            <span className="flex items-center gap-1.5 py-0.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce [animation-delay:0ms]" />
+                                                <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce [animation-delay:150ms]" />
+                                                <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce [animation-delay:300ms]" />
+                                            </span>
+                                        ) : (
+                                            <>
+                                                <AssistantText text={m.content} onNavigate={handleNavigate} />
+                                                {m.streaming && (
+                                                    // Live cursor while tokens keep arriving.
+                                                    <span className="inline-block w-[2px] h-[0.95em] align-[-0.15em] bg-ink-1 ml-0.5 animate-pulse" />
+                                                )}
+                                                {m.stopped && (
+                                                    <span className="block text-[10px] text-ink-2 mt-1">— stopped</span>
+                                                )}
+                                            </>
+                                        )
                                     ) : (
                                         m.content
                                     )}
                                 </div>
-                                {/* Timestamp + copy + tool chips under the bubble */}
+                                {/* Timestamp + copy + tool chips under the bubble. Tool chips
+                                    show live (tools run before text); timestamp/copy wait until
+                                    the reply is complete so a streaming bubble stays clean. */}
                                 <div
                                     className={cn(
                                         'flex flex-wrap items-center gap-1.5 mt-1 px-1',
                                         m.role === 'user' && 'flex-row-reverse',
                                     )}
                                 >
-                                    <span className="text-[9.5px] text-ink-2">{timeLabel(m.createdAt)}</span>
-                                    {m.role === 'assistant' && (
+                                    {!m.streaming && (
+                                        <span className="text-[9.5px] text-ink-2">{timeLabel(m.createdAt)}</span>
+                                    )}
+                                    {m.role === 'assistant' && !m.streaming && m.content && (
                                         <button
                                             type="button"
                                             aria-label="Copy reply"
@@ -775,14 +865,7 @@ export function AssistantChat({
                         </motion.div>
                     );
                 })}
-
-                {sending && (
-                    <div className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-bg-card border border-line-soft w-fit">
-                        <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce [animation-delay:0ms]" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce [animation-delay:150ms]" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce [animation-delay:300ms]" />
-                    </div>
-                )}
+                {/* (typing dots + live cursor now render inside the streaming bubble) */}
             </div>
 
             {/* Composer */}
@@ -823,30 +906,43 @@ export function AssistantChat({
                     >
                         <MicIcon size={16} />
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => send(input)}
-                        disabled={sending || !input.trim()}
-                        aria-label="Send"
-                        className={cn(
-                            'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
-                            input.trim() && !sending
-                                ? 'text-[#1a120a] cursor-pointer hover:scale-105'
-                                : 'text-ink-2 bg-bg-2 cursor-default',
-                        )}
-                        style={
-                            input.trim() && !sending
-                                ? {
-                                      background:
-                                          'linear-gradient(135deg, oklch(0.85 0.14 90), oklch(0.65 0.16 78))',
-                                  }
-                                : undefined
-                        }
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                        </svg>
-                    </button>
+                    {sending ? (
+                        // While a reply streams, the send button becomes Stop.
+                        <button
+                            type="button"
+                            onClick={stop}
+                            aria-label="Stop generating"
+                            title="Stop"
+                            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-bg-2 text-ink-1 hover:text-ink-0 transition-all cursor-pointer"
+                        >
+                            <span className="w-3 h-3 rounded-[3px] bg-current" />
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => send(input)}
+                            disabled={!input.trim()}
+                            aria-label="Send"
+                            className={cn(
+                                'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
+                                input.trim()
+                                    ? 'text-[#1a120a] cursor-pointer hover:scale-105'
+                                    : 'text-ink-2 bg-bg-2 cursor-default',
+                            )}
+                            style={
+                                input.trim()
+                                    ? {
+                                          background:
+                                              'linear-gradient(135deg, oklch(0.85 0.14 90), oklch(0.65 0.16 78))',
+                                      }
+                                    : undefined
+                            }
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                            </svg>
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

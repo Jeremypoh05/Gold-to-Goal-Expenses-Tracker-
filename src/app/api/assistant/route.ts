@@ -1,0 +1,120 @@
+// ADDED (AI Assistant · Slice 1 polish v3, user feedback): streaming endpoint so
+// the reply appears line-by-line as it's generated (not after the full turn), and
+// the user can stop early. Server Actions don't stream token-by-token, so the live
+// chat uses this SSE route; the non-streaming sendAssistantMessage action stays as
+// a fallback + the headless smoke path. Auth is enforced by Clerk middleware
+// (proxy.ts protects /api/*) + the auth() check here; reads/writes are userId-scoped.
+import { auth } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/db";
+import { runAssistantTurnStreaming, type AssistantHistoryMessage } from "@/lib/assistant/engine";
+
+// Prisma needs the Node runtime (not edge); always dynamic (per-user, streamed).
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request): Promise<Response> {
+  const { userId } = await auth();
+  if (!userId) return new Response("Unauthorized", { status: 401 });
+
+  let body: { sessionId?: number | null; message?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response("Bad request", { status: 400 });
+  }
+  const message = String(body.message ?? "").trim().slice(0, 2000);
+  if (!message) return new Response("Empty message", { status: 400 });
+
+  // Resolve (and own-check) the session, creating one on first message — same
+  // logic as sendAssistantMessage so both paths behave identically.
+  let sessionId = typeof body.sessionId === "number" ? body.sessionId : null;
+  let history: AssistantHistoryMessage[] = [];
+  if (sessionId != null) {
+    const session = await prisma.chatSession.findFirst({
+      where: { id: sessionId, userId },
+      include: { messages: { orderBy: { createdAt: "asc" }, take: 40 } },
+    });
+    if (!session) sessionId = null;
+    else {
+      history = session.messages.map((m) => ({
+        role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+        content: m.content,
+      }));
+    }
+  }
+  if (sessionId == null) {
+    const created = await prisma.chatSession.create({
+      data: { userId, title: message.slice(0, 60) },
+    });
+    sessionId = created.id;
+  }
+  const sid: number = sessionId;
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+      const send = (obj: unknown): boolean => {
+        if (closed) return false;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+          return true;
+        } catch {
+          // Client disconnected — stop trying to write.
+          closed = true;
+          return false;
+        }
+      };
+
+      // Tell the client its (possibly new) session id up front.
+      send({ type: "session", sessionId: sid });
+
+      let full = "";
+      const toolsUsed: string[] = [];
+      try {
+        for await (const ev of runAssistantTurnStreaming(userId, history, message, {
+          signal: req.signal,
+        })) {
+          if (ev.type === "text") {
+            full += ev.text;
+            if (!send({ type: "text", text: ev.text })) break;
+          } else if (ev.type === "tool") {
+            toolsUsed.push(ev.name);
+            send({ type: "tool", name: ev.name });
+          } else if (ev.type === "error") {
+            send({ type: "error" });
+          }
+        }
+      } catch {
+        send({ type: "error" });
+      }
+
+      // Persist the turn (user msg always; assistant msg only if any text landed,
+      // so a stopped-before-any-output turn doesn't save a blank reply). Best-effort.
+      try {
+        const reply = full.trim();
+        await prisma.$transaction([
+          prisma.chatMessage.create({ data: { sessionId: sid, role: "user", content: message } }),
+          ...(reply
+            ? [prisma.chatMessage.create({ data: { sessionId: sid, role: "assistant", content: reply } })]
+            : []),
+          prisma.chatSession.update({ where: { id: sid }, data: { updatedAt: new Date() } }),
+        ]);
+      } catch {
+        /* persistence hiccup — the live reply already reached the user */
+      }
+
+      send({ type: "done", toolsUsed });
+      if (!closed) controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
