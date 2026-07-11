@@ -7,6 +7,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { runAssistantTurn, type AssistantHistoryMessage } from "@/lib/assistant/engine";
+import { createExpense, updateExpense, deleteExpense } from "@/lib/actions";
+import {
+  WRITABLE_CATEGORIES,
+  type AssistantActionInput,
+  type AssistantActionResult,
+  type ExpenseFields,
+  type Proposal,
+} from "@/lib/assistant/types";
+import type { Currency } from "@/types";
 
 async function requireUserId(): Promise<string> {
   const { userId } = await auth();
@@ -33,6 +42,7 @@ export interface SendAssistantMessageResult {
   sessionId: number;
   reply: string;
   toolsUsed: string[];
+  proposals: Proposal[];
   error?: string;
 }
 
@@ -48,7 +58,7 @@ export async function sendAssistantMessage(input: {
   const userId = await requireUserId();
   const message = input.message.trim().slice(0, 2000);
   if (!message) {
-    return { ok: false, sessionId: input.sessionId ?? 0, reply: "", toolsUsed: [], error: "empty" };
+    return { ok: false, sessionId: input.sessionId ?? 0, reply: "", toolsUsed: [], proposals: [], error: "empty" };
   }
 
   // Resolve (and own-check) the session, creating one on first message.
@@ -94,8 +104,87 @@ export async function sendAssistantMessage(input: {
     sessionId: sid,
     reply: result.reply,
     toolsUsed: result.toolsUsed,
+    proposals: result.proposals,
     ...(result.error && { error: result.error }),
   };
+}
+
+// ── WRITE execution (Slice 2) ────────────────────────────────
+// The confirm cards call this on tap. The proposal built by the write tools is NOT
+// trusted blindly — every path routes through createExpense/updateExpense/
+// deleteExpense, which re-check auth() AND ownership by userId, so a tampered id or
+// field can't touch another user's data. `fields` carries the FINAL values (either
+// the AI's proposal or the user's manual edits in the VoiceEntryEditor).
+
+const CURRENCY_SYMBOL: Record<string, string> = { SGD: "S$", MYR: "RM", CNY: "¥", USD: "$" };
+const fmtMoney = (amount: number, currency: string) =>
+  `${CURRENCY_SYMBOL[currency] ?? ""}${amount.toFixed(2)}`;
+
+/** Validate + coerce client-supplied fields (defense-in-depth over the tool schema). */
+function sanitizeFields(f: ExpenseFields): ExpenseFields | null {
+  const amount = Number(f.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (!WRITABLE_CATEGORIES.includes(f.category)) return null;
+  const currency: Currency = (["SGD", "MYR", "CNY", "USD"] as Currency[]).includes(f.currency)
+    ? f.currency
+    : "SGD";
+  return {
+    amount,
+    currency,
+    category: f.category,
+    note: typeof f.note === "string" ? f.note.slice(0, 500) : "",
+    tags: Array.isArray(f.tags) ? f.tags.slice(0, 20).map(String) : [],
+    spentAt: typeof f.spentAt === "string" && f.spentAt ? f.spentAt : null,
+  };
+}
+
+export async function executeAssistantAction(
+  action: AssistantActionInput,
+): Promise<AssistantActionResult> {
+  await requireUserId();
+  try {
+    if (action.kind === "create_expense") {
+      const f = sanitizeFields(action.fields);
+      if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await createExpense(
+        {
+          amount: f.amount,
+          category: f.category,
+          currency: f.currency,
+          note: f.note,
+          tags: f.tags,
+          ...(f.spentAt && { spentAt: f.spentAt }),
+          source: "manual",
+        },
+        action.overrideClosed ?? false,
+      );
+      return { ok: true, summary: `Added ${fmtMoney(f.amount, f.currency)} · ${f.category}` };
+    }
+
+    if (action.kind === "update_expense") {
+      const f = sanitizeFields(action.fields);
+      if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await updateExpense(
+        action.expenseId,
+        {
+          amount: f.amount,
+          category: f.category,
+          currency: f.currency,
+          note: f.note,
+          tags: f.tags,
+          ...(f.spentAt && { spentAt: f.spentAt }),
+        },
+        action.overrideClosed ?? false,
+      );
+      return { ok: true, summary: `Updated to ${fmtMoney(f.amount, f.currency)} · ${f.category}` };
+    }
+
+    // delete_expense — deleteExpense refuses closed months on its own.
+    await deleteExpense(action.expenseId);
+    return { ok: true, summary: "Deleted" };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Something went wrong saving that." };
+  }
 }
 
 /** Recent chat sessions — pinned first, then newest. Powers the history list. */

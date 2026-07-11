@@ -81,6 +81,10 @@ export async function POST(req: Request): Promise<Response> {
           } else if (ev.type === "tool") {
             toolsUsed.push(ev.name);
             send({ type: "tool", name: ev.name });
+          } else if (ev.type === "proposal") {
+            // A WRITE proposal — the chat renders a confirm card; nothing is saved
+            // until the user taps Confirm (→ executeAssistantAction).
+            send({ type: "proposal", proposal: ev.proposal });
           } else if (ev.type === "error") {
             send({ type: "error" });
           }

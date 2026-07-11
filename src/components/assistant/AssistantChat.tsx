@@ -26,9 +26,12 @@ import {
     WalletIcon,
     RepeatIcon,
     HomeIcon,
+    CategoryTile,
 } from '@/components/icons';
 import { useConfirm } from '@/components/shared';
 import { cn } from '@/lib/utils';
+import { CATEGORIES } from '@/data/categories';
+import { VoiceEntryEditor, type VoiceEntryValue } from '@/components/voice/VoiceEntryEditor';
 import {
     fetchAssistantSessions,
     fetchAssistantMessages,
@@ -36,8 +39,10 @@ import {
     renameAssistantSession,
     setAssistantSessionPinned,
     transcribeChatAudio,
+    executeAssistantAction,
     type AssistantSessionSummary,
 } from '@/lib/assistant-actions';
+import type { Proposal, ExpenseFields } from '@/lib/assistant/types';
 
 interface ChatMessage {
     key: string;
@@ -47,6 +52,7 @@ interface ChatMessage {
     toolsUsed?: string[];
     streaming?: boolean; // reply is still arriving (show cursor / dots)
     stopped?: boolean; // user hit Stop mid-reply
+    proposals?: Proposal[]; // ADDED (Slice 2): WRITE proposals → confirm cards under the reply
 }
 
 // Friendly labels for the "looked at your data" chips under a reply.
@@ -388,6 +394,298 @@ function SessionRow({
     );
 }
 
+// ── confirm cards (Slice 2) ──────────────────────────────────
+// A WRITE the agent proposed. NOTHING is saved until the user taps Confirm here
+// (→ executeAssistantAction). Create/edit offer "Edit manually" → the same
+// VoiceEntryEditor the voice/manual flows use, pre-filled with the proposed values.
+
+const CARD_CURRENCY_SYMBOL: Record<string, string> = { SGD: 'S$', MYR: 'RM', CNY: '¥', USD: '$' };
+const money = (amount: number, currency: string) =>
+    `${CARD_CURRENCY_SYMBOL[currency] ?? ''}${amount.toFixed(2)}`;
+
+function proposalDate(iso: string | null): string {
+    if (!iso) return 'today';
+    const d = new Date(iso);
+    const now = new Date();
+    return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        ...(d.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+    });
+}
+
+/** The proposed expense at a glance — category tile + amount + note + date + tags. */
+function ExpensePreview({ f }: { f: ExpenseFields }) {
+    return (
+        <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 flex-shrink-0">
+                <CategoryTile kind={f.category} size={26} variant="filled" />
+            </div>
+            <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-[15px] font-semibold mono">{money(f.amount, f.currency)}</span>
+                    <span className="text-[11px] text-ink-2">{CATEGORIES[f.category]?.label ?? f.category}</span>
+                </div>
+                {f.note && <div className="text-[12px] text-ink-1 mt-0.5 break-words">{f.note}</div>}
+                <div className="text-[10.5px] text-ink-2 mt-0.5">{proposalDate(f.spentAt)}</div>
+                {f.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                        {f.tags.map((t) => (
+                            <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-2 text-ink-2">
+                                #{t}
+                            </span>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+type CardStatus = 'idle' | 'editing' | 'saving' | 'done' | 'cancelled' | 'error';
+
+function ProposalCard({
+    proposal,
+    onNavigate,
+    onWritten,
+}: {
+    proposal: Proposal;
+    onNavigate: (target: NavTarget) => void;
+    onWritten: () => void;
+}) {
+    const [status, setStatus] = useState<CardStatus>('idle');
+    const [resultSummary, setResultSummary] = useState('');
+    const [error, setError] = useState('');
+
+    const kind = proposal.kind;
+    const isDelete = kind === 'delete_expense';
+    const isCreate = kind === 'create_expense';
+    const closed = proposal.closedMonth ?? null;
+    const deleteBlocked = isDelete && !!closed; // a closed month's rows can't be deleted
+
+    // The final values written on confirm (create → create; update → after; delete → target).
+    const fields: ExpenseFields | null = isCreate
+        ? proposal.create ?? null
+        : kind === 'update_expense'
+          ? proposal.after ?? null
+          : proposal.target ?? null;
+
+    const run = async (finalFields?: ExpenseFields) => {
+        setStatus('saving');
+        setError('');
+        try {
+            let res;
+            if (isCreate) {
+                res = await executeAssistantAction({
+                    kind: 'create_expense',
+                    fields: finalFields ?? proposal.create!,
+                    overrideClosed: !!closed,
+                });
+            } else if (kind === 'update_expense') {
+                res = await executeAssistantAction({
+                    kind: 'update_expense',
+                    expenseId: proposal.expenseId!,
+                    fields: finalFields ?? proposal.after!,
+                    overrideClosed: !!closed,
+                });
+            } else {
+                res = await executeAssistantAction({ kind: 'delete_expense', expenseId: proposal.expenseId! });
+            }
+            if (res.ok) {
+                setResultSummary(res.summary ?? 'Done');
+                setStatus('done');
+                onWritten();
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong saving that.');
+            setStatus('error');
+        }
+    };
+
+    // Resolved: a compact one-line chip in place of the card.
+    if (status === 'done') {
+        return (
+            <div className="flex items-center gap-1.5 text-[11.5px] text-emerald-600 dark:text-emerald-400 mt-1.5 px-1">
+                <CheckMark size={13} />
+                <span>{resultSummary}</span>
+            </div>
+        );
+    }
+    if (status === 'cancelled') {
+        return <div className="text-[11px] text-ink-2 mt-1.5 px-1">✕ Dismissed</div>;
+    }
+
+    // Manual-edit fallback: the universal VoiceEntryEditor, pre-filled with the proposal.
+    if (status === 'editing' && fields) {
+        return (
+            <div className="mt-2">
+                <VoiceEntryEditor
+                    initial={{
+                        amt: fields.amount,
+                        currency: fields.currency,
+                        cat: fields.category,
+                        note: fields.note,
+                        tags: fields.tags,
+                        spentAt: fields.spentAt,
+                    }}
+                    showDateTime
+                    showTags
+                    saveLabel={isCreate ? 'Add expense' : 'Save changes'}
+                    onCancel={() => setStatus('idle')}
+                    onSave={(v: VoiceEntryValue) =>
+                        run({
+                            amount: v.amt,
+                            currency: v.currency,
+                            category: v.cat,
+                            note: v.note,
+                            tags: v.tags,
+                            spentAt: v.spentAt,
+                        })
+                    }
+                />
+            </div>
+        );
+    }
+
+    const HeaderIcon = isCreate ? PlusIcon : isDelete ? TrashIcon : EditIcon;
+    const heading = isCreate ? 'Add expense' : isDelete ? 'Delete expense' : 'Edit expense';
+    const saving = status === 'saving';
+
+    return (
+        <div
+            className={cn(
+                'mt-2 rounded-2xl border p-3 flex flex-col gap-2.5',
+                isDelete ? 'border-red-500/40' : 'border-gold-500/40',
+            )}
+            style={{ background: 'var(--color-bg-card)' }}
+        >
+            {/* Header */}
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-2">
+                <HeaderIcon size={13} />
+                {heading}
+                <span className="ml-auto normal-case tracking-normal font-normal text-[10px] text-ink-3">
+                    Needs your OK
+                </span>
+            </div>
+
+            {/* Body */}
+            {fields && <ExpensePreview f={fields} />}
+
+            {/* before → after context for edits */}
+            {kind === 'update_expense' && proposal.before && (
+                <div className="text-[10.5px] text-ink-2 border-t border-line-soft pt-1.5">
+                    Was {money(proposal.before.amount, proposal.before.currency)} ·{' '}
+                    {CATEGORIES[proposal.before.category]?.label ?? proposal.before.category}
+                    {proposal.before.note ? ` · ${proposal.before.note}` : ''}
+                </div>
+            )}
+
+            {/* recurring caution */}
+            {proposal.recurringWarning && (
+                <div className="text-[10.5px] text-ink-2 leading-relaxed rounded-lg px-2 py-1.5 bg-bg-2">
+                    ↻ This is a recurring entry — {isDelete ? 'deleting' : 'editing'} affects only this month.
+                    To change the rule across months, use the Recurring page.
+                </div>
+            )}
+
+            {/* closed-month caution */}
+            {closed && (
+                <div className="text-[10.5px] leading-relaxed rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-400 bg-amber-500/10">
+                    {deleteBlocked
+                        ? `${closed} is closed — reopen it on the Ledger page to delete this.`
+                        : `${closed} is closed. Confirming will write into it (the month stays closed).`}
+                </div>
+            )}
+
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-0.5">
+                {deleteBlocked ? (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => onNavigate('ledger')}
+                            className="inline-flex items-center gap-1.5 text-[11.5px] font-medium px-3 py-1.5 rounded-full border border-gold-500/60 text-on-soft cursor-pointer hover:brightness-[1.03] transition-all"
+                            style={{ background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))' }}
+                        >
+                            <GridIcon size={13} /> Open Ledger
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setStatus('cancelled')}
+                            className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer"
+                        >
+                            Dismiss
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => run()}
+                            className={cn(
+                                'inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60',
+                                isDelete
+                                    ? 'bg-red-500 text-white hover:brightness-105 cursor-pointer'
+                                    : 'text-[#1a120a] cursor-pointer hover:brightness-[1.03]',
+                            )}
+                            style={
+                                isDelete
+                                    ? undefined
+                                    : { background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' }
+                            }
+                        >
+                            {saving ? (
+                                'Saving…'
+                            ) : isDelete ? (
+                                <>
+                                    <TrashIcon size={13} /> Delete
+                                </>
+                            ) : (
+                                <>
+                                    <CheckMark size={13} /> {closed ? (isCreate ? 'Add anyway' : 'Save anyway') : 'Confirm'}
+                                </>
+                            )}
+                        </button>
+                        {!isDelete && (
+                            <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => setStatus('editing')}
+                                className="inline-flex items-center gap-1 text-[11.5px] font-medium px-3 py-1.5 rounded-full border border-line text-ink-1 hover:border-ink-2 transition-all cursor-pointer disabled:opacity-60"
+                            >
+                                <EditIcon size={12} /> Edit
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => setStatus('cancelled')}
+                            className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60"
+                        >
+                            Cancel
+                        </button>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/** Small check glyph for confirm buttons / done chips. */
+function CheckMark({ size = 13 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12 L10 17 L19 7" />
+        </svg>
+    );
+}
+
 // ── the chat core ────────────────────────────────────────────
 
 export function AssistantChat({
@@ -512,7 +810,13 @@ export function AssistantChat({
                     for (const part of parts) {
                         const line = part.trim();
                         if (!line.startsWith('data:')) continue;
-                        let data: { type: string; text?: string; name?: string; sessionId?: number };
+                        let data: {
+                            type: string;
+                            text?: string;
+                            name?: string;
+                            sessionId?: number;
+                            proposal?: Proposal;
+                        };
                         try {
                             data = JSON.parse(line.slice(5).trim());
                         } catch {
@@ -524,6 +828,9 @@ export function AssistantChat({
                             patch((m) => ({ ...m, content: m.content + data.text }));
                         } else if (data.type === 'tool' && data.name) {
                             patch((m) => ({ ...m, toolsUsed: [...(m.toolsUsed ?? []), data.name!] }));
+                        } else if (data.type === 'proposal' && data.proposal) {
+                            const p = data.proposal;
+                            patch((m) => ({ ...m, proposals: [...(m.proposals ?? []), p] }));
                         } else if (data.type === 'error') {
                             streamErrored = true;
                         }
@@ -728,8 +1035,11 @@ export function AssistantChat({
                 </div>
             )}
 
-            {/* Thread */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-3 flex flex-col gap-3 min-h-0">
+            {/* Thread — messages anchor to the BOTTOM (mt-auto on the list) so a
+                short conversation sits just above the composer instead of leaving
+                a big gap; when it overflows, mt-auto collapses and it scrolls from
+                the top normally. */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-3 flex flex-col min-h-0">
                 {messages.length === 0 && !sending && (
                     <div className="flex flex-col items-center justify-center flex-1 text-center px-4 gap-3">
                         <div
@@ -760,6 +1070,8 @@ export function AssistantChat({
                     </div>
                 )}
 
+                {messages.length > 0 && (
+                <div className="mt-auto flex flex-col gap-3 pt-3">
                 {messages.map((m, i) => {
                     // ADDED (Slice 1 polish): date separator whenever the calendar
                     // day changes between consecutive messages — the "timeline".
@@ -861,10 +1173,25 @@ export function AssistantChat({
                                             </span>
                                         ))}
                                 </div>
+                                {/* WRITE confirm cards (Slice 2) — nothing saves until tapped. */}
+                                {m.role === 'assistant' && m.proposals && m.proposals.length > 0 && (
+                                    <div className="w-full flex flex-col gap-1">
+                                        {m.proposals.map((p) => (
+                                            <ProposalCard
+                                                key={p.id}
+                                                proposal={p}
+                                                onNavigate={handleNavigate}
+                                                onWritten={() => router.refresh()}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
                     );
                 })}
+                </div>
+                )}
                 {/* (typing dots + live cursor now render inside the streaming bubble) */}
             </div>
 

@@ -10,8 +10,10 @@ import {
   recurringMonthlyIncome,
   toUiSalaryPeriod,
   toUiIncomeSource,
+  normalizeTags,
 } from "@/lib/expense-utils";
-import type { CategoryKey } from "@/types";
+import type { CategoryKey, Currency } from "@/types";
+import { WRITABLE_CATEGORIES, type ExpenseFields, type Proposal } from "./types";
 
 const ALL_CATEGORIES: CategoryKey[] = [
   "food",
@@ -23,6 +25,19 @@ const ALL_CATEGORIES: CategoryKey[] = [
   "family",
   "other",
 ];
+
+const WRITABLE_CURRENCIES: Currency[] = ["SGD", "MYR", "CNY", "USD"];
+
+// ADDED (Slice 2): WRITE tools return this instead of writing. The engine pulls the
+// proposal out to render a confirm card, and feeds `modelResult` back to the model
+// as the tool_result (so it knows the change is pending, not done).
+export interface WriteToolOutput {
+  proposal: Proposal;
+  modelResult: string;
+}
+export function isWriteToolOutput(x: unknown): x is WriteToolOutput {
+  return typeof x === "object" && x !== null && "proposal" in x && "modelResult" in x;
+}
 
 // ── helpers ──────────────────────────────────────────────────
 
@@ -138,7 +153,66 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
       "The user's saved lifestyle/priority preferences (e.g. 'gaming brings me joy', 'travel matters more than dining'). ALWAYS check before giving spending suggestions so advice respects what they value.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
+
+  // ── WRITE tools (Slice 2) ──────────────────────────────────
+  // These do NOT save anything — they PROPOSE a change that the user confirms on a
+  // card in the chat. Gather precise values, call the tool, then ask the user to
+  // review & confirm; never claim the change is already done.
+  {
+    name: "create_expense",
+    description:
+      "Propose ADDING one new expense to the ledger. Does NOT save — the user confirms a card in the chat first. Use when the user asks to log/add/record a spend. Provide as many details as you can infer; leave date blank for today.",
+    input_schema: {
+      type: "object",
+      properties: {
+        amount: { type: "number", description: "The amount spent (positive)." },
+        category: { type: "string", enum: WRITABLE_CATEGORIES, description: "Best-fit spending category." },
+        currency: { type: "string", enum: WRITABLE_CURRENCIES, description: "Currency (default SGD)." },
+        note: { type: "string", description: "Short description, e.g. 'chicken rice at Maxwell'." },
+        tags: { type: "array", items: { type: "string" }, description: "Optional tags, e.g. ['lunch','work']." },
+        date: { type: "string", description: "Date YYYY-MM-DD. Omit for today." },
+      },
+      required: ["amount", "category"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_expense",
+    description:
+      "Propose EDITING an existing expense. Does NOT save — the user confirms a before→after card first. You MUST pass the expense `id` (get it from find_expenses). Only the fields you include change; you can change several at once (amount, category, currency, note, tags, date). Note: to change a RECURRING rule across months, don't use this — recurring-rule editing isn't available from chat yet.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "The id of the expense to edit (from find_expenses)." },
+        amount: { type: "number", description: "New amount." },
+        category: { type: "string", enum: WRITABLE_CATEGORIES, description: "New category." },
+        currency: { type: "string", enum: WRITABLE_CURRENCIES, description: "New currency." },
+        note: { type: "string", description: "New note text." },
+        tags: { type: "array", items: { type: "string" }, description: "REPLACES all tags on the expense." },
+        date: { type: "string", description: "New date YYYY-MM-DD." },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_expense",
+    description:
+      "Propose DELETING an existing expense. Does NOT delete — the user confirms first. You MUST pass the expense `id` (from find_expenses). If several rows could match, ask which one instead of guessing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "The id of the expense to delete (from find_expenses)." },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
 ];
+
+/** Names of the tools that mutate — used by the engine to route their output to a
+ *  confirm card (and by the smoke script) rather than treating it as a read result. */
+export const WRITE_TOOL_NAMES = new Set(["create_expense", "update_expense", "delete_expense"]);
 
 // ── executors ────────────────────────────────────────────────
 
@@ -459,6 +533,221 @@ async function getPreferences(userId: string) {
   };
 }
 
+// ── write proposals (Slice 2) ────────────────────────────────
+// Each builds a self-contained Proposal (no DB writes). The engine assigns the
+// real proposal.id (the tool_use block id) after these return.
+
+const CURRENCY_SYMBOL: Record<Currency, string> = { SGD: "S$", MYR: "RM", CNY: "¥", USD: "$" };
+const fmtMoney = (amount: number, currency: Currency) =>
+  `${CURRENCY_SYMBOL[currency] ?? ""}${amount.toFixed(2)}`;
+
+/** "YYYY-MM" if that calendar month is hard-closed for the user, else null. */
+async function closedMonthKey(userId: string, d: Date): Promise<string | null> {
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  const row = await prisma.monthClose.findUnique({
+    where: { userId_year_month: { userId, year, month } },
+  });
+  return row ? fmtYM(year, month) : null;
+}
+
+/** Parse an agent-supplied YYYY-MM-DD to local noon (avoids day-boundary TZ drift). */
+function parseSpendDate(s: unknown): Date | null {
+  const d = parseDay(s);
+  if (!d) return null;
+  d.setHours(12, 0, 0, 0);
+  return d;
+}
+
+function pickCategory(v: unknown): CategoryKey | null {
+  return typeof v === "string" && WRITABLE_CATEGORIES.includes(v as CategoryKey)
+    ? (v as CategoryKey)
+    : null;
+}
+function pickCurrency(v: unknown): Currency | null {
+  return typeof v === "string" && WRITABLE_CURRENCIES.includes(v as Currency) ? (v as Currency) : null;
+}
+
+/** A shared "not a proposal" shape so Claude can recover (ask again / re-search). */
+type ToolError = { error: string };
+
+async function proposeCreateExpense(
+  userId: string,
+  input: ToolInput,
+  now: Date,
+): Promise<WriteToolOutput | ToolError> {
+  const amount = toNum(input.amount);
+  if (amount == null || amount <= 0) return { error: "amount must be a positive number" };
+  const category = pickCategory(input.category);
+  if (!category) return { error: `category must be one of: ${WRITABLE_CATEGORIES.join(", ")}` };
+  const currency = pickCurrency(input.currency) ?? "SGD";
+
+  let when = now;
+  if (input.date != null) {
+    const parsed = parseSpendDate(input.date);
+    if (!parsed) return { error: "date must be YYYY-MM-DD" };
+    when = parsed;
+  }
+  const tags = normalizeTags(Array.isArray(input.tags) ? (input.tags as string[]) : []);
+  const note = typeof input.note === "string" ? input.note.trim() : "";
+  const fields: ExpenseFields = { amount, currency, category, note, tags, spentAt: when.toISOString() };
+  const closedMonth = await closedMonthKey(userId, when);
+
+  return {
+    proposal: {
+      id: "",
+      kind: "create_expense",
+      summary: `Add ${fmtMoney(amount, currency)} · ${category}${note ? ` · ${note}` : ""}`,
+      closedMonth,
+      create: fields,
+    },
+    modelResult:
+      "Add-expense proposal is on screen as a confirmation card — nothing is saved yet. " +
+      "Briefly ask the user to review and Confirm it (don't restate every field)." +
+      (closedMonth ? ` Note: ${closedMonth} is closed; the card lets them add anyway or cancel.` : ""),
+  };
+}
+
+/** Build ExpenseFields from a DB row. */
+function rowToFields(r: {
+  amount: unknown;
+  currency: string;
+  category: string;
+  note: string | null;
+  tags: string[];
+  spentAt: Date;
+}): ExpenseFields {
+  return {
+    amount: Number(r.amount),
+    currency: r.currency as Currency,
+    category: r.category as CategoryKey,
+    note: r.note ?? "",
+    tags: r.tags,
+    spentAt: r.spentAt.toISOString(),
+  };
+}
+
+async function proposeUpdateExpense(
+  userId: string,
+  input: ToolInput,
+): Promise<WriteToolOutput | ToolError> {
+  const id = toNum(input.id);
+  if (id == null || !Number.isInteger(id)) {
+    return { error: "pass the numeric id of the expense (from find_expenses)" };
+  }
+  const row = await prisma.expense.findFirst({
+    where: { id, userId },
+    select: {
+      id: true, amount: true, currency: true, category: true,
+      note: true, tags: true, spentAt: true, fixed: true, fixedSourceId: true,
+    },
+  });
+  if (!row) return { error: "no expense with that id — call find_expenses to get the right id" };
+
+  const before = rowToFields(row);
+  const after: ExpenseFields = { ...before };
+  let changed = false;
+
+  if (input.amount !== undefined) {
+    const a = toNum(input.amount);
+    if (a == null || a <= 0) return { error: "amount must be a positive number" };
+    after.amount = a; changed = true;
+  }
+  if (input.category !== undefined) {
+    const c = pickCategory(input.category);
+    if (!c) return { error: `category must be one of: ${WRITABLE_CATEGORIES.join(", ")}` };
+    after.category = c; changed = true;
+  }
+  if (input.currency !== undefined) {
+    const cur = pickCurrency(input.currency);
+    if (!cur) return { error: `currency must be one of: ${WRITABLE_CURRENCIES.join(", ")}` };
+    after.currency = cur; changed = true;
+  }
+  if (input.note !== undefined) {
+    after.note = typeof input.note === "string" ? input.note.trim() : "";
+    changed = true;
+  }
+  if (input.tags !== undefined) {
+    after.tags = normalizeTags(Array.isArray(input.tags) ? (input.tags as string[]) : []);
+    changed = true;
+  }
+  if (input.date !== undefined) {
+    const parsed = parseSpendDate(input.date);
+    if (!parsed) return { error: "date must be YYYY-MM-DD" };
+    after.spentAt = parsed.toISOString();
+    changed = true;
+  }
+  if (!changed) return { error: "no changes given — say what to change (amount, category, note, tags, date…)" };
+
+  // Either the row's current month or (if the date moves) the target month being
+  // closed will block the edit — surface whichever is closed so the card can warn.
+  const curClosed = await closedMonthKey(userId, new Date(before.spentAt!));
+  const newClosed =
+    after.spentAt !== before.spentAt ? await closedMonthKey(userId, new Date(after.spentAt!)) : null;
+  const closedMonth = curClosed ?? newClosed;
+  const recurringWarning = row.fixed || row.fixedSourceId != null;
+
+  return {
+    proposal: {
+      id: "",
+      kind: "update_expense",
+      summary: `Update ${fmtMoney(before.amount, before.currency)} · ${before.category}`,
+      closedMonth,
+      recurringWarning,
+      expenseId: row.id,
+      before,
+      after,
+    },
+    modelResult:
+      "Edit proposal (before→after) is on screen as a confirmation card — nothing is saved yet. " +
+      "Ask the user to review and Confirm." +
+      (recurringWarning
+        ? " Heads-up: this row was generated by a recurring rule, so confirming changes ONLY this month (the rule stays as-is; recurring-rule editing from chat is coming soon)."
+        : "") +
+      (closedMonth ? ` Note: ${closedMonth} is closed; the card lets them edit anyway or cancel.` : ""),
+  };
+}
+
+async function proposeDeleteExpense(
+  userId: string,
+  input: ToolInput,
+): Promise<WriteToolOutput | ToolError> {
+  const id = toNum(input.id);
+  if (id == null || !Number.isInteger(id)) {
+    return { error: "pass the numeric id of the expense (from find_expenses)" };
+  }
+  const row = await prisma.expense.findFirst({
+    where: { id, userId },
+    select: {
+      id: true, amount: true, currency: true, category: true,
+      note: true, tags: true, spentAt: true, fixed: true, fixedSourceId: true,
+    },
+  });
+  if (!row) return { error: "no expense with that id — call find_expenses to get the right id" };
+
+  const target = rowToFields(row);
+  const closedMonth = await closedMonthKey(userId, row.spentAt);
+  const recurringWarning = row.fixed || row.fixedSourceId != null;
+
+  return {
+    proposal: {
+      id: "",
+      kind: "delete_expense",
+      summary: `Delete ${fmtMoney(target.amount, target.currency)} · ${target.category}${target.note ? ` · ${target.note}` : ""}`,
+      closedMonth,
+      recurringWarning,
+      expenseId: row.id,
+      target,
+    },
+    modelResult: closedMonth
+      ? `That expense is in a closed month (${closedMonth}); it can't be deleted until the month is reopened on the Ledger page. Tell the user gently.`
+      : "Delete proposal is on screen as a confirmation card — nothing is deleted yet. Ask the user to confirm." +
+        (recurringWarning
+          ? " Note: this row came from a recurring rule; deleting it removes only this month's entry."
+          : ""),
+  };
+}
+
 /** Run one tool by name; the engine wraps this per tool_use block. */
 export async function executeAssistantTool(
   userId: string,
@@ -481,6 +770,13 @@ export async function executeAssistantTool(
       return getClosedMonths(userId);
     case "get_preferences":
       return getPreferences(userId);
+    // WRITE tools (Slice 2) — return a proposal (no DB write); engine → confirm card.
+    case "create_expense":
+      return proposeCreateExpense(userId, input, now);
+    case "update_expense":
+      return proposeUpdateExpense(userId, input);
+    case "delete_expense":
+      return proposeDeleteExpense(userId, input);
     default:
       return { error: `unknown tool: ${name}` };
   }

@@ -37,7 +37,14 @@ async function main() {
     const res = await runAssistantTurn(user.id, history, u);
     const secs = ((Date.now() - started) / 1000).toFixed(1);
     console.log(`🔧 TOOLS (${secs}s): ${res.toolsUsed.join(" → ") || "(none)"}`);
-    console.log(`🤖 ASSISTANT: ${res.reply}\n${"─".repeat(60)}`);
+    console.log(`🤖 ASSISTANT: ${res.reply}`);
+    // Slice 2: WRITE tools return proposals (confirm cards in the UI) — never auto-saved.
+    for (const p of res.proposals) {
+      console.log(`📝 PROPOSAL [${p.kind}]: ${p.summary}` +
+        (p.closedMonth ? ` · closed:${p.closedMonth}` : "") +
+        (p.recurringWarning ? " · recurring!" : ""));
+    }
+    console.log("─".repeat(60));
     if (!res.ok) console.error(`   ⚠ error: ${res.error}`);
     history.push({ role: "user", content: u }, { role: "assistant", content: res.reply });
   }

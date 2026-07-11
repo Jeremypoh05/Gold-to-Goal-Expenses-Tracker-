@@ -4,7 +4,8 @@
 // userId + plain history and never touches auth()/"server-only", so it can be
 // exercised headlessly (scripts/assistant-smoke.ts) as well as from server actions.
 import Anthropic from "@anthropic-ai/sdk";
-import { ASSISTANT_TOOLS, executeAssistantTool } from "./tools";
+import { ASSISTANT_TOOLS, executeAssistantTool, isWriteToolOutput } from "./tools";
+import type { Proposal } from "./types";
 
 export interface AssistantHistoryMessage {
   role: "user" | "assistant";
@@ -16,12 +17,15 @@ export interface AssistantTurnResult {
   reply: string;
   /** Tool names invoked this turn, in order — surfaced as subtle UI chips. */
   toolsUsed: string[];
+  /** WRITE proposals raised this turn — the UI renders a confirm card per proposal. */
+  proposals: Proposal[];
   error?: "no-key" | "api-failed";
 }
 
 /** Streamed events from runAssistantTurnStreaming → the SSE route → the chat UI. */
 export type AssistantStreamEvent =
   | { type: "tool"; name: string } // a read tool was invoked (UI shows a chip)
+  | { type: "proposal"; proposal: Proposal } // a WRITE tool proposed a change (confirm card)
   | { type: "text"; text: string } // an incremental chunk of the final reply
   | { type: "error" }; // API/abort failure — caller keeps whatever streamed
 
@@ -52,9 +56,22 @@ function buildSystemPrompt(now: Date): string {
     `- Check get_preferences before advising; respect what the user says they value.\n` +
     `- Ground every insight in real numbers from tools (amounts, percentages, months).\n` +
     `- For projections, use project_savings and mention the assumption (average spend of recent months).\n\n` +
-    `SCOPE (this version): you are READ-ONLY. You cannot add, edit, or delete anything yet. If asked ` +
-    `to change data, kindly explain that editing from chat is coming soon — for now the mic button or ` +
-    `the + button handles adding/editing, and recurring rules live on the Recurring page.\n\n` +
+    `MAKING CHANGES: you can ADD, EDIT, and DELETE individual expenses — but every change is a ` +
+    `PROPOSAL the user must confirm on a card in the chat; NOTHING is saved until they tap Confirm. So: ` +
+    `gather the details, call the write tool with precise values, then in your reply briefly ask them to ` +
+    `review & confirm the card below. NEVER say a change is already done, and don't restate every field ` +
+    `(the card shows them).\n` +
+    `- create_expense: to log a new spend. Infer category/currency/tags/note; omit date for today.\n` +
+    `- update_expense / delete_expense: you MUST have the expense id first — call find_expenses to locate ` +
+    `the row (its id is in the results), then act on that id. update_expense changes only the fields you ` +
+    `pass. If several rows could match ("my coffee"), ask which one instead of guessing.\n` +
+    `- RECURRING rules (rent, subscriptions that repeat every month) are NOT yet editable from chat. ` +
+    `Editing one generated month via update_expense changes ONLY that month and leaves the rule out of ` +
+    `sync — so if the user wants to change a recurring commitment across months, don't do it silently: ` +
+    `explain that recurring-rule editing is coming soon and point them to the Recurring page ` +
+    `([[go:recurring|…]]). Only edit a single month if they truly mean just that one.\n` +
+    `- CLOSED months: the card warns automatically; deletes in a closed month aren't possible (tell them ` +
+    `to reopen it on the Ledger page). Setting/reading preferences and recurring-rule edits arrive next.\n\n` +
     `NAVIGATION LINKS: when your answer points at something the user can open in the app, add a link ` +
     `so they can jump straight there. Put links on their OWN line at the END of the reply, using ` +
     `EXACTLY this form (one per line): [[go:TARGET|label]]. Valid TARGET values ONLY:\n` +
@@ -91,6 +108,7 @@ export async function runAssistantTurn(
       ok: false,
       reply: "The assistant isn't configured yet (missing AI key). Please try again later.",
       toolsUsed: [],
+      proposals: [],
       error: "no-key",
     };
   }
@@ -104,6 +122,7 @@ export async function runAssistantTurn(
   ];
 
   const toolsUsed: string[] = [];
+  const proposals: Proposal[] = [];
 
   try {
     for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
@@ -136,6 +155,12 @@ export async function runAssistantTurn(
                 (block.input ?? {}) as Record<string, unknown>,
                 now,
               );
+              // WRITE tool → collect the proposal (keyed by this block's id) and feed
+              // the model the short pending-confirmation note, not the whole proposal.
+              if (isWriteToolOutput(result)) {
+                proposals.push({ ...result.proposal, id: block.id });
+                return { type: "tool_result" as const, tool_use_id: block.id, content: result.modelResult };
+              }
               let json = JSON.stringify(result);
               if (json.length > 16000) {
                 json = json.slice(0, 16000) + '… (truncated — narrow the query for full detail)"}';
@@ -160,7 +185,7 @@ export async function runAssistantTurn(
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("")
         .trim();
-      if (reply) return { ok: true, reply, toolsUsed };
+      if (reply) return { ok: true, reply, toolsUsed, proposals };
       // No text (rare) — nudge the loop to produce a final answer.
       messages.push({
         role: "user",
@@ -173,12 +198,14 @@ export async function runAssistantTurn(
       reply:
         "I dug through quite a lot there and ran out of room — could you ask that in a slightly narrower way?",
       toolsUsed,
+      proposals,
     };
   } catch {
     return {
       ok: false,
       reply: "Something went wrong reaching the assistant. Please try again in a moment.",
       toolsUsed,
+      proposals,
       error: "api-failed",
     };
   }
@@ -253,22 +280,41 @@ export async function* runAssistantTurnStreaming(
                 (block.input ?? {}) as Record<string, unknown>,
                 now,
               );
+              // WRITE tool → hand the model the short pending note; the proposal
+              // itself is surfaced to the UI out-of-band (collected below).
+              if (isWriteToolOutput(result)) {
+                return {
+                  block,
+                  proposal: { ...result.proposal, id: block.id } as Proposal,
+                  toolResult: { type: "tool_result" as const, tool_use_id: block.id, content: result.modelResult },
+                };
+              }
               let json = JSON.stringify(result);
               if (json.length > 16000) {
                 json = json.slice(0, 16000) + '… (truncated — narrow the query for full detail)"}';
               }
-              return { type: "tool_result" as const, tool_use_id: block.id, content: json };
+              return {
+                block,
+                proposal: null,
+                toolResult: { type: "tool_result" as const, tool_use_id: block.id, content: json },
+              };
             } catch (e) {
               return {
-                type: "tool_result" as const,
-                tool_use_id: block.id,
-                content: `Tool failed: ${e instanceof Error ? e.message : "unknown error"}`,
-                is_error: true,
+                block,
+                proposal: null,
+                toolResult: {
+                  type: "tool_result" as const,
+                  tool_use_id: block.id,
+                  content: `Tool failed: ${e instanceof Error ? e.message : "unknown error"}`,
+                  is_error: true,
+                },
               };
             }
           }),
         );
-        messages.push({ role: "user", content: results });
+        // Emit proposal events (confirm cards) before continuing the loop.
+        for (const r of results) if (r.proposal) yield { type: "proposal", proposal: r.proposal };
+        messages.push({ role: "user", content: results.map((r) => r.toolResult) });
         continue;
       }
 
