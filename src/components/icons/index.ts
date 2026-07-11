@@ -23,4 +23,6 @@ export {
   SortIcon,
   LockIcon,
   UnlockIcon,
+  BotIcon,
+  PinIcon,
 } from "./UIIcons";

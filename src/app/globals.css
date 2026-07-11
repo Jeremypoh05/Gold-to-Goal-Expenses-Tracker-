@@ -288,6 +288,24 @@ body {
   animation-delay: 0.9s;
 }
 
+/* ADDED (AI Assistant · Slice 1 polish): speed-dial action reveal. */
+@keyframes dockIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ADDED (AI Assistant · Slice 1 polish): breathing glow so the mobile center
+   mic invites a tap (mirrors the desktop mic's pulse, but a soft shadow that
+   won't clip inside the tab bar). Honors reduced-motion. */
+@keyframes mic-glow {
+  0%, 100% { box-shadow: 0 6px 20px -2px oklch(0.65 0.16 78 / 0.55), 0 0 0 0 oklch(0.8 0.16 82 / 0.5); }
+  50%      { box-shadow: 0 6px 22px -2px oklch(0.65 0.16 78 / 0.65), 0 0 0 7px oklch(0.8 0.16 82 / 0); }
+}
+.mic-glow { animation: mic-glow 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .mic-glow { animation: none; }
+}
+
 @keyframes wave {
   0%, 100% { transform: scaleY(0.3); }
   50% { transform: scaleY(1); }

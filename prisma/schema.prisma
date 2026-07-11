@@ -92,7 +92,8 @@ model ChatSession {
   id        Int           @id @default(autoincrement())
   userId    String
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String? // auto-set from the first user message
+  title     String? // auto-set from the first user message; user-renameable
+  pinned    Boolean       @default(false) // ADDED (Slice 1 polish): pinned chats sort first
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   messages  ChatMessage[]

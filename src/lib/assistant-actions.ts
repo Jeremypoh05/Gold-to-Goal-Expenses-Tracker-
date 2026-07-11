@@ -24,6 +24,7 @@ export interface AssistantChatMessage {
 export interface AssistantSessionSummary {
   id: number;
   title: string;
+  pinned: boolean;
   updatedAt: string; // ISO
 }
 
@@ -97,20 +98,35 @@ export async function sendAssistantMessage(input: {
   };
 }
 
-/** Recent chat sessions, newest first — powers the history list. */
+/** Recent chat sessions — pinned first, then newest. Powers the history list. */
 export async function fetchAssistantSessions(): Promise<AssistantSessionSummary[]> {
   const userId = await requireUserId();
   const rows = await prisma.chatSession.findMany({
     where: { userId },
-    orderBy: { updatedAt: "desc" },
-    take: 20,
-    select: { id: true, title: true, updatedAt: true },
+    orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
+    take: 50,
+    select: { id: true, title: true, pinned: true, updatedAt: true },
   });
   return rows.map((r) => ({
     id: r.id,
     title: r.title ?? "Chat",
+    pinned: r.pinned,
     updatedAt: r.updatedAt.toISOString(),
   }));
+}
+
+/** ADDED (Slice 1 polish): rename a chat (ownership-checked). */
+export async function renameAssistantSession(sessionId: number, title: string): Promise<void> {
+  const userId = await requireUserId();
+  const clean = title.trim().slice(0, 60);
+  if (!clean) return;
+  await prisma.chatSession.updateMany({ where: { id: sessionId, userId }, data: { title: clean } });
+}
+
+/** ADDED (Slice 1 polish): pin/unpin a chat so it sticks to the top of History. */
+export async function setAssistantSessionPinned(sessionId: number, pinned: boolean): Promise<void> {
+  const userId = await requireUserId();
+  await prisma.chatSession.updateMany({ where: { id: sessionId, userId }, data: { pinned } });
 }
 
 /** Full message history of one session (ownership-checked). */

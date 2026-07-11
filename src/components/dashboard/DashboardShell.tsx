@@ -11,9 +11,11 @@ import { TopBar } from '@/components/dashboard/TopBar';
 import { Orbs, ConfirmProvider } from '@/components/shared';
 import { AddModalProvider } from '@/components/dashboard/AddModalContext';
 import { ManualAddModal } from '@/components/dashboard/ManualAddModal';
-import { VoiceProvider, VoiceModal, VoiceToast, FloatingVoiceButton } from '@/components/voice';
-// ADDED (AI Assistant · Slice 1): global assistant chat — slide-over + launcher.
-import { AssistantProvider, AssistantPanel, AssistantLauncher } from '@/components/assistant';
+import { VoiceProvider, VoiceModal, VoiceToast } from '@/components/voice';
+// ADDED (AI Assistant · Slice 1): global assistant chat — slide-over + launcher +
+// desktop speed-dial dock (which now also owns quick-voice, replacing the lone
+// desktop FloatingVoiceButton so the corner isn't two stacked FABs).
+import { AssistantProvider, AssistantPanel, AssistantLauncher, AssistantDock } from '@/components/assistant';
 // ADDED (Module 4 · UX): global in-place "edit recurring" modal (any page can open it).
 import { FixedEditProvider } from '@/components/fixed';
 import { ExpensesProvider } from '@/components/data/ExpensesContext';
@@ -50,10 +52,9 @@ export function DashboardShell({
                         {/* Bottom tab - mobile only */}
                         <BottomTabBar />
 
-                        {/* ADDED (Phase A follow-up): global desktop floating mic — every page */}
-                        <FloatingVoiceButton />
-
-                        {/* ADDED (AI Assistant · Slice 1): global assistant launcher + panel */}
+                        {/* ADDED (AI Assistant · Slice 1): desktop speed-dial (assistant +
+                            quick-voice), mobile assistant FAB, and the slide-over panel. */}
+                        <AssistantDock />
                         <AssistantLauncher />
                         <AssistantPanel />
 

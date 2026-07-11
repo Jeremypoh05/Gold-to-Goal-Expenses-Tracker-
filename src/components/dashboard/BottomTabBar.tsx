@@ -66,11 +66,12 @@ export function BottomTabBar() {
                                 key={item.href}
                                 type="button"
                                 onClick={openVoiceModal}
-                                className="w-14 h-14 rounded-full flex items-center justify-center border-0 -mt-5 transition-transform hover:scale-105"
+                                // CHANGED (Slice 1 polish): breathing glow invites the tap,
+                                // mirroring the desktop mic's pulse (user feedback).
+                                className="mic-glow w-14 h-14 rounded-full flex items-center justify-center border-0 -mt-5 transition-transform hover:scale-105"
                                 style={{
                                     background:
                                         'linear-gradient(135deg, oklch(0.88 0.13 92), oklch(0.64 0.16 78))',
-                                    boxShadow: '0 6px 20px -2px oklch(0.65 0.16 78 / 0.55)',
                                 }}
                                 aria-label="Voice log"
                             >

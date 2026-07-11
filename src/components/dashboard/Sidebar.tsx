@@ -10,6 +10,7 @@ import {
     WalletIcon,
     RepeatIcon,
     SparkleIcon,
+    BotIcon,
 } from '@/components/icons';
 import { cn, formatMoney, MONTH_NAMES } from '@/lib/utils';
 import { CATEGORIES } from '@/data/categories';
@@ -41,7 +42,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
     { href: '/dashboard', label: 'Dashboard', Icon: HomeIcon },
     // ADDED (AI Assistant · Slice 1): the full-page assistant chat.
-    { href: '/assistant', label: 'Assistant', Icon: SparkleIcon },
+    { href: '/assistant', label: 'Assistant', Icon: BotIcon },
     { href: '/ledger', label: 'Ledger', Icon: GridIcon },
     { href: '/calendar', label: 'Calendar', Icon: CalendarIcon },
     { href: '/income', label: 'Income', Icon: WalletIcon },

@@ -403,3 +403,48 @@ export function SortIcon({ size = 14, className }: IconProps) {
         </svg>
     );
 }
+// ADDED (AI Assistant · Slice 1 polish): friendly robot glyph for the assistant —
+// replaces the ambiguous sparkle on the launcher/nav so the entry point reads
+// clearly as "chat with the assistant".
+export function BotIcon({ size = 18, className }: IconProps) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <path d="M12 7 V4" />
+            <circle cx="12" cy="3" r="1" fill="currentColor" stroke="none" />
+            <rect x="4.5" y="7" width="15" height="12" rx="4" />
+            <path d="M2 12 h2.5 M19.5 12 H22" />
+            <circle cx="9" cy="12" r="1.2" fill="currentColor" stroke="none" />
+            <circle cx="15" cy="12" r="1.2" fill="currentColor" stroke="none" />
+            <path d="M9.5 15.5 a3 3 0 0 0 5 0" />
+        </svg>
+    );
+}
+
+// ADDED (AI Assistant · Slice 1 polish): pin glyph for pinned chats.
+export function PinIcon({ size = 14, className, filled = false }: IconProps & { filled?: boolean }) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill={filled ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <path d="M12 17 V22 M7 10 V4 a1 1 0 0 1 1 -1 h8 a1 1 0 0 1 1 1 v6 l2 3 a1 1 0 0 1 -0.9 1.5 H5.9 A1 1 0 0 1 5 13 Z" />
+        </svg>
+    );
+}

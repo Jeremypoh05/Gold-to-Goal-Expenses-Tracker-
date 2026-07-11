@@ -4,8 +4,9 @@
 // reachable from ANY page (it needs the whole-page context, per the locked
 // architecture). Stays mounted while closed so the conversation survives
 // open/close; hidden on /assistant, which renders the full-page chat instead.
+import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { SparkleIcon } from '@/components/icons';
+import { BotIcon } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { useAssistant } from './AssistantContext';
 import { AssistantChat } from './AssistantChat';
@@ -21,6 +22,17 @@ function CloseIcon({ size = 16 }: { size?: number }) {
 export function AssistantPanel() {
     const { open, closePanel } = useAssistant();
     const pathname = usePathname();
+
+    // ADDED (Slice 1 polish): Esc closes the panel (standard slide-over behavior).
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') closePanel();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open, closePanel]);
+
     if (pathname === '/assistant') return null;
 
     return (
@@ -55,7 +67,7 @@ export function AssistantPanel() {
                                 'linear-gradient(135deg, oklch(0.85 0.14 90), oklch(0.65 0.16 78))',
                         }}
                     >
-                        <SparkleIcon size={16} className="text-[#1a120a]" />
+                        <BotIcon size={18} className="text-[#1a120a]" />
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="text-[14px] font-semibold leading-none">Honey Assistant</div>
@@ -73,7 +85,7 @@ export function AssistantPanel() {
                     </button>
                 </div>
 
-                <AssistantChat active={open} className="flex-1" />
+                <AssistantChat active={open} className="flex-1" onNavigate={closePanel} />
             </aside>
         </>
     );

@@ -3,7 +3,7 @@
 // ADDED (AI Assistant · Slice 1): the full-page assistant chat. Same AssistantChat
 // core as the global slide-over (which hides itself on this route) — this surface
 // just gives it room: full height, centered column, session history built in.
-import { SparkleIcon } from '@/components/icons';
+import { BotIcon } from '@/components/icons';
 import { AssistantChat } from '@/components/assistant';
 
 export default function AssistantPage() {
@@ -16,7 +16,7 @@ export default function AssistantPage() {
                         background: 'linear-gradient(135deg, oklch(0.85 0.14 90), oklch(0.65 0.16 78))',
                     }}
                 >
-                    <SparkleIcon size={20} className="text-[#1a120a]" />
+                    <BotIcon size={22} className="text-[#1a120a]" />
                 </div>
                 <div>
                     <h1 className="display text-[22px] leading-none m-0">Assistant</h1>
