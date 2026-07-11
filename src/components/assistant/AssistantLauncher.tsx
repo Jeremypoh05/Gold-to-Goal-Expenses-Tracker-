@@ -19,7 +19,9 @@ export function AssistantLauncher() {
         <button
             type="button"
             onClick={openPanel}
-            className="md:hidden fixed bottom-24 right-5 z-30 w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-95"
+            // CHANGED (user feedback): the sonar-ring `.pulse` effect (matches the
+            // desktop dock trigger) so the entry point invites a tap on mobile too.
+            className="pulse md:hidden fixed bottom-24 right-5 z-30 w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-95"
             style={{
                 background: 'linear-gradient(135deg, oklch(0.85 0.14 90), oklch(0.64 0.16 78))',
                 boxShadow:

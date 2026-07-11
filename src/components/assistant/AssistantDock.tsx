@@ -14,6 +14,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BotIcon, MicIcon } from '@/components/icons';
 import { useVoice } from '@/components/voice';
+import { cn } from '@/lib/utils';
 import { useAssistant } from './AssistantContext';
 
 function CloseIcon({ size = 22 }: { size?: number }) {
@@ -39,6 +40,10 @@ export function AssistantDock() {
     if (panelOpen) return null;
 
     const onAssistant = pathname === '/assistant';
+    // CHANGED (user feedback): each action gets its OWN gradient/glow instead of
+    // a primary/plain split — the voice action was a "plain white circle" that
+    // didn't read as clickable. Explicit oklch stops (not surface tokens) so both
+    // colors stay obvious and correct in light AND dark mode.
     const actions = [
         // On /assistant the panel is disabled (the full page IS the assistant),
         // so only offer voice there; elsewhere offer both.
@@ -50,15 +55,21 @@ export function AssistantDock() {
                       label: 'Ask Honey',
                       Icon: BotIcon,
                       onClick: () => openPanel(),
-                      primary: true,
+                      gradient: 'linear-gradient(135deg, oklch(0.9 0.1 95), oklch(0.78 0.14 85))',
+                      iconColor: '#1a120a',
+                      glow: '0 8px 24px -6px oklch(0.65 0.16 78 / 0.5)',
                   },
               ]),
         {
             key: 'voice',
-            label: 'Quick voice log',
+            label: 'Quick Voice Log',
             Icon: MicIcon,
             onClick: () => openVoice(),
-            primary: false,
+            // Warm coral/ember — distinct from the golden assistant button so
+            // "voice" reads as its own obvious action, not a muted afterthought.
+            gradient: 'linear-gradient(135deg, oklch(0.76 0.16 35), oklch(0.58 0.2 22))',
+            iconColor: '#fff',
+            glow: '0 8px 24px -6px oklch(0.58 0.2 22 / 0.55)',
         },
     ];
 
@@ -90,7 +101,20 @@ export function AssistantDock() {
                                 delay: expanded ? (actions.length - 1 - i) * 0.05 : 0,
                             }}
                         >
-                            <span className="text-[12px] font-medium px-2.5 py-1 rounded-lg bg-bg-card border border-line-soft text-ink-0 shadow-sm">
+                            {/* CHANGED (user feedback): frosted-glass pill (not plain
+                                bg-bg-card) so the label never blends into whatever card
+                                sits behind it on the page; uppercase + tracking matches
+                                the app's other badge/chip typography. */}
+                            <span
+                                className="text-[10.5px] font-semibold uppercase tracking-[0.06em] px-3 py-1.5 rounded-full text-ink-0 whitespace-nowrap"
+                                style={{
+                                    background: 'var(--surface-glass-strong)',
+                                    backdropFilter: 'blur(14px) saturate(1.4)',
+                                    WebkitBackdropFilter: 'blur(14px) saturate(1.4)',
+                                    border: '1px solid oklch(0.78 0.16 78 / 0.4)',
+                                    boxShadow: '0 8px 20px -6px rgba(0,0,0,0.25)',
+                                }}
+                            >
                                 {a.label}
                             </span>
                             <motion.button
@@ -104,12 +128,10 @@ export function AssistantDock() {
                                 aria-label={a.label}
                                 className="w-12 h-12 rounded-full flex items-center justify-center cursor-pointer"
                                 style={{
-                                    background: a.primary
-                                        ? 'linear-gradient(135deg, oklch(0.9 0.1 95), oklch(0.78 0.14 85))'
-                                        : 'var(--color-bg-card)',
-                                    border: a.primary ? 'none' : '1px solid var(--color-line)',
-                                    boxShadow: '0 8px 22px -6px oklch(0.65 0.16 78 / 0.4)',
-                                    color: a.primary ? '#1a120a' : 'var(--color-ink-1)',
+                                    background: a.gradient,
+                                    border: 'none',
+                                    boxShadow: a.glow,
+                                    color: a.iconColor,
                                 }}
                             >
                                 <a.Icon size={20} />
@@ -139,7 +161,15 @@ export function AssistantDock() {
                 transition={expanded ? { duration: 0.2 } : { duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
                 whileTap={{ scale: 0.92 }}
                 whileHover={{ scale: 1.08 }}
-                className="w-14 h-14 rounded-full flex items-center justify-center cursor-pointer"
+                // CHANGED (user feedback): layer the app's existing sonar-ring `.pulse`
+                // effect (same one the voice mic used to have) on top of the breathing
+                // scale/shadow — needs `relative` so the rings anchor to the button
+                // itself, not the outer fixed container. Rings only show at rest (not
+                // while expanded, where the button is the ✕ close control).
+                className={cn(
+                    'relative w-14 h-14 rounded-full flex items-center justify-center cursor-pointer',
+                    !expanded && 'pulse',
+                )}
                 style={{
                     background: 'linear-gradient(135deg, oklch(0.85 0.14 90), oklch(0.64 0.16 78))',
                     boxShadow:
