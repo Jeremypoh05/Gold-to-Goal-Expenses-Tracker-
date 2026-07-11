@@ -6,16 +6,31 @@
 // auth() and scopes reads/writes to the signed-in user.
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import { runAssistantTurn, type AssistantHistoryMessage } from "@/lib/assistant/engine";
-import { createExpense, updateExpense, deleteExpense } from "@/lib/actions";
+import {
+  runAssistantTurn,
+  assistantHistoryContent,
+  type AssistantHistoryMessage,
+} from "@/lib/assistant/engine";
+import {
+  createExpense,
+  updateExpense,
+  deleteExpense,
+  changeFixedAmount,
+  updateFixedExpense,
+  reopenMonth,
+  closeMonth,
+} from "@/lib/actions";
 import {
   WRITABLE_CATEGORIES,
   type AssistantActionInput,
   type AssistantActionResult,
   type ExpenseFields,
   type Proposal,
+  type ChatMessageData,
+  type ProposalOutcome,
 } from "@/lib/assistant/types";
 import type { Currency } from "@/types";
+import type { Prisma } from "@/generated/prisma/client";
 
 async function requireUserId(): Promise<string> {
   const { userId } = await auth();
@@ -28,6 +43,9 @@ export interface AssistantChatMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string; // ISO
+  /** Persisted WRITE proposals + their outcomes (Slice 2b-part-2) — lets the
+   *  confirm cards + a permanent action status re-render after a reload. */
+  data?: ChatMessageData | null;
 }
 
 export interface AssistantSessionSummary {
@@ -73,7 +91,8 @@ export async function sendAssistantMessage(input: {
     else {
       history = session.messages.map((m) => ({
         role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-        content: m.content,
+        // Fold in past cards' outcomes so the model knows what was cancelled/confirmed.
+        content: m.role === "assistant" ? assistantHistoryContent(m.content, m.data) : m.content,
       }));
     }
   }
@@ -88,13 +107,23 @@ export async function sendAssistantMessage(input: {
   const result = await runAssistantTurn(userId, history, message);
 
   // Persist the turn (user msg first, then reply) and bump the session's
-  // updatedAt so it sorts to the top of the history list.
+  // updatedAt so it sorts to the top of the history list. `data` carries any
+  // WRITE proposals (outcome=pending) so their cards survive a reload.
+  const assistantData: Prisma.InputJsonValue | undefined =
+    result.proposals.length > 0
+      ? ({ proposals: result.proposals.map((p) => ({ ...p, outcome: "pending" })) } as unknown as Prisma.InputJsonValue)
+      : undefined;
   await prisma.$transaction([
     prisma.chatMessage.create({
       data: { sessionId: sid, role: "user", content: message },
     }),
     prisma.chatMessage.create({
-      data: { sessionId: sid, role: "assistant", content: result.reply },
+      data: {
+        sessionId: sid,
+        role: "assistant",
+        content: result.reply,
+        ...(assistantData !== undefined && { data: assistantData }),
+      },
     }),
     prisma.chatSession.update({ where: { id: sid }, data: { updatedAt: new Date() } }),
   ]);
@@ -141,7 +170,7 @@ function sanitizeFields(f: ExpenseFields): ExpenseFields | null {
 export async function executeAssistantAction(
   action: AssistantActionInput,
 ): Promise<AssistantActionResult> {
-  await requireUserId();
+  const userId = await requireUserId();
   try {
     if (action.kind === "create_expense") {
       const f = sanitizeFields(action.fields);
@@ -179,9 +208,61 @@ export async function executeAssistantAction(
       return { ok: true, summary: `Updated to ${fmtMoney(f.amount, f.currency)} · ${f.category}` };
     }
 
-    // delete_expense — deleteExpense refuses closed months on its own.
-    await deleteExpense(action.expenseId);
-    return { ok: true, summary: "Deleted" };
+    if (action.kind === "delete_expense") {
+      // deleteExpense refuses closed months on its own.
+      await deleteExpense(action.expenseId);
+      return { ok: true, summary: "Deleted" };
+    }
+
+    // ── recurring-rule edit (Slice 2b) ─────────────────────────
+    // Routes to the SAME machinery the Recurring page uses, so the change
+    // propagates to every affected month + ledger/calendar/dashboard/income.
+    // The client already ran the closed-month guard and passes overrideClosed.
+    if (action.kind === "edit_recurring") {
+      if (action.mode === "rate_change") {
+        await changeFixedAmount(
+          action.ruleId,
+          { fromYear: action.fromYear, fromMonth: action.fromMonth, newAmount: action.newAmount },
+          action.overrideClosed ?? false,
+        );
+        return { ok: true, summary: "Recurring commitment updated" };
+      }
+      // redefine — updateFixedExpense re-materializes the whole range at new values.
+      const c = action.changes;
+      await updateFixedExpense(
+        action.ruleId,
+        {
+          ...(c.label !== undefined && { label: c.label }),
+          ...(c.note !== undefined && { note: c.note }),
+          ...(c.category !== undefined && { category: c.category }),
+          ...(c.currency !== undefined && { currency: c.currency }),
+          ...(c.amount !== undefined && { amount: c.amount }),
+          ...(c.dueDay !== undefined && { dueDay: c.dueDay }),
+        },
+        action.overrideClosed ?? false,
+      );
+      return { ok: true, summary: "Recurring rule updated" };
+    }
+
+    // ── reopen / close a month (Slice 2b fix batch) ────────────
+    if (action.kind === "set_month_status") {
+      if (action.action === "reopen") await reopenMonth(action.year, action.month);
+      else await closeMonth(action.year, action.month);
+      return { ok: true, summary: action.action === "reopen" ? "Month reopened" : "Month closed" };
+    }
+
+    // ── remember a preference (Slice 2b) ───────────────────────
+    // set_preference — upsert the lightweight key/value the agent reads back via
+    // get_preferences to keep suggestions preference-aware.
+    const key = action.key.trim().toLowerCase().slice(0, 40);
+    const value = action.value.trim().slice(0, 300);
+    if (!key || !value) return { ok: false, error: "Nothing to remember there." };
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key } },
+      update: { value },
+      create: { userId, key, value },
+    });
+    return { ok: true, summary: `Noted — I'll remember "${key}"` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Something went wrong saving that." };
   }
@@ -231,7 +312,54 @@ export async function fetchAssistantMessages(sessionId: number): Promise<Assista
     role: m.role === "assistant" ? "assistant" : "user",
     content: m.content,
     createdAt: m.createdAt.toISOString(),
+    // Persisted proposals + outcomes (Slice 2b-part-2) so cards + status restore.
+    data: (m.data as ChatMessageData | null) ?? null,
   }));
+}
+
+/**
+ * Record what happened to a WRITE proposal after the user resolved its card —
+ * confirmed & applied, or cancelled/dismissed. Persisted onto the owning chat
+ * message's `data` so the outcome (a permanent "you did X here" status) survives
+ * reloads and navigation. Matched by the proposal id (the tool_use block id, unique
+ * within the session). Ownership-checked; best-effort (never throws to the caller).
+ */
+export async function recordProposalOutcome(
+  sessionId: number,
+  proposalId: string,
+  outcome: ProposalOutcome,
+  resultSummary?: string,
+): Promise<void> {
+  const userId = await requireUserId();
+  const session = await prisma.chatSession.findFirst({
+    where: { id: sessionId, userId },
+    select: { id: true },
+  });
+  if (!session) return;
+
+  // Scan this session's assistant messages for the one holding this proposal.
+  const messages = await prisma.chatMessage.findMany({
+    where: { sessionId, role: "assistant" },
+    select: { id: true, data: true },
+    orderBy: { createdAt: "desc" },
+  });
+  for (const m of messages) {
+    const d = m.data as ChatMessageData | null;
+    const idx = d?.proposals?.findIndex((p) => p.id === proposalId);
+    if (d?.proposals && idx != null && idx >= 0) {
+      d.proposals[idx] = {
+        ...d.proposals[idx],
+        outcome,
+        ...(resultSummary && { resultSummary }),
+        resolvedAt: new Date().toISOString(),
+      };
+      await prisma.chatMessage.update({
+        where: { id: m.id },
+        data: { data: d as unknown as Prisma.InputJsonValue },
+      });
+      return;
+    }
+  }
 }
 
 /** Delete a chat session and its messages (ownership-checked). */

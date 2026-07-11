@@ -5,7 +5,7 @@
 // exercised headlessly (scripts/assistant-smoke.ts) as well as from server actions.
 import Anthropic from "@anthropic-ai/sdk";
 import { ASSISTANT_TOOLS, executeAssistantTool, isWriteToolOutput } from "./tools";
-import type { Proposal } from "./types";
+import type { Proposal, ChatMessageData } from "./types";
 
 export interface AssistantHistoryMessage {
   role: "user" | "assistant";
@@ -34,6 +34,72 @@ const MAX_LOOP_TURNS = 8;
 // History is context, not the archive — the DB keeps everything.
 const MAX_HISTORY_MESSAGES = 20;
 
+// A confirmation card exists ONLY if a write tool was actually called this turn.
+// The model sometimes NARRATES a card ("卡片已经放上去了 / please confirm the card")
+// without calling the tool → no card renders and nothing is pending (the user's
+// reported bug). This backstop catches that: if a turn ends referencing a card but
+// produced ZERO proposals, we inject ONE correction so the model either calls the
+// write tool or clarifies. Card-word gated + single retry, so a genuine "how do
+// cards work?" answer isn't forced into a write.
+const CARD_CLAIM_RE = /卡片|\bcards?\b/i;
+const CARD_CORRECTION =
+  "SYSTEM CHECK: your last reply mentioned a confirmation card, but you did NOT call any write tool " +
+  "(create_expense / update_expense / delete_expense / edit_recurring / set_preference / set_month_status) in " +
+  "that turn — so NO card was created and nothing is pending. If the user asked you to add, edit, delete, change " +
+  "a recurring rule, reopen/close a month, or remember a preference, call the correct write tool NOW with the " +
+  "exact values. If they were only asking how confirmation works, briefly clarify and do NOT claim a card exists.";
+
+/**
+ * Deterministic per-turn reply-language lock derived from the CURRENT user message's
+ * script. Fixes "user writes English, bot replies Chinese": the static prompt rule
+ * loses to a Chinese-heavy earlier history, so we hard-set the language each turn
+ * from THIS message alone. Mixed / neutral messages get no directive (model matches).
+ */
+function languageDirective(userMessage: string): string {
+  const cjk = (userMessage.match(/[一-鿿]/g) ?? []).length;
+  const latin = (userMessage.match(/[A-Za-z]/g) ?? []).length;
+  if (cjk === 0 && latin >= 2) {
+    return (
+      "\n\nCURRENT MESSAGE LANGUAGE: the user's latest message is in a Latin-script language " +
+      "(English / Malay / Manglish / Singlish) with no Chinese — reply in that SAME language. " +
+      "Do NOT reply in Chinese, even if earlier messages were Chinese."
+    );
+  }
+  if (latin === 0 && cjk >= 1) {
+    return "\n\nCURRENT MESSAGE LANGUAGE: the user's latest message is in Chinese — reply in 简体中文.";
+  }
+  return "";
+}
+
+/**
+ * Fold a persisted assistant message's card OUTCOMES into its history content, so
+ * the model knows what happened to cards it proposed earlier (confirmed / cancelled
+ * / still pending). Without this the model only sees its own past TEXT ("I prepared
+ * a card for May") and wrongly assumes that card is still actionable even after the
+ * user cancelled it — then it fails to re-offer the action. Reused by both the SSE
+ * route and the non-streaming action when building history. `data` is the row's JSON.
+ */
+export function assistantHistoryContent(content: string, data: unknown): string {
+  const d = data as ChatMessageData | null;
+  if (!d?.proposals?.length) return content;
+  const lines = d.proposals
+    .map((p) => {
+      const outcome =
+        p.outcome === "confirmed"
+          ? "CONFIRMED & saved"
+          : p.outcome === "cancelled"
+            ? "CANCELLED by the user — NOT saved"
+            : "still PENDING — the user hasn't tapped it yet";
+      return `"${p.summary}" → ${outcome}`;
+    })
+    .join("; ");
+  return (
+    `${content}\n\n[Cards you proposed in this message and their status: ${lines}. ` +
+    `A CANCELLED or CONFIRMED card is finished and no longer actionable — never tell the user an old card ` +
+    `is still waiting. If they still want a cancelled/failed action, propose a BRAND-NEW card for it.]`
+  );
+}
+
 function buildSystemPrompt(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
@@ -43,9 +109,10 @@ function buildSystemPrompt(now: Date): string {
     `You are Honey's financial assistant — a supportive, non-judgmental personal-finance coach ` +
     `inside the Honey expense tracker. Today is ${weekday}, ${today}. Context is Singapore/Malaysia; ` +
     `the default currency is SGD.\n\n` +
-    `LANGUAGE: the user may write in English, 中文, Malay, Manglish, or Singlish — often mixed. ` +
-    `Reply in the same language (or mix) they used. For Chinese, always use 简体字 (Simplified), ` +
-    `never Traditional, unless the user writes Traditional themselves.\n\n` +
+    `LANGUAGE: match the language of the user's MOST RECENT message. If they write in English, reply in ` +
+    `English — even if earlier messages in this chat were Chinese (and vice-versa). They may use English, ` +
+    `中文, Malay, Manglish, or Singlish, sometimes mixed. For Chinese, always use 简体字 (Simplified), never ` +
+    `Traditional, unless the user writes Traditional themselves.\n\n` +
     `DATA: you have read tools over the user's REAL data — full expense ledger, recurring rules, ` +
     `income, savings goal, budget, closed months, preferences. For ANY question about their money, ` +
     `call tools first and answer from tool results only. Never guess or invent numbers. If a result ` +
@@ -56,22 +123,51 @@ function buildSystemPrompt(now: Date): string {
     `- Check get_preferences before advising; respect what the user says they value.\n` +
     `- Ground every insight in real numbers from tools (amounts, percentages, months).\n` +
     `- For projections, use project_savings and mention the assumption (average spend of recent months).\n\n` +
-    `MAKING CHANGES: you can ADD, EDIT, and DELETE individual expenses — but every change is a ` +
-    `PROPOSAL the user must confirm on a card in the chat; NOTHING is saved until they tap Confirm. So: ` +
-    `gather the details, call the write tool with precise values, then in your reply briefly ask them to ` +
-    `review & confirm the card below. NEVER say a change is already done, and don't restate every field ` +
-    `(the card shows them).\n` +
+    `MAKING CHANGES: you can ADD, EDIT, DELETE expenses, edit RECURRING rules, and remember PREFERENCES. ` +
+    `Every change is a PROPOSAL shown on a confirmation card; NOTHING is saved until the user taps Confirm.\n` +
+    `⚠️ A card appears ONLY because you CALLED a write tool (create_expense / update_expense / delete_expense / ` +
+    `edit_recurring / set_preference) in THIS reply — the tool call IS what creates the card. Therefore: if you ` +
+    `intend to make a change you MUST call the tool. NEVER tell the user to "confirm the card", and never say ` +
+    `you've recorded/updated/added/changed something, UNLESS you actually called the matching write tool in this ` +
+    `same reply. If you're missing a needed detail, ask for it; if you only searched (e.g. find_expenses) and ` +
+    `haven't called the write tool yet, call it now — do not describe a card you didn't create.\n` +
+    `Phrase it HONESTLY: the card is PENDING their tap, not saved — say you've PREPARED a card below to review & ` +
+    `Confirm (e.g. 中文「我在下面准备了卡片，请你确认」). Never phrase a change as already done/saved/recorded ` +
+    `before they confirm. Don't restate every field — the card shows them.\n` +
+    `Base every extracted detail ONLY on what the user actually said — never invent an event, name, note, amount, ` +
+    `or date they didn't mention. If a needed detail (like which month) is missing or ambiguous, ask; don't guess.\n` +
+    `PAST CARDS: the history annotates each card you previously proposed with its outcome ([Cards you proposed…: ` +
+    `"X" → CONFIRMED / CANCELLED / PENDING]). Trust it. A CANCELLED or CONFIRMED card is finished and no longer ` +
+    `on screen — NEVER tell the user an old card is "already prepared" or still waiting. If they still want a ` +
+    `cancelled action, propose a fresh card by calling the tool again.\n` +
     `- create_expense: to log a new spend. Infer category/currency/tags/note; omit date for today.\n` +
     `- update_expense / delete_expense: you MUST have the expense id first — call find_expenses to locate ` +
     `the row (its id is in the results), then act on that id. update_expense changes only the fields you ` +
     `pass. If several rows could match ("my coffee"), ask which one instead of guessing.\n` +
-    `- RECURRING rules (rent, subscriptions that repeat every month) are NOT yet editable from chat. ` +
-    `Editing one generated month via update_expense changes ONLY that month and leaves the rule out of ` +
-    `sync — so if the user wants to change a recurring commitment across months, don't do it silently: ` +
-    `explain that recurring-rule editing is coming soon and point them to the Recurring page ` +
-    `([[go:recurring|…]]). Only edit a single month if they truly mean just that one.\n` +
-    `- CLOSED months: the card warns automatically; deletes in a closed month aren't possible (tell them ` +
-    `to reopen it on the Ledger page). Setting/reading preferences and recurring-rule edits arrive next.\n\n` +
+    `- edit_recurring: to change a RECURRING commitment (rent, a subscription, 家用 — anything that repeats ` +
+    `every month). This is the RIGHT tool for "change my rent to 1300", "Netflix is 19 now": it edits the ` +
+    `RULE so every affected month + the ledger/calendar/dashboard/income all update together. Do NOT use ` +
+    `update_expense on one generated month for this (that changes only that month and leaves the rule out ` +
+    `of sync). First call find_recurring to get the ruleId. Then choose the mode: 'rate_change' when the ` +
+    `amount changed from a point in time and earlier months keep their old figure (a raise/cut — the safe ` +
+    `default for "it went up to X"); 'redefine' when the whole rule should be rewritten across all its ` +
+    `months (or to fix the label/category/note/due-day). If it's unclear which they mean, ASK first. To ` +
+    `change the rule's start/end months, use the card's Edit button or the Recurring page ([[go:recurring|…]]).\n` +
+    `- set_preference: when the user tells you something they value or a habit they're working on ("gaming ` +
+    `makes me happy", "cutting back on coffee", "travel matters more than dining"), offer to remember it so ` +
+    `your future suggestions respect it. It's confirm-gated like any change.\n` +
+    `- set_month_status: you CAN reopen or close a month's books yourself (confirm-gated). Use it when the ` +
+    `user asks to reopen/close a month, or offer it when a change is blocked because the month is closed. Do ` +
+    `NOT tell them to go to the Ledger page for this anymore.\n` +
+    `- CLOSED months — IMPORTANT: a month's open/closed status changes over time, so NEVER assert or imply ` +
+    `whether a month is closed from earlier messages, this conversation, or memory. Rely ONLY on the CURRENT ` +
+    `write tool's result: if it does not flag a closed month, the month is OPEN — do NOT mention closing, ` +
+    `reopening, or overriding at all. Only when the tool result flags a closed month do you mention it, and ` +
+    `even then the card handles the choice (reopen / override / cancel), so keep it brief.\n\n` +
+    `GUIDE THE NEXT STEP: after answering or proposing a change, when there's an obvious useful follow-up, ` +
+    `offer it briefly and let the user decide — e.g. after a recurring edit, "want me to also update the ` +
+    `savings projection?"; after listing closed months, "reopen July?" Keep it light, one suggestion, never ` +
+    `pushy, and route any actual change through its confirm card.\n\n` +
     `NAVIGATION LINKS: when your answer points at something the user can open in the app, add a link ` +
     `so they can jump straight there. Put links on their OWN line at the END of the reply, using ` +
     `EXACTLY this form (one per line): [[go:TARGET|label]]. Valid TARGET values ONLY:\n` +
@@ -114,7 +210,7 @@ export async function runAssistantTurn(
   }
 
   const client = new Anthropic({ apiKey });
-  const system = buildSystemPrompt(now);
+  const system = buildSystemPrompt(now) + languageDirective(userMessage);
 
   const messages: Anthropic.MessageParam[] = [
     ...history.slice(-MAX_HISTORY_MESSAGES).map((m) => ({ role: m.role, content: m.content })),
@@ -123,6 +219,7 @@ export async function runAssistantTurn(
 
   const toolsUsed: string[] = [];
   const proposals: Proposal[] = [];
+  let cardNudged = false;
 
   try {
     for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
@@ -185,7 +282,16 @@ export async function runAssistantTurn(
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("")
         .trim();
-      if (reply) return { ok: true, reply, toolsUsed, proposals };
+      if (reply) {
+        // Phantom-card backstop: the model claimed a card but never called a write
+        // tool this whole turn — force it to call the tool (or clarify) once.
+        if (!cardNudged && proposals.length === 0 && CARD_CLAIM_RE.test(reply)) {
+          cardNudged = true;
+          messages.push({ role: "user", content: CARD_CORRECTION });
+          continue;
+        }
+        return { ok: true, reply, toolsUsed, proposals };
+      }
       // No text (rare) — nudge the loop to produce a final answer.
       messages.push({
         role: "user",
@@ -232,13 +338,16 @@ export async function* runAssistantTurnStreaming(
   }
 
   const client = new Anthropic({ apiKey });
-  const system = buildSystemPrompt(now);
+  const system = buildSystemPrompt(now) + languageDirective(userMessage);
   const messages: Anthropic.MessageParam[] = [
     ...history.slice(-MAX_HISTORY_MESSAGES).map((m) => ({ role: m.role, content: m.content })),
     { role: "user" as const, content: userMessage },
   ];
 
   let producedText = false;
+  let fullText = ""; // accumulated reply text — used by the phantom-card backstop
+  let proposalCount = 0; // write proposals raised this whole turn
+  let cardNudged = false;
 
   try {
     for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
@@ -258,6 +367,7 @@ export async function* runAssistantTurnStreaming(
       for await (const event of stream) {
         if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           producedText = true;
+          fullText += event.delta.text;
           yield { type: "text", text: event.delta.text };
         }
       }
@@ -313,8 +423,23 @@ export async function* runAssistantTurnStreaming(
           }),
         );
         // Emit proposal events (confirm cards) before continuing the loop.
-        for (const r of results) if (r.proposal) yield { type: "proposal", proposal: r.proposal };
+        for (const r of results) {
+          if (r.proposal) {
+            proposalCount += 1;
+            yield { type: "proposal", proposal: r.proposal };
+          }
+        }
         messages.push({ role: "user", content: results.map((r) => r.toolResult) });
+        continue;
+      }
+
+      // Phantom-card backstop: the model claimed a card but never called a write
+      // tool this whole turn — force it to call the tool (or clarify) once. The
+      // retry's text appends after what already streamed; kept minimal by the
+      // correction note. Far better than leaving the user with a card that isn't there.
+      if (!cardNudged && proposalCount === 0 && CARD_CLAIM_RE.test(fullText)) {
+        cardNudged = true;
+        messages.push({ role: "user", content: CARD_CORRECTION });
         continue;
       }
 

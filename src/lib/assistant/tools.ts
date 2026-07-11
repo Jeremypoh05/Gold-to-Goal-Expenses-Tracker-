@@ -11,9 +11,16 @@ import {
   toUiSalaryPeriod,
   toUiIncomeSource,
   normalizeTags,
+  closedMonthsInRange,
 } from "@/lib/expense-utils";
 import type { CategoryKey, Currency } from "@/types";
-import { WRITABLE_CATEGORIES, type ExpenseFields, type Proposal } from "./types";
+import {
+  WRITABLE_CATEGORIES,
+  type ExpenseFields,
+  type Proposal,
+  type RecurringSnapshot,
+  type RecurringChanges,
+} from "./types";
 
 const ALL_CATEGORIES: CategoryKey[] = [
   "food",
@@ -208,11 +215,75 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "edit_recurring",
+    description:
+      "Propose editing a RECURRING RULE (rent, subscription, 家用…) — the smart way to change a repeating commitment so EVERY affected month, the ledger, calendar, dashboard and income all move together (NOT one stray generated row; for that use update_expense). Does NOT save — the user confirms a card first. Get `ruleId` from find_recurring. Choose the mode:\n" +
+      "• mode='rate_change' — the amount changed FROM a point in time (a raise/cut). Earlier months keep their old amount; the new amount applies from `fromMonth` onward. Use for 'rent went up to 1300 from May', 'my Netflix is 19 now'. Provide `newAmount` (+ optional `fromMonth`, default = this month).\n" +
+      "• mode='redefine' — rewrite the rule's definition and re-apply it to EVERY month it covers (past included). Use when the user means 'it has always been / make it X across the board', or to fix the label/category/currency/note/due-day. Provide the fields to change.\n" +
+      "If it's unclear whether the user wants rate_change (from now on, keep history) or redefine (all months), ASK before calling. To change the rule's active START/END months, use the manual editor instead (mention the card's Edit button or the Recurring page).",
+    input_schema: {
+      type: "object",
+      properties: {
+        ruleId: { type: "number", description: "The recurring rule's id (from find_recurring)." },
+        mode: {
+          type: "string",
+          enum: ["rate_change", "redefine"],
+          description: "rate_change = amount changes from a month onward (keep earlier); redefine = rewrite the whole rule.",
+        },
+        newAmount: { type: "number", description: "rate_change: the new monthly amount (positive)." },
+        fromMonth: { type: "string", description: "rate_change: month the new amount starts, YYYY-MM. Omit for the current month." },
+        amount: { type: "number", description: "redefine: new amount applied to every month." },
+        label: { type: "string", description: "redefine: new name for the rule." },
+        note: { type: "string", description: "redefine: new note/detail (pass empty string to clear)." },
+        category: { type: "string", enum: WRITABLE_CATEGORIES, description: "redefine: new category." },
+        currency: { type: "string", enum: WRITABLE_CURRENCIES, description: "redefine: new currency." },
+        dueDay: { type: "number", description: "redefine: new due day of month (1–31)." },
+      },
+      required: ["ruleId", "mode"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_preference",
+    description:
+      "Propose remembering a lifestyle/spending PREFERENCE the user tells you (e.g. 'gaming brings me joy — don't nag', 'travel matters more than dining', 'trying to cut coffee'). Does NOT save — the user confirms first. Stored so future suggestions respect what they value (read back via get_preferences). Use a short, stable `key` (e.g. 'gaming', 'dining', 'priorities') and a natural-language `value`.",
+    input_schema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "A short, stable topic key, e.g. 'gaming' or 'priorities'." },
+        value: { type: "string", description: "What to remember, in the user's words." },
+      },
+      required: ["key", "value"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_month_status",
+    description:
+      "Propose REOPENING or CLOSING a month's books. Closing a month LOCKS every expense in it (no add/edit/delete until reopened); reopening UNLOCKS it. Does NOT change anything — the user confirms a card first. Use when the user asks to reopen/close a month, or offer it when an edit/delete is blocked because the month is closed. Pass month as YYYY-MM.",
+    input_schema: {
+      type: "object",
+      properties: {
+        month: { type: "string", description: "The month to change, YYYY-MM (e.g. 2026-06)." },
+        action: { type: "string", enum: ["reopen", "close"], description: "reopen = unlock the month; close = lock it." },
+      },
+      required: ["month", "action"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Names of the tools that mutate — used by the engine to route their output to a
  *  confirm card (and by the smoke script) rather than treating it as a read result. */
-export const WRITE_TOOL_NAMES = new Set(["create_expense", "update_expense", "delete_expense"]);
+export const WRITE_TOOL_NAMES = new Set([
+  "create_expense",
+  "update_expense",
+  "delete_expense",
+  "edit_recurring",
+  "set_preference",
+  "set_month_status",
+]);
 
 // ── executors ────────────────────────────────────────────────
 
@@ -604,7 +675,9 @@ async function proposeCreateExpense(
     modelResult:
       "Add-expense proposal is on screen as a confirmation card — nothing is saved yet. " +
       "Briefly ask the user to review and Confirm it (don't restate every field)." +
-      (closedMonth ? ` Note: ${closedMonth} is closed; the card lets them add anyway or cancel.` : ""),
+      (closedMonth
+        ? ` Note: ${closedMonth} is closed; the card lets them add anyway or cancel.`
+        : " The target month is currently OPEN — do NOT mention closing/reopening."),
   };
 }
 
@@ -702,9 +775,11 @@ async function proposeUpdateExpense(
       "Edit proposal (before→after) is on screen as a confirmation card — nothing is saved yet. " +
       "Ask the user to review and Confirm." +
       (recurringWarning
-        ? " Heads-up: this row was generated by a recurring rule, so confirming changes ONLY this month (the rule stays as-is; recurring-rule editing from chat is coming soon)."
+        ? " Heads-up: this row was generated by a recurring rule, so confirming changes ONLY this month. To change the recurring commitment across months, use edit_recurring instead."
         : "") +
-      (closedMonth ? ` Note: ${closedMonth} is closed; the card lets them edit anyway or cancel.` : ""),
+      (closedMonth
+        ? ` Note: ${closedMonth} is closed; the card lets them edit anyway or cancel.`
+        : " The month is currently OPEN — do NOT mention closing/reopening."),
   };
 }
 
@@ -740,11 +815,259 @@ async function proposeDeleteExpense(
       target,
     },
     modelResult: closedMonth
-      ? `That expense is in a closed month (${closedMonth}); it can't be deleted until the month is reopened on the Ledger page. Tell the user gently.`
+      ? `That expense is in a closed month (${closedMonth}) — it can't be deleted while the month is closed. Offer to reopen the month first via set_month_status (confirm-gated), then delete.`
       : "Delete proposal is on screen as a confirmation card — nothing is deleted yet. Ask the user to confirm." +
         (recurringWarning
           ? " Note: this row came from a recurring rule; deleting it removes only this month's entry."
-          : ""),
+          : "") +
+        " The month is currently OPEN — do NOT mention closing/reopening.",
+  };
+}
+
+// ── recurring-rule edit proposal (Slice 2b) ──────────────────
+// The smart edit: routes (on confirm) to changeFixedAmount (rate change, keeps
+// history) or updateFixedExpense (redefine, rewrite all months). The tool only
+// PROPOSES — it resolves the rule, computes the affected month span + which of
+// those are hard-closed, and hands the client a card to confirm.
+
+const cmpYM = (aY: number, aM: number, bY: number, bM: number) => (aY !== bY ? aY - bY : aM - bM);
+
+/** The materialized-affected months (start → min(today, end)) as "YYYY-MM" keys. */
+function monthsInRange(
+  startY: number,
+  startM: number,
+  endY: number | null,
+  endM: number | null,
+  nowY: number,
+  nowM: number,
+): string[] {
+  const out: string[] = [];
+  let cy = startY;
+  let cm = startM;
+  while (cmpYM(cy, cm, nowY, nowM) <= 0) {
+    if (endY != null && endM != null && cmpYM(cy, cm, endY, endM) > 0) break;
+    out.push(fmtYM(cy, cm));
+    if (cm >= 12) { cy += 1; cm = 1; } else { cm += 1; }
+    if (out.length > 600) break; // safety against a pathological range
+  }
+  return out;
+}
+
+async function closedKeySet(userId: string): Promise<Set<string>> {
+  const rows = await prisma.monthClose.findMany({
+    where: { userId },
+    select: { year: true, month: true },
+  });
+  return new Set(rows.map((r) => `${r.year}-${r.month}`));
+}
+
+async function proposeEditRecurring(
+  userId: string,
+  input: ToolInput,
+  now: Date,
+): Promise<WriteToolOutput | ToolError> {
+  const ruleId = toNum(input.ruleId);
+  if (ruleId == null || !Number.isInteger(ruleId)) {
+    return { error: "pass the numeric ruleId of the recurring rule (from find_recurring)" };
+  }
+  const rule = await prisma.fixedExpense.findFirst({ where: { id: ruleId, userId } });
+  if (!rule) return { error: "no recurring rule with that id — call find_recurring to get the ruleId" };
+
+  const mode = input.mode === "redefine" ? "redefine" : input.mode === "rate_change" ? "rate_change" : null;
+  if (!mode) {
+    return { error: "mode must be 'rate_change' (amount changes from a month onward) or 'redefine' (rewrite the whole rule)" };
+  }
+
+  const nowY = now.getFullYear();
+  const nowM = now.getMonth() + 1;
+
+  const before: RecurringSnapshot = {
+    label: rule.label,
+    amount: Number(rule.amount),
+    currency: rule.currency as Currency,
+    category: rule.category as CategoryKey,
+    note: rule.note ?? "",
+    dueDay: rule.dueDay,
+    activeFrom: fmtYM(rule.startYear, rule.startMonth),
+    activeUntil: rule.endYear != null && rule.endMonth != null ? fmtYM(rule.endYear, rule.endMonth) : "ongoing",
+  };
+
+  // Resolve mode-specific values, the affected month RANGE, and the after-snapshot.
+  let range: { startYear: number; startMonth: number; endYear: number | null; endMonth: number | null };
+  let after: RecurringSnapshot;
+  const recurring: NonNullable<Proposal["recurring"]> = {
+    ruleId,
+    mode,
+    before,
+    after: before, // placeholder, set below
+    range: { startYear: rule.startYear, startMonth: rule.startMonth, endYear: rule.endYear, endMonth: rule.endMonth },
+    impact: { monthCount: 0, firstMonth: before.activeFrom, lastMonth: before.activeFrom },
+    closedInRange: [],
+  };
+
+  if (mode === "rate_change") {
+    const amt = toNum(input.newAmount);
+    if (amt == null || amt <= 0) return { error: "newAmount must be a positive number for a rate_change" };
+    let fy = nowY;
+    let fm = nowM;
+    if (input.fromMonth != null) {
+      const d = parseDay(input.fromMonth); // accepts YYYY-MM
+      if (!d) return { error: "fromMonth must be YYYY-MM" };
+      fy = d.getFullYear();
+      fm = d.getMonth() + 1;
+    }
+    range = { startYear: fy, startMonth: fm, endYear: rule.endYear, endMonth: rule.endMonth };
+    after = { ...before, amount: amt };
+    recurring.fromYear = fy;
+    recurring.fromMonth = fm;
+    recurring.newAmount = amt;
+  } else {
+    // redefine — only the field(s) the model set. Active start/end are NOT editable
+    // here (use the manual editor); the affected range stays the rule's own span.
+    const changes: RecurringChanges = {};
+    if (input.amount !== undefined) {
+      const a = toNum(input.amount);
+      if (a == null || a <= 0) return { error: "amount must be a positive number" };
+      changes.amount = a;
+    }
+    if (input.label !== undefined) {
+      const l = typeof input.label === "string" ? input.label.trim().slice(0, 40) : "";
+      if (l) changes.label = l;
+    }
+    if (input.note !== undefined) {
+      changes.note = typeof input.note === "string" ? input.note.trim().slice(0, 120) : "";
+    }
+    if (input.category !== undefined) {
+      const c = pickCategory(input.category);
+      if (!c) return { error: `category must be one of: ${WRITABLE_CATEGORIES.join(", ")}` };
+      changes.category = c;
+    }
+    if (input.currency !== undefined) {
+      const cur = pickCurrency(input.currency);
+      if (!cur) return { error: `currency must be one of: ${WRITABLE_CURRENCIES.join(", ")}` };
+      changes.currency = cur;
+    }
+    if (input.dueDay !== undefined) {
+      const d = toNum(input.dueDay);
+      if (d == null || d < 1 || d > 31) return { error: "dueDay must be 1–31" };
+      changes.dueDay = Math.round(d);
+    }
+    if (Object.keys(changes).length === 0) {
+      return { error: "no changes given — for redefine, say what to change (amount, label, category, currency, note, dueDay)" };
+    }
+    range = { startYear: rule.startYear, startMonth: rule.startMonth, endYear: rule.endYear, endMonth: rule.endMonth };
+    after = {
+      label: changes.label ?? before.label,
+      amount: changes.amount ?? before.amount,
+      currency: changes.currency ?? before.currency,
+      category: changes.category ?? before.category,
+      note: changes.note ?? before.note,
+      dueDay: changes.dueDay ?? before.dueDay,
+      activeFrom: before.activeFrom,
+      activeUntil: before.activeUntil,
+    };
+    recurring.changes = changes;
+  }
+
+  recurring.after = after;
+  recurring.range = range;
+
+  const months = monthsInRange(range.startYear, range.startMonth, range.endYear, range.endMonth, nowY, nowM);
+  recurring.impact = {
+    monthCount: months.length,
+    firstMonth: months[0] ?? fmtYM(range.startYear, range.startMonth),
+    lastMonth: months[months.length - 1] ?? fmtYM(range.startYear, range.startMonth),
+  };
+
+  const closed = await closedKeySet(userId);
+  recurring.closedInRange = closedMonthsInRange(
+    closed,
+    range.startYear,
+    range.startMonth,
+    range.endYear,
+    range.endMonth,
+    nowY,
+    nowM,
+  ).map((h) => fmtYM(h.year, h.month));
+
+  const amountMoved = after.amount !== before.amount;
+  const summary =
+    mode === "rate_change"
+      ? `Recurring ${before.label}: ${fmtMoney(before.amount, before.currency)} → ${fmtMoney(after.amount, after.currency)} from ${recurring.impact.firstMonth}`
+      : `Recurring ${before.label}${amountMoved ? `: ${fmtMoney(before.amount, before.currency)} → ${fmtMoney(after.amount, after.currency)}` : " updated"}`;
+
+  return {
+    proposal: { id: "", kind: "edit_recurring", summary, recurring },
+    modelResult:
+      "A recurring-rule edit card is on screen — NOTHING is saved yet. It propagates across every affected " +
+      `month + the ledger/calendar/dashboard/income. Briefly ask the user to review & Confirm (don't restate all fields). ` +
+      (mode === "rate_change"
+        ? `This is a rate change: months before ${recurring.impact.firstMonth} keep ${fmtMoney(before.amount, before.currency)}.`
+        : `This redefines the rule across all ${recurring.impact.monthCount} affected month(s).`) +
+      (recurring.closedInRange.length > 0
+        ? ` Note: ${recurring.closedInRange.join(", ")} ${recurring.closedInRange.length === 1 ? "is" : "are"} closed — the card lets them keep those frozen or override.`
+        : " All affected months are currently OPEN — do NOT mention closing/reopening."),
+  };
+}
+
+function proposeSetPreference(input: ToolInput): WriteToolOutput | ToolError {
+  const key = typeof input.key === "string" ? input.key.trim().toLowerCase().slice(0, 40) : "";
+  const value = typeof input.value === "string" ? input.value.trim().slice(0, 300) : "";
+  if (!key) return { error: "provide a short key for the preference (e.g. 'gaming', 'priorities')" };
+  if (!value) return { error: "provide the value to remember (what the user said they value)" };
+  return {
+    proposal: {
+      id: "",
+      kind: "set_preference",
+      summary: `Remember: ${key} — ${value}`,
+      preference: { key, value },
+    },
+    modelResult:
+      "A 'remember this preference' card is on screen — nothing is saved yet. Ask the user to confirm saving it, " +
+      "and note you'll keep it in mind for future suggestions. Don't restate the whole thing.",
+  };
+}
+
+// ── month reopen/close proposal (Slice 2b fix batch) ─────────
+// Lets the assistant reopen/close a month's books (confirm-gated) instead of sending
+// the user off to the Ledger page. Checks the LIVE status so it never proposes a
+// no-op (already open / already closed).
+
+async function proposeSetMonthStatus(
+  userId: string,
+  input: ToolInput,
+): Promise<WriteToolOutput | ToolError> {
+  const parsed = parseDay(input.month); // accepts YYYY-MM
+  if (!parsed) return { error: "month must be YYYY-MM (e.g. 2026-06)" };
+  const year = parsed.getFullYear();
+  const month = parsed.getMonth() + 1;
+  const action = input.action === "close" ? "close" : input.action === "reopen" ? "reopen" : null;
+  if (!action) return { error: "action must be 'reopen' or 'close'" };
+
+  const monthLabel = new Date(year, month - 1, 1).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+  const isClosed = (await closedMonthKey(userId, new Date(year, month - 1, 1))) != null;
+  if (action === "reopen" && !isClosed) {
+    return { error: `${monthLabel} is already open — there's nothing to reopen.` };
+  }
+  if (action === "close" && isClosed) {
+    return { error: `${monthLabel} is already closed.` };
+  }
+
+  return {
+    proposal: {
+      id: "",
+      kind: "set_month_status",
+      summary: `${action === "reopen" ? "Reopen" : "Close"} ${monthLabel}`,
+      monthStatus: { year, month, monthLabel, action },
+    },
+    modelResult:
+      `A ${action}-month card is on screen — nothing has changed yet. Ask the user to review & Confirm. ` +
+      (action === "reopen"
+        ? `Reopening ${monthLabel} unlocks it so its entries can be added/edited/deleted again.`
+        : `Closing ${monthLabel} locks all its entries until it's reopened.`),
   };
 }
 
@@ -777,6 +1100,12 @@ export async function executeAssistantTool(
       return proposeUpdateExpense(userId, input);
     case "delete_expense":
       return proposeDeleteExpense(userId, input);
+    case "edit_recurring":
+      return proposeEditRecurring(userId, input, now);
+    case "set_preference":
+      return proposeSetPreference(input);
+    case "set_month_status":
+      return proposeSetMonthStatus(userId, input);
     default:
       return { error: `unknown tool: ${name}` };
   }

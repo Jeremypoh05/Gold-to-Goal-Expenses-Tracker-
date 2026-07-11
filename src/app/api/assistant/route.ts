@@ -6,7 +6,13 @@
 // (proxy.ts protects /api/*) + the auth() check here; reads/writes are userId-scoped.
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import { runAssistantTurnStreaming, type AssistantHistoryMessage } from "@/lib/assistant/engine";
+import {
+  runAssistantTurnStreaming,
+  assistantHistoryContent,
+  type AssistantHistoryMessage,
+} from "@/lib/assistant/engine";
+import type { Proposal } from "@/lib/assistant/types";
+import type { Prisma } from "@/generated/prisma/client";
 
 // Prisma needs the Node runtime (not edge); always dynamic (per-user, streamed).
 export const runtime = "nodejs";
@@ -38,7 +44,8 @@ export async function POST(req: Request): Promise<Response> {
     else {
       history = session.messages.map((m) => ({
         role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-        content: m.content,
+        // Fold in past cards' outcomes so the model knows what was cancelled/confirmed.
+        content: m.role === "assistant" ? assistantHistoryContent(m.content, m.data) : m.content,
       }));
     }
   }
@@ -71,6 +78,7 @@ export async function POST(req: Request): Promise<Response> {
 
       let full = "";
       const toolsUsed: string[] = [];
+      const proposals: Proposal[] = [];
       try {
         for await (const ev of runAssistantTurnStreaming(userId, history, message, {
           signal: req.signal,
@@ -83,7 +91,9 @@ export async function POST(req: Request): Promise<Response> {
             send({ type: "tool", name: ev.name });
           } else if (ev.type === "proposal") {
             // A WRITE proposal — the chat renders a confirm card; nothing is saved
-            // until the user taps Confirm (→ executeAssistantAction).
+            // until the user taps Confirm (→ executeAssistantAction). Collected so we
+            // persist it (outcome=pending) → the card + its status survive a reload.
+            proposals.push(ev.proposal);
             send({ type: "proposal", proposal: ev.proposal });
           } else if (ev.type === "error") {
             send({ type: "error" });
@@ -93,14 +103,28 @@ export async function POST(req: Request): Promise<Response> {
         send({ type: "error" });
       }
 
-      // Persist the turn (user msg always; assistant msg only if any text landed,
-      // so a stopped-before-any-output turn doesn't save a blank reply). Best-effort.
+      // Persist the turn (user msg always; assistant msg if any text OR a proposal
+      // landed, so a card isn't lost on reload even if the reply text was empty).
+      // Best-effort. `data` carries this turn's proposals with a pending outcome.
       try {
         const reply = full.trim();
+        const assistantData: Prisma.InputJsonValue | undefined =
+          proposals.length > 0
+            ? ({ proposals: proposals.map((p) => ({ ...p, outcome: "pending" })) } as unknown as Prisma.InputJsonValue)
+            : undefined;
         await prisma.$transaction([
           prisma.chatMessage.create({ data: { sessionId: sid, role: "user", content: message } }),
-          ...(reply
-            ? [prisma.chatMessage.create({ data: { sessionId: sid, role: "assistant", content: reply } })]
+          ...(reply || proposals.length > 0
+            ? [
+                prisma.chatMessage.create({
+                  data: {
+                    sessionId: sid,
+                    role: "assistant",
+                    content: reply,
+                    ...(assistantData !== undefined && { data: assistantData }),
+                  },
+                }),
+              ]
             : []),
           prisma.chatSession.update({ where: { id: sid }, data: { updatedAt: new Date() } }),
         ]);

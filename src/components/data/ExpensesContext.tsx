@@ -10,8 +10,9 @@
 // `current.day` is today's date only when viewing the actual current month (server
 // sets it to 0 otherwise), so `canGoNext === (current.day === 0)` — you can move
 // forward only from a past month, never into the future.
-import { createContext, useContext, useRef, useState, useTransition, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { fetchMonthData } from "@/lib/actions";
+import { DATA_CHANGED_EVENT } from "@/lib/data-events";
 import type { DashboardData } from "@/lib/queries";
 
 interface ExpensesContextValue extends DashboardData {
@@ -94,6 +95,23 @@ export function ExpensesProvider({
   const refresh = () => {
     runFetch(++reqId.current, data.current.year, data.current.month);
   };
+
+  // ADDED (Slice 2b): re-fetch the viewed month whenever anything writes financial
+  // data from OUTSIDE this provider's own pages — specifically the AI assistant,
+  // which confirms adds/edits/deletes + recurring-rule changes while layered over
+  // whatever page is showing. `refresh` closes over the latest `data`, so we keep
+  // it in a ref and subscribe once; the handler always calls the current refresh.
+  const refreshRef = useRef(refresh);
+  // Keep the ref pointed at the latest `refresh` (updated after every render, not
+  // during it) so the once-registered listener never calls a stale closure.
+  useEffect(() => {
+    refreshRef.current = refresh;
+  });
+  useEffect(() => {
+    const onDataChanged = () => refreshRef.current();
+    window.addEventListener(DATA_CHANGED_EVENT, onDataChanged);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, onDataChanged);
+  }, []);
 
   return (
     <ExpensesContext.Provider

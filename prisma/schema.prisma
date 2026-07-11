@@ -101,15 +101,18 @@ model ChatSession {
   @@index([userId, updatedAt])
 }
 
-/// ADDED (AI Assistant · Slice 1): one chat turn. Only display text is stored —
-/// tool calls/results are transient per turn (the agent re-reads live data each
-/// time, so replaying stale tool output would be wrong anyway).
+/// ADDED (AI Assistant · Slice 1): one chat turn. Display text is stored; tool
+/// calls/results stay transient per turn (the agent re-reads live data each time).
+/// CHANGED (Slice 2b-part-2): `data` optionally holds this turn's WRITE proposals
+/// + their resolved OUTCOME (confirmed / cancelled / pending), so the confirmation
+/// cards AND a permanent "what you did here" status survive reloads/navigation.
 model ChatMessage {
   id        Int         @id @default(autoincrement())
   sessionId Int
   session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   role      String // "user" | "assistant"
   content   String
+  data      Json? // { proposals: (Proposal & { outcome, resultSummary?, resolvedAt? })[] }
   createdAt DateTime    @default(now())
 
   @@index([sessionId])

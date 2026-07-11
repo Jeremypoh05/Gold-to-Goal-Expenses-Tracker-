@@ -38,11 +38,19 @@ async function main() {
     const secs = ((Date.now() - started) / 1000).toFixed(1);
     console.log(`🔧 TOOLS (${secs}s): ${res.toolsUsed.join(" → ") || "(none)"}`);
     console.log(`🤖 ASSISTANT: ${res.reply}`);
-    // Slice 2: WRITE tools return proposals (confirm cards in the UI) — never auto-saved.
+    // Slice 2/2b: WRITE tools return proposals (confirm cards in the UI) — never auto-saved.
     for (const p of res.proposals) {
-      console.log(`📝 PROPOSAL [${p.kind}]: ${p.summary}` +
-        (p.closedMonth ? ` · closed:${p.closedMonth}` : "") +
-        (p.recurringWarning ? " · recurring!" : ""));
+      let extra = "";
+      if (p.closedMonth) extra += ` · closed:${p.closedMonth}`;
+      if (p.recurringWarning) extra += " · recurring-row!";
+      if (p.recurring) {
+        const r = p.recurring;
+        extra += ` · mode:${r.mode} · ${r.impact.monthCount}mo(${r.impact.firstMonth}→${r.impact.lastMonth})`;
+        if (r.closedInRange.length) extra += ` · closedInRange:${r.closedInRange.join(",")}`;
+      }
+      if (p.preference) extra += ` · pref:${p.preference.key}`;
+      if (p.monthStatus) extra += ` · ${p.monthStatus.action}:${p.monthStatus.monthLabel}`;
+      console.log(`📝 PROPOSAL [${p.kind}]: ${p.summary}${extra}`);
     }
     console.log("─".repeat(60));
     if (!res.ok) console.error(`   ⚠ error: ${res.error}`);

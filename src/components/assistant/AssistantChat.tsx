@@ -29,8 +29,10 @@ import {
     CategoryTile,
 } from '@/components/icons';
 import { useConfirm } from '@/components/shared';
+import { useFixedEdit, useClosedMonthGuard } from '@/components/fixed';
 import { cn } from '@/lib/utils';
 import { CATEGORIES } from '@/data/categories';
+import { notifyDataChanged } from '@/lib/data-events';
 import { VoiceEntryEditor, type VoiceEntryValue } from '@/components/voice/VoiceEntryEditor';
 import {
     fetchAssistantSessions,
@@ -40,9 +42,15 @@ import {
     setAssistantSessionPinned,
     transcribeChatAudio,
     executeAssistantAction,
+    recordProposalOutcome,
     type AssistantSessionSummary,
+    type AssistantChatMessage,
 } from '@/lib/assistant-actions';
-import type { Proposal, ExpenseFields } from '@/lib/assistant/types';
+import type { Proposal, ExpenseFields, ProposalOutcome } from '@/lib/assistant/types';
+
+/** A proposal as the client tracks it — the raw Proposal plus its resolved outcome
+ *  (undefined = live/pending). Persisted ones (from history) already carry outcome. */
+type ClientProposal = Proposal & { outcome?: ProposalOutcome; resultSummary?: string };
 
 interface ChatMessage {
     key: string;
@@ -52,7 +60,19 @@ interface ChatMessage {
     toolsUsed?: string[];
     streaming?: boolean; // reply is still arriving (show cursor / dots)
     stopped?: boolean; // user hit Stop mid-reply
-    proposals?: Proposal[]; // ADDED (Slice 2): WRITE proposals → confirm cards under the reply
+    proposals?: ClientProposal[]; // ADDED (Slice 2): WRITE proposals → confirm cards under the reply
+}
+
+/** Map a persisted DB message (with its stored proposals + outcomes) to the client
+ *  shape, so confirm cards AND their resolved status re-render after a reload. */
+function persistedToChatMessage(m: AssistantChatMessage): ChatMessage {
+    return {
+        key: `db${m.id}`,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+        ...(m.data?.proposals?.length ? { proposals: m.data.proposals } : {}),
+    };
 }
 
 // Friendly labels for the "looked at your data" chips under a reply.
@@ -234,6 +254,7 @@ function useChatMic(onText: (text: string) => void, onError: (msg: string) => vo
     const recorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
     const streamRef = useRef<MediaStream | null>(null);
+    const cancelledRef = useRef(false); // set when the user discards a recording
 
     const stopStream = () => {
         streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -260,6 +281,12 @@ function useChatMic(onText: (text: string) => void, onError: (msg: string) => vo
             recorder.onstop = async () => {
                 stopStream();
                 setRecording(false);
+                // Discarded via the ✕ — drop the audio, no transcription.
+                if (cancelledRef.current) {
+                    cancelledRef.current = false;
+                    chunksRef.current = [];
+                    return;
+                }
                 const type = recorder.mimeType || 'audio/webm';
                 const blob = new Blob(chunksRef.current, { type });
                 if (blob.size === 0) return;
@@ -289,7 +316,16 @@ function useChatMic(onText: (text: string) => void, onError: (msg: string) => vo
         if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
     };
 
-    return { recording, transcribing, start, stop };
+    // Discard the in-progress recording (misspoke) — stop the recorder but skip
+    // transcription so nothing lands in the input box.
+    const cancel = () => {
+        if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+            cancelledRef.current = true;
+            recorderRef.current.stop();
+        }
+    };
+
+    return { recording, transcribing, start, stop, cancel };
 }
 
 // ── history row (search / pin / rename / delete) ─────────────
@@ -410,6 +446,41 @@ const CARD_CURRENCY_SYMBOL: Record<string, string> = { SGD: 'S$', MYR: 'RM', CNY
 const money = (amount: number, currency: string) =>
     `${CARD_CURRENCY_SYMBOL[currency] ?? ''}${amount.toFixed(2)}`;
 
+const catLabel = (c: string) => CATEGORIES[c as keyof typeof CATEGORIES]?.label ?? c;
+
+/** A detailed, permanent "what you did here" line for a CONFIRMED proposal — built
+ *  from the proposal itself so live + reloaded cards read identically (Slice 2b-part-2). */
+function describeConfirmed(p: Proposal): string {
+    if (p.kind === 'create_expense' && p.create)
+        return `Added ${money(p.create.amount, p.create.currency)} · ${catLabel(p.create.category)}`;
+    if (p.kind === 'update_expense' && p.before && p.after)
+        return `Edited · ${money(p.before.amount, p.before.currency)} → ${money(p.after.amount, p.after.currency)} · ${catLabel(p.after.category)}`;
+    if (p.kind === 'delete_expense' && p.target)
+        return `Deleted ${money(p.target.amount, p.target.currency)} · ${catLabel(p.target.category)}`;
+    if (p.kind === 'edit_recurring' && p.recurring)
+        return `Recurring “${p.recurring.after.label}” · ${money(p.recurring.after.amount, p.recurring.after.currency)}/mo`;
+    if (p.kind === 'set_preference' && p.preference)
+        return `Saved preference · ${p.preference.key}`;
+    if (p.kind === 'set_month_status' && p.monthStatus)
+        return `${p.monthStatus.action === 'reopen' ? 'Reopened' : 'Closed'} ${p.monthStatus.monthLabel}`;
+    return p.summary;
+}
+
+/** Shared resolved-status chips shown once a card is confirmed or cancelled — these
+ *  are what persist permanently in the chat history so the user always knows what
+ *  they did (or didn't) here, even after navigating away and coming back. */
+function ConfirmedChip({ text }: { text: string }) {
+    return (
+        <div className="flex items-center gap-1.5 text-[11.5px] text-emerald-600 dark:text-emerald-400 mt-1.5 px-1">
+            <CheckMark size={13} />
+            <span>{text}</span>
+        </div>
+    );
+}
+function CancelledChip({ text = 'Not saved' }: { text?: string }) {
+    return <div className="text-[11px] text-ink-2 mt-1.5 px-1">✕ {text}</div>;
+}
+
 function proposalDate(iso: string | null): string {
     if (!iso) return 'today';
     const d = new Date(iso);
@@ -455,14 +526,26 @@ function ProposalCard({
     proposal,
     onNavigate,
     onWritten,
+    initialOutcome,
+    onResolve,
 }: {
     proposal: Proposal;
     onNavigate: (target: NavTarget) => void;
     onWritten: () => void;
+    /** Seeds the card's resolved state when restored from history (Slice 2b-part-2). */
+    initialOutcome?: ProposalOutcome;
+    /** Persist the resolution so the status survives reload/navigation. */
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
 }) {
-    const [status, setStatus] = useState<CardStatus>('idle');
-    const [resultSummary, setResultSummary] = useState('');
+    const [status, setStatus] = useState<CardStatus>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
     const [error, setError] = useState('');
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
 
     const kind = proposal.kind;
     const isDelete = kind === 'delete_expense';
@@ -499,9 +582,9 @@ function ProposalCard({
                 res = await executeAssistantAction({ kind: 'delete_expense', expenseId: proposal.expenseId! });
             }
             if (res.ok) {
-                setResultSummary(res.summary ?? 'Done');
                 setStatus('done');
                 onWritten();
+                onResolve?.('confirmed', doneDetail);
             } else {
                 setError(res.error ?? 'Something went wrong.');
                 setStatus('error');
@@ -512,18 +595,9 @@ function ProposalCard({
         }
     };
 
-    // Resolved: a compact one-line chip in place of the card.
-    if (status === 'done') {
-        return (
-            <div className="flex items-center gap-1.5 text-[11.5px] text-emerald-600 dark:text-emerald-400 mt-1.5 px-1">
-                <CheckMark size={13} />
-                <span>{resultSummary}</span>
-            </div>
-        );
-    }
-    if (status === 'cancelled') {
-        return <div className="text-[11px] text-ink-2 mt-1.5 px-1">✕ Dismissed</div>;
-    }
+    // Resolved: a compact, PERMANENT status chip in place of the card.
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
 
     // Manual-edit fallback: the universal VoiceEntryEditor, pre-filled with the proposal.
     if (status === 'editing' && fields) {
@@ -623,7 +697,7 @@ function ProposalCard({
                         </button>
                         <button
                             type="button"
-                            onClick={() => setStatus('cancelled')}
+                            onClick={cancel}
                             className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer"
                         >
                             Dismiss
@@ -672,7 +746,7 @@ function ProposalCard({
                         <button
                             type="button"
                             disabled={saving}
-                            onClick={() => setStatus('cancelled')}
+                            onClick={cancel}
                             className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60"
                         >
                             Cancel
@@ -690,6 +764,413 @@ function CheckMark({ size = 13 }: { size?: number }) {
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12 L10 17 L19 7" />
         </svg>
+    );
+}
+
+// ── recurring-rule + preference confirm cards (Slice 2b) ─────
+// edit_recurring routes (on Confirm) through the SAME machinery the Recurring page
+// uses — changeFixedAmount (rate change, keeps history) / updateFixedExpense
+// (redefine, rewrite all months) — so the change propagates across every affected
+// month + ledger/calendar/dashboard/income. The visible page live-updates via
+// notifyDataChanged() (onWritten). Closed months in range are resolved by the
+// shared 3-way guard at Confirm time; "Edit" hands off to the full recurring modal.
+
+/** "2026-07" → "Jul 2026". */
+function ymLabel(ym: string): string {
+    const [y, m] = ym.split('-').map(Number);
+    if (!y || !m) return ym;
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+function RecurringProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const guardClosedMonths = useClosedMonthGuard();
+    const { openFixedEdit } = useFixedEdit();
+    const [status, setStatus] = useState<CardStatus | 'handoff'>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+
+    const r = proposal.recurring;
+    if (!r) return null;
+
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+
+    const { before, after, mode, impact } = r;
+    const amountMoved = before.amount !== after.amount;
+    const span =
+        impact.firstMonth === impact.lastMonth
+            ? ymLabel(impact.firstMonth)
+            : `${ymLabel(impact.firstMonth)} – ${ymLabel(impact.lastMonth)}`;
+
+    // Non-amount field changes (a redefine can move label / category / note / due-day).
+    const diffs: { label: string; from: string; to: string }[] = [];
+    if (before.label !== after.label) diffs.push({ label: 'Name', from: before.label, to: after.label });
+    if (before.category !== after.category)
+        diffs.push({
+            label: 'Category',
+            from: CATEGORIES[before.category]?.label ?? before.category,
+            to: CATEGORIES[after.category]?.label ?? after.category,
+        });
+    if (before.note !== after.note) diffs.push({ label: 'Note', from: before.note || '—', to: after.note || '—' });
+    if (before.dueDay !== after.dueDay) diffs.push({ label: 'Due day', from: `${before.dueDay}`, to: `${after.dueDay}` });
+
+    const run = async () => {
+        setError('');
+        setStatus('saving');
+        try {
+            // 3-way closed-month decision over the affected range (re-fetches live).
+            const g = await guardClosedMonths(
+                {
+                    startYear: r.range.startYear,
+                    startMonth: r.range.startMonth,
+                    endYear: r.range.endYear,
+                    endMonth: r.range.endMonth,
+                },
+                'edit',
+            );
+            if (!g.proceed) {
+                setStatus('idle');
+                return;
+            }
+            const res =
+                mode === 'rate_change'
+                    ? await executeAssistantAction({
+                          kind: 'edit_recurring',
+                          ruleId: r.ruleId,
+                          mode: 'rate_change',
+                          fromYear: r.fromYear!,
+                          fromMonth: r.fromMonth!,
+                          newAmount: r.newAmount!,
+                          overrideClosed: g.overrideClosed,
+                      })
+                    : await executeAssistantAction({
+                          kind: 'edit_recurring',
+                          ruleId: r.ruleId,
+                          mode: 'redefine',
+                          changes: r.changes ?? {},
+                          overrideClosed: g.overrideClosed,
+                      });
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong applying that.');
+            setStatus('error');
+        }
+    };
+
+    // Manual-edit fallback: the full recurring modal (its own guard + refresh wired).
+    // The modal's outcome is unknown here, so we DON'T persist an outcome — the card
+    // just steps aside; on reload it stays actionable rather than falsely "not saved".
+    const editManually = () => {
+        openFixedEdit(r.ruleId);
+        setStatus('handoff');
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+    if (status === 'handoff')
+        return <div className="text-[11px] text-ink-2 mt-1.5 px-1">↗ Opened the recurring editor</div>;
+
+    const saving = status === 'saving';
+
+    return (
+        <div className="mt-2 rounded-2xl border border-gold-500/40 p-3 flex flex-col gap-2.5" style={{ background: 'var(--color-bg-card)' }}>
+            {/* Header */}
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-2">
+                <RepeatIcon size={13} />
+                Edit recurring
+                <span className="ml-auto normal-case tracking-normal font-normal text-[10px] text-ink-3">Needs your OK</span>
+            </div>
+
+            {/* Rule + amount */}
+            <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 flex-shrink-0">
+                    <CategoryTile kind={after.category} size={26} variant="filled" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-ink-0 break-words">{after.label}</div>
+                    <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
+                        {amountMoved ? (
+                            <>
+                                <span className="text-[12px] text-ink-2 line-through mono">{money(before.amount, before.currency)}</span>
+                                <span className="text-[15px] font-semibold mono">{money(after.amount, after.currency)}</span>
+                                <span className="text-[10px] text-ink-2">/mo</span>
+                            </>
+                        ) : (
+                            <span className="text-[15px] font-semibold mono">
+                                {money(after.amount, after.currency)}
+                                <span className="text-[10px] text-ink-2"> /mo</span>
+                            </span>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Impact line — the whole point: it reaches everywhere */}
+            <div className="text-[10.5px] text-ink-1 leading-relaxed rounded-lg px-2 py-1.5 bg-bg-2">
+                {mode === 'rate_change' ? (
+                    <>
+                        Applies from <b>{ymLabel(impact.firstMonth)}</b> onward
+                        {impact.monthCount > 0 && <> ({impact.monthCount === 1 ? '1 month' : `${impact.monthCount} months`} so far)</>};
+                        earlier months keep {money(before.amount, before.currency)}. Updates the ledger, calendar, dashboard &amp; income.
+                    </>
+                ) : (
+                    <>
+                        Rewrites the rule across <b>{impact.monthCount === 1 ? '1 month' : `${impact.monthCount} months`}</b> ({span})
+                        and every future month. Updates the ledger, calendar, dashboard &amp; income.
+                    </>
+                )}
+            </div>
+
+            {/* Field diffs (redefine) */}
+            {diffs.length > 0 && (
+                <div className="flex flex-col gap-0.5 text-[10.5px] text-ink-2 border-t border-line-soft pt-1.5">
+                    {diffs.map((d) => (
+                        <div key={d.label}>
+                            {d.label}: <span className="line-through">{d.from}</span> → <b className="text-ink-1">{d.to}</b>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Closed-months heads-up — the guard makes the final call on Confirm */}
+            {r.closedInRange.length > 0 && (
+                <div className="text-[10.5px] leading-relaxed rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-400 bg-amber-500/10">
+                    {r.closedInRange.map(ymLabel).join(', ')} {r.closedInRange.length === 1 ? 'is' : 'are'} closed — on Confirm
+                    you can keep {r.closedInRange.length === 1 ? 'it' : 'them'} frozen or override.
+                </div>
+            )}
+
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={run}
+                    className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60 text-[#1a120a] cursor-pointer hover:brightness-[1.03]"
+                    style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' }}
+                >
+                    {saving ? 'Applying…' : (<><CheckMark size={13} /> Confirm</>)}
+                </button>
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={editManually}
+                    className="inline-flex items-center gap-1 text-[11.5px] font-medium px-3 py-1.5 rounded-full border border-line text-ink-1 hover:border-ink-2 transition-all cursor-pointer disabled:opacity-60"
+                >
+                    <EditIcon size={12} /> Edit
+                </button>
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={cancel}
+                    className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60"
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function PreferenceProposalCard({
+    proposal,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<'idle' | 'saving' | 'done' | 'cancelled' | 'error'>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const pref = proposal.preference;
+    if (!pref) return null;
+
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+
+    const run = async () => {
+        setStatus('saving');
+        setError('');
+        try {
+            const res = await executeAssistantAction({ kind: 'set_preference', key: pref.key, value: pref.value });
+            if (res.ok) {
+                setStatus('done');
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong saving that.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+
+    const saving = status === 'saving';
+    return (
+        <div className="mt-2 rounded-2xl border border-gold-500/40 p-3 flex flex-col gap-2" style={{ background: 'var(--color-bg-card)' }}>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-2">
+                <BotIcon size={13} />
+                Remember this?
+                <span className="ml-auto normal-case tracking-normal font-normal text-[10px] text-ink-3">Needs your OK</span>
+            </div>
+            <div className="text-[12.5px] text-ink-1 leading-relaxed">
+                <span className="font-semibold text-ink-0 capitalize">{pref.key}</span> — {pref.value}
+            </div>
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={run}
+                    className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60 text-[#1a120a] cursor-pointer hover:brightness-[1.03]"
+                    style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' }}
+                >
+                    {saving ? 'Saving…' : (<><CheckMark size={13} /> Save</>)}
+                </button>
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={cancel}
+                    className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60"
+                >
+                    Dismiss
+                </button>
+            </div>
+        </div>
+    );
+}
+
+/** Reopen / close a month's books (Slice 2b fix batch) — confirm-gated, with a
+ *  clear impact explanation. On confirm it re-fetches the visible page (onWritten →
+ *  notifyDataChanged) so the Ledger's closed banner updates immediately. */
+function MonthStatusProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<'idle' | 'saving' | 'done' | 'cancelled' | 'error'>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const ms = proposal.monthStatus;
+    if (!ms) return null;
+
+    const isReopen = ms.action === 'reopen';
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+
+    const run = async () => {
+        setStatus('saving');
+        setError('');
+        try {
+            const res = await executeAssistantAction({
+                kind: 'set_month_status',
+                year: ms.year,
+                month: ms.month,
+                action: ms.action,
+            });
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+
+    const saving = status === 'saving';
+    return (
+        <div className="mt-2 rounded-2xl border border-gold-500/40 p-3 flex flex-col gap-2.5" style={{ background: 'var(--color-bg-card)' }}>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-2">
+                <CalendarIcon size={13} />
+                {isReopen ? 'Reopen month' : 'Close month'}
+                <span className="ml-auto normal-case tracking-normal font-normal text-[10px] text-ink-3">Needs your OK</span>
+            </div>
+            <div className="text-[13px] font-semibold text-ink-0">{ms.monthLabel}</div>
+            <div className="text-[10.5px] text-ink-1 leading-relaxed rounded-lg px-2 py-1.5 bg-bg-2">
+                {isReopen ? (
+                    <>
+                        Reopening <b>{ms.monthLabel} </b> unlocks its books — you&apos;ll be able to add, edit and
+                        delete its entries again.
+                    </>
+                ) : (
+                    <>
+                        Closing <b>{ms.monthLabel}</b> locks its books — no entries can be added, edited or deleted
+                        until you reopen it.
+                    </>
+                )}
+            </div>
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={run}
+                    className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60 text-[#1a120a] cursor-pointer hover:brightness-[1.03]"
+                    style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' }}
+                >
+                    {saving ? 'Working…' : (<><CheckMark size={13} /> {isReopen ? 'Reopen month' : 'Close month'}</>)}
+                </button>
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={cancel}
+                    className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60"
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
     );
 }
 
@@ -730,6 +1211,36 @@ export function AssistantChat({
         [router, onNavigate],
     );
 
+    // ADDED (Slice 2b): after ANY confirmed write, tell the visible page to re-fetch
+    // (notifyDataChanged → ExpensesProvider.refresh) so dashboard/ledger/calendar/
+    // income/recurring reflect the change immediately — not just after a navigation.
+    // router.refresh() additionally re-runs any server-rendered parts.
+    const handleWritten = useCallback(() => {
+        notifyDataChanged();
+        router.refresh();
+    }, [router]);
+
+    // ADDED (Slice 2b-part-2): persist a card's resolution (confirmed / cancelled) so
+    // the "what you did here" status survives reloads + navigation. Best-effort;
+    // captures the current sessionId each render (cards resolve after the turn's
+    // session id is known). Also updates the in-memory message so the same thread
+    // reflects it without a refetch.
+    const persistOutcome = (proposalId: string, outcome: ProposalOutcome, summary?: string) => {
+        if (sessionId != null) recordProposalOutcome(sessionId, proposalId, outcome, summary).catch(() => {});
+        setMessages((prev) =>
+            prev.map((m) =>
+                m.proposals?.some((p) => p.id === proposalId)
+                    ? {
+                          ...m,
+                          proposals: m.proposals.map((p) =>
+                              p.id === proposalId ? { ...p, outcome, ...(summary && { resultSummary: summary }) } : p,
+                          ),
+                      }
+                    : m,
+            ),
+        );
+    };
+
     // Restore the latest conversation the first time the surface becomes active.
     useEffect(() => {
         if (!active || initedRef.current) return;
@@ -745,14 +1256,7 @@ export function AssistantChat({
                 if (latest) {
                     const msgs = await fetchAssistantMessages(latest.id);
                     setSessionId(latest.id);
-                    setMessages(
-                        msgs.map((m) => ({
-                            key: `db${m.id}`,
-                            role: m.role,
-                            content: m.content,
-                            createdAt: m.createdAt,
-                        })),
-                    );
+                    setMessages(msgs.map(persistedToChatMessage));
                 }
             } catch {
                 /* first-load hiccup — the user can still start a fresh chat */
@@ -897,14 +1401,7 @@ export function AssistantChat({
         try {
             const msgs = await fetchAssistantMessages(id);
             setSessionId(id);
-            setMessages(
-                msgs.map((m) => ({
-                    key: `db${m.id}`,
-                    role: m.role,
-                    content: m.content,
-                    createdAt: m.createdAt,
-                })),
-            );
+            setMessages(msgs.map(persistedToChatMessage));
         } catch {
             /* keep current thread */
         }
@@ -1180,17 +1677,45 @@ export function AssistantChat({
                                             </span>
                                         ))}
                                 </div>
-                                {/* WRITE confirm cards (Slice 2) — nothing saves until tapped. */}
+                                {/* WRITE confirm cards (Slice 2/2b) — nothing saves until tapped.
+                                    Dispatch by kind: recurring-rule + preference get their own cards. */}
                                 {m.role === 'assistant' && m.proposals && m.proposals.length > 0 && (
                                     <div className="w-full flex flex-col gap-1">
-                                        {m.proposals.map((p) => (
-                                            <ProposalCard
-                                                key={p.id}
-                                                proposal={p}
-                                                onNavigate={handleNavigate}
-                                                onWritten={() => router.refresh()}
-                                            />
-                                        ))}
+                                        {m.proposals.map((p) =>
+                                            p.kind === 'edit_recurring' ? (
+                                                <RecurringProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'set_preference' ? (
+                                                <PreferenceProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'set_month_status' ? (
+                                                <MonthStatusProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : (
+                                                <ProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onNavigate={handleNavigate}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ),
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1226,11 +1751,27 @@ export function AssistantChat({
                         style={{ minHeight: '28px' }}
                         disabled={sending}
                     />
+                    {/* While recording: ✕ discards the take (misspoke → redo), the mic
+                        finishes & transcribes. */}
+                    {mic.recording && (
+                        <button
+                            type="button"
+                            onClick={mic.cancel}
+                            aria-label="Cancel recording"
+                            title="Cancel recording"
+                            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-ink-2 hover:text-red-500 hover:bg-bg-2 transition-all cursor-pointer"
+                        >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M6 6l12 12M18 6L6 18" />
+                            </svg>
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={mic.recording ? mic.stop : mic.start}
                         disabled={sending || mic.transcribing}
-                        aria-label={mic.recording ? 'Stop recording' : 'Speak your question'}
+                        aria-label={mic.recording ? 'Finish and use recording' : 'Speak your question'}
+                        title={mic.recording ? 'Finish & transcribe' : undefined}
                         className={cn(
                             'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all cursor-pointer',
                             mic.recording
