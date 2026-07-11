@@ -3,6 +3,11 @@
 // Separated from CategoryIcon since these have different semantic meaning.
 // ─────────────────────────────────────────────────────────────
 
+// ADDED (AI Assistant · Slice 1 polish v2): the assistant's mark now comes from
+// lucide-react — a crisper, more premium glyph than the hand-drawn one (the rest
+// of the app's icons stay custom; only the assistant "hero" icon uses lucide).
+import { Bot } from 'lucide-react';
+
 interface IconProps {
     size?: number;
     className?: string;
@@ -407,27 +412,9 @@ export function SortIcon({ size = 14, className }: IconProps) {
 // replaces the ambiguous sparkle on the launcher/nav so the entry point reads
 // clearly as "chat with the assistant".
 export function BotIcon({ size = 18, className }: IconProps) {
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={className}
-        >
-            <path d="M12 7 V4" />
-            <circle cx="12" cy="3" r="1" fill="currentColor" stroke="none" />
-            <rect x="4.5" y="7" width="15" height="12" rx="4" />
-            <path d="M2 12 h2.5 M19.5 12 H22" />
-            <circle cx="9" cy="12" r="1.2" fill="currentColor" stroke="none" />
-            <circle cx="15" cy="12" r="1.2" fill="currentColor" stroke="none" />
-            <path d="M9.5 15.5 a3 3 0 0 0 5 0" />
-        </svg>
-    );
+    // lucide-react "Bot" — crisp, recognizable, premium. strokeWidth tuned to
+    // sit alongside the project's 1.6–1.7 custom glyphs.
+    return <Bot size={size} strokeWidth={1.7} className={className} />;
 }
 
 // ADDED (AI Assistant · Slice 1 polish): pin glyph for pinned chats.

@@ -288,12 +288,6 @@ body {
   animation-delay: 0.9s;
 }
 
-/* ADDED (AI Assistant · Slice 1 polish): speed-dial action reveal. */
-@keyframes dockIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.9); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
 /* ADDED (AI Assistant · Slice 1 polish): breathing glow so the mobile center
    mic invites a tap (mirrors the desktop mic's pulse, but a soft shadow that
    won't clip inside the tab bar). Honors reduced-motion. */

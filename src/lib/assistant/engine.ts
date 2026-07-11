@@ -57,9 +57,11 @@ function buildSystemPrompt(now: Date): string {
     `- calendar — the month calendar of spending\n` +
     `- income — salary, other income, savings goal & bonuses\n` +
     `- recurring — the recurring/fixed monthly commitments (rent, subscriptions…)\n` +
-    `Write the label in the user's language (e.g. [[go:recurring|查看经常性支出]] or [[go:income|Open income page]]). ` +
-    `Add a link only when it genuinely helps the user act on the answer — skip it for a plain factual reply, ` +
-    `and never invent a TARGET outside the list above.\n\n` +
+    `Write the label in ONE language only — the SAME language as the rest of your reply. Replying in English ` +
+    `→ an English label (e.g. [[go:income|Open income page]]); replying in Chinese → a Chinese label. Never ` +
+    `combine two languages or add a translation inside one label, and never use a slash to separate languages. ` +
+    `The label must accurately name the destination it links to. Add a link only when it genuinely helps the ` +
+    `user act on the answer — skip it for a plain factual reply, and never invent a TARGET outside the list above.\n\n` +
     `STYLE: concise and conversational. Short paragraphs; use simple "-" bullet lists for breakdowns; ` +
     `use **bold** for key figures. No headers or tables. If the question is ambiguous (e.g. which ` +
     `"coffee" or which month), ask one short clarifying question instead of guessing.`

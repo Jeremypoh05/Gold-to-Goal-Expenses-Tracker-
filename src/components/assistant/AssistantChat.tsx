@@ -11,6 +11,7 @@
 // global ConfirmDialog, copy-reply button.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 import {
     MicIcon,
     BotIcon,
@@ -58,11 +59,14 @@ const TOOL_LABELS: Record<string, string> = {
     get_preferences: 'read preferences',
 };
 
+// English starter prompts (the assistant still replies in whatever language the
+// user writes in). Chosen to show the engine's range: search, breakdown,
+// projection, and gentle preference-aware suggestions.
 const STARTERS = [
-    '这个月我花最多的是什么？',
-    'How much did I spend on food this month?',
-    '我需要多久才能存到10万？',
-    'Any gentle tips to save more?',
+    'What did I spend most on this month?',
+    'Break down last month by category',
+    'How am I tracking toward my savings goal?',
+    'Any painless ways I could save more?',
 ];
 
 // ── time helpers ─────────────────────────────────────────────
@@ -115,6 +119,19 @@ const NAV_ICONS: Record<NavTarget, React.ComponentType<{ size?: number; classNam
     income: WalletIcon,
     recurring: RepeatIcon,
 };
+// Deterministic fallback labels per target, per script. The model is *supposed*
+// to write the chip label in the reply's language, but it's unreliable (the
+// Chinese-flavored persona biases labels toward 中文 even on English replies).
+// So we script-match in code: if a label's script ≠ the reply's script, we swap
+// in the correct-language default here — the guarantee, not the prompt.
+const NAV_DEFAULT_LABELS: Record<NavTarget, { en: string; zh: string }> = {
+    dashboard: { en: 'Open dashboard', zh: '打开首页' },
+    ledger: { en: 'View ledger', zh: '查看账本' },
+    calendar: { en: 'Open calendar', zh: '打开日历' },
+    income: { en: 'Open income page', zh: '查看收入' },
+    recurring: { en: 'View recurring', zh: '查看经常性支出' },
+};
+const CJK_RE = /[一-鿿]/;
 const GO_RE = /\[\[go:(dashboard|ledger|calendar|income|recurring)\|([^\]|]+)\]\]/g;
 
 /** Inline **bold** within a plain-text run. */
@@ -127,13 +144,23 @@ function renderBold(text: string, keyBase: string): React.ReactNode {
  *  [[go:…]] navigation chips. onNavigate lets a click close the surface. */
 function AssistantText({ text, onNavigate }: { text: string; onNavigate: (target: NavTarget) => void }) {
     const lines = text.split('\n');
+    // The reply's dominant script decides the chip-label language (see NAV_DEFAULT_LABELS).
+    const replyHasCJK = CJK_RE.test(text);
+    const resolveLabel = (target: NavTarget, raw: string): string => {
+        const clean = raw.trim();
+        const labelHasCJK = CJK_RE.test(clean);
+        // Keep the model's label only if it's non-empty AND its script matches the
+        // reply (this also rejects bilingual "中文/English" labels). Else use the default.
+        if (clean && labelHasCJK === replyHasCJK) return clean;
+        return NAV_DEFAULT_LABELS[target][replyHasCJK ? 'zh' : 'en'];
+    };
     return (
         <>
             {lines.map((line, li) => {
                 // Pull out any nav tokens on this line into chips; keep surrounding text.
                 const chips: { target: NavTarget; label: string }[] = [];
                 const stripped = line.replace(GO_RE, (_full, target: string, label: string) => {
-                    chips.push({ target: target as NavTarget, label: label.trim() });
+                    chips.push({ target: target as NavTarget, label: resolveLabel(target as NavTarget, label) });
                     return '';
                 });
                 const bullet = stripped.match(/^\s*[-•]\s+(.*)$/);
@@ -671,8 +698,17 @@ export function AssistantChat({
                     const prev = messages[i - 1];
                     const showDay =
                         !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
+                    // Only freshly-sent messages animate in; restored history
+                    // (db-keyed) mounts instantly so a reopen doesn't flash.
+                    const isNew = !m.key.startsWith('db');
                     return (
-                        <div key={m.key} className="flex flex-col gap-3">
+                        <motion.div
+                            key={m.key}
+                            className="flex flex-col gap-3"
+                            initial={isNew ? { opacity: 0, y: 10 } : false}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                        >
                             {showDay && (
                                 <div className="flex items-center gap-3 my-1">
                                     <div className="flex-1 h-px bg-line-soft" />
@@ -736,7 +772,7 @@ export function AssistantChat({
                                         ))}
                                 </div>
                             </div>
-                        </div>
+                        </motion.div>
                     );
                 })}
 
