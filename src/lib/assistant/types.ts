@@ -38,7 +38,15 @@ export type ProposalKind =
   // ADDED (Slice 2b fix batch):
   | "set_month_status" // reopen / close a month's books, confirm-gated
   // ADDED (Slice 2c):
-  | "create_recurring"; // set up a brand-new recurring rule
+  | "create_recurring" // set up a brand-new recurring rule
+  // ADDED (Slice 2d — income management via chat):
+  | "set_savings_goal" // savings goal / saved / budget / pay schedule
+  | "adjust_salary" // salary effective from a month (raise / correction)
+  | "create_bonus" // add a year-scoped bonus
+  | "update_bonus" // edit an existing bonus
+  | "delete_bonus" // remove a bonus
+  | "create_income_source" // add a custom recurring/one-off income stream
+  | "edit_income_source"; // edit/rate-change/end/delete an income stream
 
 /** A brand-new recurring rule the agent proposes (routes to addFixedExpense). Unlike
  *  plain expenses, a recurring item MAY use category "family" (家用/family support). */
@@ -123,6 +131,101 @@ export interface PreferenceFields {
   value: string;
 }
 
+// ── income management (Slice 2d) ─────────────────────────────
+// The WRITE counterparts to get_financial_overview: adjust salary, set the savings
+// goal / budget / pay schedule, CRUD bonuses, and manage other income streams — all
+// confirm-gated like the expense/recurring writes. Each routes (on Confirm) to the
+// SAME server action the Income page uses, so the whole year rollup + dashboard move.
+
+/** set_savings_goal — the income-settings fields the user asked to change (only the
+ *  touched keys are present). Routes to updateIncomeSettings. */
+export interface SavingsSettingsFields {
+  savingsGoal?: number;
+  saved?: number;
+  monthlyBudget?: number;
+  payDay?: number;
+  payFrequency?: string;
+}
+export interface SavingsGoalEdit {
+  currency: Currency;
+  /** The new values to write (only the fields being changed). */
+  changes: SavingsSettingsFields;
+  /** The current value of each changed field, for the before→after card. */
+  before: SavingsSettingsFields;
+}
+
+/** adjust_salary — a salary effective from a month. Routes to addSalaryPeriod, which
+ *  upserts by effective month: the SAME month corrects that period; a LATER month is a
+ *  raise/cut that keeps earlier months (activeSalaryForMonth picks the latest ≤ month). */
+export interface SalaryFields {
+  effectiveYear: number;
+  effectiveMonth: number; // 1–12
+  monthlySalary: number; // take-home
+  grossSalary: number | null;
+  deductions: number | null;
+  label: string;
+}
+export interface SalaryEdit {
+  currency: Currency;
+  fields: SalaryFields;
+  /** Take-home in effect at the effective month before this change (before→after). */
+  previousTakeHome: number | null;
+  /** True when a period already exists exactly at that month (this overwrites it). */
+  overwritesExisting: boolean;
+}
+
+/** Bonus CRUD (Slice 2d) — a year-scoped one-off amount on top of salary. */
+export interface BonusFields {
+  year: number;
+  month: number; // 1–12
+  amount: number;
+  label: string;
+}
+export interface BonusEdit {
+  currency: Currency;
+  /** present for update/delete (the row being changed, from find_bonuses). */
+  bonusId?: number;
+  /** update/delete: the current values (the target). */
+  before?: BonusFields;
+  /** create/update: the resulting values. */
+  after?: BonusFields;
+}
+
+/** create_income_source / edit_income_source — a custom income stream (freelance,
+ *  dividends, rental…). Recurring streams span [start, end] (null end = ongoing);
+ *  one-off streams count once in their effective month. */
+export interface IncomeSourceFields {
+  label: string;
+  emoji: string;
+  monthlyAmount: number;
+  effectiveYear: number;
+  effectiveMonth: number; // 1–12
+  endYear: number | null;
+  endMonth: number | null;
+  recurring: boolean;
+}
+export interface IncomeSourceSnapshot {
+  label: string;
+  emoji: string;
+  monthlyAmount: number;
+  activeFrom: string; // "YYYY-MM"
+  activeUntil: string; // "YYYY-MM" | "ongoing"
+  recurring: boolean;
+}
+export interface IncomeSourceEdit {
+  currency: Currency;
+  sourceId: number;
+  mode: "rate_change" | "redefine" | "delete";
+  before: IncomeSourceSnapshot;
+  after: IncomeSourceSnapshot; // redefine/rate_change result; == before for delete
+  /** rate_change: the new amount from a month (earlier months keep their figure). */
+  fromYear?: number;
+  fromMonth?: number;
+  newAmount?: number;
+  /** redefine: the exact field changes for updateIncomeSource. */
+  changes?: Partial<IncomeSourceFields>;
+}
+
 /**
  * A WRITE the agent wants to make. The write tools NEVER touch the DB — they return
  * one of these, the engine surfaces it to the chat as a confirm card, and nothing is
@@ -166,6 +269,13 @@ export interface Proposal {
   /** Closed months within a create_recurring's [start, today] span — a heads-up;
    *  the card's guard re-checks live and threads overrideClosed on Confirm. */
   closedInRange?: string[];
+
+  // income management (Slice 2d)
+  savingsGoal?: SavingsGoalEdit; // set_savings_goal
+  salary?: SalaryEdit; // adjust_salary
+  bonus?: BonusEdit; // create_bonus / update_bonus / delete_bonus
+  incomeSourceCreate?: IncomeSourceFields; // create_income_source
+  incomeSourceEdit?: IncomeSourceEdit; // edit_income_source
 }
 
 /** What the client sends back to executeAssistantAction on Confirm (or after a
@@ -196,7 +306,24 @@ export type AssistantActionInput =
   // set_month_status (Slice 2b fix batch) — reopenMonth / closeMonth.
   | { kind: "set_month_status"; year: number; month: number; action: "reopen" | "close" }
   // create_recurring (Slice 2c) — addFixedExpense.
-  | { kind: "create_recurring"; fields: RecurringCreateFields; overrideClosed?: boolean };
+  | { kind: "create_recurring"; fields: RecurringCreateFields; overrideClosed?: boolean }
+  // income management (Slice 2d).
+  | { kind: "set_savings_goal"; changes: SavingsSettingsFields }
+  | { kind: "adjust_salary"; fields: SalaryFields }
+  | { kind: "create_bonus"; fields: BonusFields }
+  | { kind: "update_bonus"; bonusId: number; fields: BonusFields }
+  | { kind: "delete_bonus"; bonusId: number }
+  | { kind: "create_income_source"; fields: IncomeSourceFields }
+  | {
+      kind: "edit_income_source";
+      sourceId: number;
+      mode: "rate_change";
+      fromYear: number;
+      fromMonth: number;
+      newAmount: number;
+    }
+  | { kind: "edit_income_source"; sourceId: number; mode: "redefine"; changes: Partial<IncomeSourceFields> }
+  | { kind: "edit_income_source"; sourceId: number; mode: "delete" };
 
 export interface AssistantActionResult {
   ok: boolean;

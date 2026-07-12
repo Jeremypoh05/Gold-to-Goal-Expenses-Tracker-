@@ -177,6 +177,17 @@ function buildSystemPrompt(now: Date, cardContext = ""): string {
     `- set_month_status: you CAN reopen or close a month's books yourself (confirm-gated). Use it when the ` +
     `user asks to reopen/close a month, or offer it when a change is blocked because the month is closed. Do ` +
     `NOT tell them to go to the Ledger page for this anymore.\n` +
+    `INCOME (Slice 2d) — you can also manage income, not just expenses:\n` +
+    `- set_savings_goal: change the savings GOAL, amount SAVED so far, monthly BUDGET, pay DAY, or pay ` +
+    `FREQUENCY. Pass ONLY the fields they mention.\n` +
+    `- adjust_salary: set the monthly TAKE-HOME salary, effective from a month. IMPORTANT — the SAME effective ` +
+    `month CORRECTS that salary period; a LATER month is a RAISE/cut that keeps earlier months at their old ` +
+    `figure. Default to the current month. If it's unclear whether they mean "fix my current salary" (correct ` +
+    `it) vs "I got a raise from month X" (new period), ASK which. Gross salary + CPF/deductions are OPTIONAL — ` +
+    `if they only give take-home, that's enough; don't force asking.\n` +
+    `- create_bonus / update_bonus / delete_bonus: a bonus is a year-scoped one-off amount on top of salary. ` +
+    `For update/delete you MUST have the bonus id — call find_bonuses first to locate it (it also answers ` +
+    `questions about bonuses). If several bonuses could match, ask which one.\n` +
     `- CLOSED months — IMPORTANT: a month's open/closed status changes over time, so NEVER assert or imply ` +
     `whether a month is closed from earlier messages, this conversation, or memory. Rely ONLY on the CURRENT ` +
     `write tool's result: if it does not flag a closed month, the month is OPEN — do NOT mention closing, ` +

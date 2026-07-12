@@ -52,6 +52,24 @@ async function main() {
       if (p.monthStatus) extra += ` · ${p.monthStatus.action}:${p.monthStatus.monthLabel}`;
       if (p.recurringCreate) extra += ` · ${p.recurringCreate.category} from ${p.recurringCreate.startYear}-${p.recurringCreate.startMonth}`;
       if (p.kind === "create_recurring" && p.closedInRange?.length) extra += ` · closedInRange:${p.closedInRange.join(",")}`;
+      // Slice 2d — income management.
+      if (p.savingsGoal) extra += ` · savings:${Object.keys(p.savingsGoal.changes).join("+")}`;
+      if (p.salary) {
+        const f = p.salary.fields;
+        extra += ` · salary:${f.monthlySalary} from ${f.effectiveYear}-${f.effectiveMonth} ${p.salary.overwritesExisting ? "(correct)" : "(raise)"}`;
+      }
+      if (p.bonus) {
+        const f = p.bonus.after ?? p.bonus.before;
+        extra += ` · bonus:${f?.amount} ${f?.year}-${f?.month}${p.bonus.bonusId ? ` id${p.bonus.bonusId}` : ""}`;
+      }
+      if (p.incomeSourceCreate) {
+        const f = p.incomeSourceCreate;
+        extra += ` · source:${f.label} ${f.monthlyAmount} from ${f.effectiveYear}-${f.effectiveMonth}`;
+      }
+      if (p.incomeSourceEdit) {
+        const e = p.incomeSourceEdit;
+        extra += ` · sourceEdit:${e.mode} id${e.sourceId}`;
+      }
       console.log(`📝 PROPOSAL [${p.kind}]: ${p.summary}${extra}`);
     }
     console.log("─".repeat(60));

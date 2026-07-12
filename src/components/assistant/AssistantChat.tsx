@@ -26,6 +26,7 @@ import {
     WalletIcon,
     RepeatIcon,
     HomeIcon,
+    SparkleIcon,
     CategoryTile,
 } from '@/components/icons';
 import { useConfirm } from '@/components/shared';
@@ -35,6 +36,7 @@ import { CATEGORIES } from '@/data/categories';
 import { notifyDataChanged } from '@/lib/data-events';
 import { VoiceEntryEditor, type VoiceEntryValue } from '@/components/voice/VoiceEntryEditor';
 import { RecurringEntryEditor } from './RecurringEntryEditor';
+import { BonusEntryEditor, SalaryEntryEditor, SavingsGoalEditor } from './IncomeEntryEditors';
 import {
     fetchAssistantSessions,
     fetchAssistantMessages,
@@ -47,7 +49,14 @@ import {
     type AssistantSessionSummary,
     type AssistantChatMessage,
 } from '@/lib/assistant-actions';
-import type { Proposal, ExpenseFields, ProposalOutcome } from '@/lib/assistant/types';
+import type {
+    Proposal,
+    ExpenseFields,
+    ProposalOutcome,
+    BonusFields,
+    SalaryFields,
+    SavingsSettingsFields,
+} from '@/lib/assistant/types';
 
 /** A proposal as the client tracks it — the raw Proposal plus its resolved outcome
  *  (undefined = live/pending). Persisted ones (from history) already carry outcome. */
@@ -505,7 +514,33 @@ function describeConfirmed(p: Proposal): string {
         return `Saved preference · ${p.preference.key}`;
     if (p.kind === 'set_month_status' && p.monthStatus)
         return `${p.monthStatus.action === 'reopen' ? 'Reopened' : 'Closed'} ${p.monthStatus.monthLabel}`;
+    // income management (Slice 2d)
+    if (p.kind === 'set_savings_goal' && p.savingsGoal) {
+        const { changes, currency } = p.savingsGoal;
+        const parts: string[] = [];
+        if (changes.savingsGoal != null) parts.push(`goal ${money(changes.savingsGoal, currency)}`);
+        if (changes.saved != null) parts.push(`saved ${money(changes.saved, currency)}`);
+        if (changes.monthlyBudget != null) parts.push(`budget ${money(changes.monthlyBudget, currency)}`);
+        if (changes.payDay != null) parts.push(`pay day ${changes.payDay}`);
+        if (changes.payFrequency != null) parts.push(changes.payFrequency);
+        return `Updated ${parts.join(', ')}`;
+    }
+    if (p.kind === 'adjust_salary' && p.salary) {
+        const f = p.salary.fields;
+        return `Salary ${money(f.monthlySalary, p.salary.currency)}/mo from ${monthYearOf(f.effectiveYear, f.effectiveMonth)}`;
+    }
+    if ((p.kind === 'create_bonus' || p.kind === 'update_bonus' || p.kind === 'delete_bonus') && p.bonus) {
+        const f = p.bonus.after ?? p.bonus.before;
+        if (!f) return p.summary;
+        const verb = p.kind === 'create_bonus' ? 'Added' : p.kind === 'update_bonus' ? 'Edited' : 'Deleted';
+        return `${verb} bonus ${money(f.amount, p.bonus.currency)} · ${monthYearOf(f.year, f.month)}`;
+    }
     return p.summary;
+}
+
+/** (2026, 7) → "Jul 2026" — for the income confirm cards + confirmed chips. */
+function monthYearOf(y: number, m: number): string {
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
 /** Shared resolved-status chips shown once a card is confirmed or cancelled — these
@@ -1382,6 +1417,347 @@ function MonthStatusProposalCard({
     );
 }
 
+// ── income-management confirm cards (Slice 2d) ───────────────
+// Adjust salary, set the savings goal / budget / pay schedule, and CRUD bonuses. On
+// Confirm each routes to the SAME server action the Income page uses (via
+// executeAssistantAction), so the whole year rollup + dashboard move (onWritten →
+// notifyDataChanged). Each has the "Edit" manual-edit fallback (IncomeEntryEditors),
+// matching the expense/recurring cards.
+
+// Shared action-row styles (match the gold/outline/text buttons on the other cards).
+const GOLD_BTN =
+    'inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60 text-[#1a120a] cursor-pointer hover:brightness-[1.03]';
+const GOLD_STYLE = { background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' } as const;
+const EDIT_BTN =
+    'inline-flex items-center gap-1 text-[11.5px] font-medium px-3 py-1.5 rounded-full border border-line text-ink-1 hover:border-ink-2 transition-all cursor-pointer disabled:opacity-60';
+const CANCEL_BTN =
+    'text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60';
+const CARD_WRAP = 'mt-2 rounded-2xl border border-gold-500/40 p-3 flex flex-col gap-2.5';
+const CARD_HEAD = 'flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-2';
+
+const SAVINGS_FIELD_LABEL: Record<string, string> = {
+    savingsGoal: 'Savings goal',
+    saved: 'Saved so far',
+    monthlyBudget: 'Monthly budget',
+    payDay: 'Pay day',
+    payFrequency: 'Frequency',
+};
+
+function CardHeadTag() {
+    return <span className="ml-auto normal-case tracking-normal font-normal text-[10px] text-ink-3">Needs your OK</span>;
+}
+
+function SavingsGoalProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<CardStatus>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const s = proposal.savingsGoal;
+    if (!s) return null;
+
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+    const fmtVal = (k: string, v: number | string | undefined) => {
+        if (v == null || v === '') return '—';
+        if (k === 'payDay' || k === 'payFrequency') return `${v}`;
+        return money(Number(v), s.currency);
+    };
+
+    const run = async (finalChanges?: SavingsSettingsFields) => {
+        setStatus('saving');
+        setError('');
+        try {
+            const res = await executeAssistantAction({ kind: 'set_savings_goal', changes: finalChanges ?? s.changes });
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong saving that.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+    if (status === 'editing')
+        return (
+            <div className="mt-2">
+                <SavingsGoalEditor initial={s.changes} currency={s.currency} onCancel={() => setStatus('idle')} onSave={(c) => run(c)} />
+            </div>
+        );
+
+    const keys = Object.keys(s.changes) as (keyof SavingsSettingsFields)[];
+    const saving = status === 'saving';
+    return (
+        <div className={CARD_WRAP} style={{ background: 'var(--color-bg-card)' }}>
+            <div className={CARD_HEAD}>
+                <WalletIcon size={13} /> Update savings
+                <CardHeadTag />
+            </div>
+            <div className="flex flex-col gap-1 text-[12px]">
+                {keys.map((k) => (
+                    <div key={k} className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-ink-2 text-[11px] w-[88px] flex-shrink-0">{SAVINGS_FIELD_LABEL[k] ?? k}</span>
+                        <span className="text-ink-2 line-through mono text-[11px]">{fmtVal(k, s.before[k])}</span>
+                        <span className="text-ink-3">→</span>
+                        <b className="mono text-ink-0">{fmtVal(k, s.changes[k])}</b>
+                    </div>
+                ))}
+            </div>
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button type="button" disabled={saving} onClick={() => run()} className={GOLD_BTN} style={GOLD_STYLE}>
+                    {saving ? 'Saving…' : (<><CheckMark size={13} /> Confirm</>)}
+                </button>
+                <button type="button" disabled={saving} onClick={() => setStatus('editing')} className={EDIT_BTN}>
+                    <EditIcon size={12} /> Edit
+                </button>
+                <button type="button" disabled={saving} onClick={cancel} className={CANCEL_BTN}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function SalaryProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<CardStatus>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const sal = proposal.salary;
+    if (!sal) return null;
+
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+    const f = sal.fields;
+    const prev = sal.previousTakeHome;
+    const amountMoved = prev != null && prev !== f.monthlySalary;
+    const effLabel = monthYearOf(f.effectiveYear, f.effectiveMonth);
+
+    const run = async (finalFields?: SalaryFields) => {
+        setStatus('saving');
+        setError('');
+        try {
+            const res = await executeAssistantAction({ kind: 'adjust_salary', fields: finalFields ?? f });
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong saving that.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+    if (status === 'editing')
+        return (
+            <div className="mt-2">
+                <SalaryEntryEditor initial={f} currency={sal.currency} onCancel={() => setStatus('idle')} onSave={(v) => run(v)} />
+            </div>
+        );
+
+    const saving = status === 'saving';
+    return (
+        <div className={CARD_WRAP} style={{ background: 'var(--color-bg-card)' }}>
+            <div className={CARD_HEAD}>
+                <WalletIcon size={13} /> Adjust salary
+                <CardHeadTag />
+            </div>
+            <div className="flex items-baseline gap-2 flex-wrap">
+                {amountMoved && <span className="text-[12px] text-ink-2 line-through mono">{money(prev!, sal.currency)}</span>}
+                <span className="text-[15px] font-semibold mono">{money(f.monthlySalary, sal.currency)}</span>
+                <span className="text-[10px] text-ink-2">/mo take-home</span>
+            </div>
+            <div className="text-[10.5px] text-ink-1 leading-relaxed rounded-lg px-2 py-1.5 bg-bg-2">
+                {sal.overwritesExisting ? (
+                    <>Corrects the salary period starting <b>{effLabel}</b>. Updates every month from then + the dashboard &amp; income.</>
+                ) : (
+                    <>Effective from <b>{effLabel}</b> onward; earlier months keep {prev != null ? money(prev, sal.currency) : 'their current salary'}. Updates the dashboard &amp; income.</>
+                )}
+            </div>
+            {(f.grossSalary != null || f.deductions != null) && (
+                <div className="text-[10.5px] text-ink-2">
+                    {f.grossSalary != null && <>Gross {money(f.grossSalary, sal.currency)}</>}
+                    {f.grossSalary != null && f.deductions != null && ' · '}
+                    {f.deductions != null && <>CPF/deductions {money(f.deductions, sal.currency)}</>}
+                </div>
+            )}
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button type="button" disabled={saving} onClick={() => run()} className={GOLD_BTN} style={GOLD_STYLE}>
+                    {saving ? 'Saving…' : (<><CheckMark size={13} /> Confirm</>)}
+                </button>
+                <button type="button" disabled={saving} onClick={() => setStatus('editing')} className={EDIT_BTN}>
+                    <EditIcon size={12} /> Edit
+                </button>
+                <button type="button" disabled={saving} onClick={cancel} className={CANCEL_BTN}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function BonusProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<CardStatus>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const b = proposal.bonus;
+    if (!b) return null;
+
+    const isDelete = proposal.kind === 'delete_bonus';
+    const isCreate = proposal.kind === 'create_bonus';
+    const fields = b.after ?? b.before;
+    if (!fields) return null;
+
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+    const amountMoved = !isCreate && b.before && b.after && b.before.amount !== b.after.amount;
+
+    const run = async (finalFields?: BonusFields) => {
+        setStatus('saving');
+        setError('');
+        try {
+            let res;
+            if (isCreate) {
+                res = await executeAssistantAction({ kind: 'create_bonus', fields: finalFields ?? fields });
+            } else if (proposal.kind === 'update_bonus') {
+                res = await executeAssistantAction({ kind: 'update_bonus', bonusId: b.bonusId!, fields: finalFields ?? fields });
+            } else {
+                res = await executeAssistantAction({ kind: 'delete_bonus', bonusId: b.bonusId! });
+            }
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong saving that.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+    if (status === 'editing')
+        return (
+            <div className="mt-2">
+                <BonusEntryEditor
+                    initial={fields}
+                    currency={b.currency}
+                    saveLabel={isCreate ? 'Add bonus' : 'Save changes'}
+                    onCancel={() => setStatus('idle')}
+                    onSave={(v) => run(v)}
+                />
+            </div>
+        );
+
+    const saving = status === 'saving';
+    const heading = isCreate ? 'Add bonus' : isDelete ? 'Delete bonus' : 'Edit bonus';
+    return (
+        <div
+            className={cn('mt-2 rounded-2xl border p-3 flex flex-col gap-2.5', isDelete ? 'border-red-500/40' : 'border-gold-500/40')}
+            style={{ background: 'var(--color-bg-card)' }}
+        >
+            <div className={CARD_HEAD}>
+                <SparkleIcon size={13} /> {heading}
+                <CardHeadTag />
+            </div>
+            <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 flex-shrink-0 w-[26px] h-[26px] rounded-[8px] flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))', color: 'var(--color-gold-700)' }}>
+                    <SparkleIcon size={15} />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-ink-0 break-words">{fields.label}</div>
+                    <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
+                        {amountMoved && <span className="text-[12px] text-ink-2 line-through mono">{money(b.before!.amount, b.currency)}</span>}
+                        <span className="text-[15px] font-semibold mono">{money(fields.amount, b.currency)}</span>
+                        <span className="text-[11px] text-ink-2">{monthYearOf(fields.year, fields.month)}</span>
+                    </div>
+                </div>
+            </div>
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => run()}
+                    className={cn(
+                        'inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60',
+                        isDelete ? 'bg-red-500 text-white hover:brightness-105 cursor-pointer' : 'text-[#1a120a] cursor-pointer hover:brightness-[1.03]',
+                    )}
+                    style={isDelete ? undefined : GOLD_STYLE}
+                >
+                    {saving ? (isDelete ? 'Deleting…' : 'Saving…') : isDelete ? (<><TrashIcon size={13} /> Delete</>) : (<><CheckMark size={13} /> Confirm</>)}
+                </button>
+                {!isDelete && (
+                    <button type="button" disabled={saving} onClick={() => setStatus('editing')} className={EDIT_BTN}>
+                        <EditIcon size={12} /> Edit
+                    </button>
+                )}
+                <button type="button" disabled={saving} onClick={cancel} className={CANCEL_BTN}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ── the chat core ────────────────────────────────────────────
 
 export function AssistantChat({
@@ -1924,6 +2300,32 @@ export function AssistantChat({
                                                 />
                                             ) : p.kind === 'set_month_status' ? (
                                                 <MonthStatusProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'set_savings_goal' ? (
+                                                <SavingsGoalProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'adjust_salary' ? (
+                                                <SalaryProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'create_bonus' ||
+                                              p.kind === 'update_bonus' ||
+                                              p.kind === 'delete_bonus' ? (
+                                                <BonusProposalCard
                                                     key={p.id}
                                                     proposal={p}
                                                     onWritten={handleWritten}

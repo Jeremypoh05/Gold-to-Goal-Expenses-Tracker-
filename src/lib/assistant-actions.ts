@@ -20,6 +20,11 @@ import {
   addFixedExpense,
   reopenMonth,
   closeMonth,
+  updateIncomeSettings,
+  addSalaryPeriod,
+  addBonus,
+  updateBonus,
+  deleteBonus,
 } from "@/lib/actions";
 import { ALL_CATEGORIES } from "@/lib/assistant/tools";
 import {
@@ -31,6 +36,9 @@ import {
   type ChatMessageData,
   type ProposalOutcome,
   type RecurringCreateFields,
+  type SavingsSettingsFields,
+  type SalaryFields,
+  type BonusFields,
 } from "@/lib/assistant/types";
 import type { Currency } from "@/types";
 import type { Prisma } from "@/generated/prisma/client";
@@ -196,6 +204,74 @@ function sanitizeRecurringCreate(f: RecurringCreateFields): RecurringCreateField
   };
 }
 
+/** Defense-in-depth for a set_savings_goal change — coerce each present field to a
+ *  valid non-negative number (or clamped day / non-empty frequency); null if empty. */
+function sanitizeSavings(c: SavingsSettingsFields): SavingsSettingsFields | null {
+  const out: SavingsSettingsFields = {};
+  if (c.savingsGoal !== undefined) {
+    const n = Number(c.savingsGoal);
+    if (!Number.isFinite(n) || n < 0) return null;
+    out.savingsGoal = n;
+  }
+  if (c.saved !== undefined) {
+    const n = Number(c.saved);
+    if (!Number.isFinite(n) || n < 0) return null;
+    out.saved = n;
+  }
+  if (c.monthlyBudget !== undefined) {
+    const n = Number(c.monthlyBudget);
+    if (!Number.isFinite(n) || n < 0) return null;
+    out.monthlyBudget = n;
+  }
+  if (c.payDay !== undefined) {
+    const n = Math.round(Number(c.payDay));
+    if (!Number.isFinite(n) || n < 1 || n > 31) return null;
+    out.payDay = n;
+  }
+  if (c.payFrequency !== undefined) {
+    const s = String(c.payFrequency).trim().slice(0, 24);
+    if (!s) return null;
+    out.payFrequency = s;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** Defense-in-depth for an adjust_salary write. */
+function sanitizeSalary(f: SalaryFields): SalaryFields | null {
+  const amount = Number(f.monthlySalary);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const year = Math.round(Number(f.effectiveYear));
+  const month = Math.round(Number(f.effectiveMonth));
+  if (!Number.isFinite(year) || month < 1 || month > 12) return null;
+  const gross = f.grossSalary == null ? null : Number(f.grossSalary);
+  const deductions = f.deductions == null ? null : Number(f.deductions);
+  if (gross != null && (!Number.isFinite(gross) || gross < 0)) return null;
+  if (deductions != null && (!Number.isFinite(deductions) || deductions < 0)) return null;
+  return {
+    effectiveYear: year,
+    effectiveMonth: month,
+    monthlySalary: amount,
+    grossSalary: gross,
+    deductions,
+    label: typeof f.label === "string" ? f.label.slice(0, 40) : "",
+  };
+}
+
+/** Defense-in-depth for a bonus create/update write. */
+function sanitizeBonus(f: BonusFields): BonusFields | null {
+  const amount = Number(f.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const year = Math.round(Number(f.year));
+  const month = Math.round(Number(f.month));
+  if (!Number.isFinite(year) || month < 1 || month > 12) return null;
+  return {
+    year,
+    month,
+    amount,
+    label: typeof f.label === "string" && f.label.trim() ? f.label.trim().slice(0, 40) : "Bonus",
+  };
+}
+
 export async function executeAssistantAction(
   action: AssistantActionInput,
 ): Promise<AssistantActionResult> {
@@ -302,18 +378,68 @@ export async function executeAssistantAction(
       return { ok: true, summary: action.action === "reopen" ? "Month reopened" : "Month closed" };
     }
 
+    // ── income management (Slice 2d) ───────────────────────────
+    // Route to the SAME server actions the Income page uses (updateIncomeSettings /
+    // addSalaryPeriod / addBonus / updateBonus / deleteBonus), each re-checking auth +
+    // ownership, so the whole year rollup + dashboard move together.
+    if (action.kind === "set_savings_goal") {
+      const c = sanitizeSavings(action.changes);
+      if (!c) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await updateIncomeSettings(c);
+      return { ok: true, summary: "Settings updated" };
+    }
+
+    if (action.kind === "adjust_salary") {
+      const f = sanitizeSalary(action.fields);
+      if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await addSalaryPeriod({
+        effectiveYear: f.effectiveYear,
+        effectiveMonth: f.effectiveMonth,
+        monthlySalary: f.monthlySalary,
+        ...(f.grossSalary != null && { grossSalary: f.grossSalary }),
+        ...(f.deductions != null && { deductions: f.deductions }),
+        ...(f.label && { label: f.label }),
+      });
+      return { ok: true, summary: "Salary updated" };
+    }
+
+    if (action.kind === "create_bonus") {
+      const f = sanitizeBonus(action.fields);
+      if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await addBonus({ year: f.year, month: f.month, amount: f.amount, label: f.label });
+      return { ok: true, summary: "Bonus added" };
+    }
+
+    if (action.kind === "update_bonus") {
+      const f = sanitizeBonus(action.fields);
+      if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await updateBonus(action.bonusId, { year: f.year, month: f.month, amount: f.amount, label: f.label });
+      return { ok: true, summary: "Bonus updated" };
+    }
+
+    if (action.kind === "delete_bonus") {
+      await deleteBonus(action.bonusId);
+      return { ok: true, summary: "Bonus deleted" };
+    }
+
     // ── remember a preference (Slice 2b) ───────────────────────
     // set_preference — upsert the lightweight key/value the agent reads back via
     // get_preferences to keep suggestions preference-aware.
-    const key = action.key.trim().toLowerCase().slice(0, 40);
-    const value = action.value.trim().slice(0, 300);
-    if (!key || !value) return { ok: false, error: "Nothing to remember there." };
-    await prisma.userPreference.upsert({
-      where: { userId_key: { userId, key } },
-      update: { value },
-      create: { userId, key, value },
-    });
-    return { ok: true, summary: `Noted — I'll remember "${key}"` };
+    if (action.kind === "set_preference") {
+      const key = action.key.trim().toLowerCase().slice(0, 40);
+      const value = action.value.trim().slice(0, 300);
+      if (!key || !value) return { ok: false, error: "Nothing to remember there." };
+      await prisma.userPreference.upsert({
+        where: { userId_key: { userId, key } },
+        update: { value },
+        create: { userId, key, value },
+      });
+      return { ok: true, summary: `Noted — I'll remember "${key}"` };
+    }
+
+    // Income-source writes (Slice 2d part 2) are handled by their own branches added
+    // in the next checkpoint; until then this is a safe fallthrough.
+    return { ok: false, error: "That action isn't supported yet." };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Something went wrong saving that." };
   }

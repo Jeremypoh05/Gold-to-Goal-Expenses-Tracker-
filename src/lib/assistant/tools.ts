@@ -21,6 +21,9 @@ import {
   type RecurringSnapshot,
   type RecurringChanges,
   type RecurringCreateFields,
+  type SavingsSettingsFields,
+  type SalaryFields,
+  type BonusFields,
 } from "./types";
 
 // Exported: create_recurring allows "family" (家用/family support), unlike plain
@@ -163,6 +166,18 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
       "The user's saved lifestyle/priority preferences (e.g. 'gaming brings me joy', 'travel matters more than dining'). ALWAYS check before giving spending suggestions so advice respects what they value.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
+  {
+    name: "find_bonuses",
+    description:
+      "List the user's recorded bonuses (year-scoped one-off income on top of salary). Call this to get a bonus's id before update_bonus / delete_bonus, or to answer questions about bonuses.",
+    input_schema: {
+      type: "object",
+      properties: {
+        year: { type: "number", description: "Only bonuses in this year (e.g. 2026). Omit for all years." },
+      },
+      additionalProperties: false,
+    },
+  },
 
   // ── WRITE tools (Slice 2) ──────────────────────────────────
   // These do NOT save anything — they PROPOSE a change that the user confirms on a
@@ -299,6 +314,90 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
       additionalProperties: false,
     },
   },
+
+  // ── income-management WRITE tools (Slice 2d) ───────────────
+  // The write counterparts to get_financial_overview. Each PROPOSES a change (confirm
+  // card); nothing is saved until the user taps Confirm. On confirm they route to the
+  // SAME server actions the Income page uses, so the year rollup + dashboard move.
+  {
+    name: "set_savings_goal",
+    description:
+      "Propose changing the user's savings GOAL, amount SAVED so far, monthly BUDGET, pay DAY, or pay FREQUENCY. Does NOT save — the user confirms a before→after card first. Pass ONLY the fields they want to change. Use for '把存钱目标改成10万', 'set my monthly budget to 2000', 'I've saved 50k now', 'my pay day is the 28th'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        savingsGoal: { type: "number", description: "Target amount to save (>= 0)." },
+        saved: { type: "number", description: "Amount saved so far (>= 0)." },
+        monthlyBudget: { type: "number", description: "Monthly spending budget (>= 0) — powers the dashboard spend ring." },
+        payDay: { type: "number", description: "Day of month salary lands, 1–31." },
+        payFrequency: { type: "string", description: "e.g. 'Monthly', 'Bi-weekly', 'Weekly'." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "adjust_salary",
+    description:
+      "Propose setting the user's monthly TAKE-HOME salary, effective from a month. Does NOT save — the user confirms a card first. Routes to the salary timeline: the SAME effective month CORRECTS that period; a LATER month is a RAISE/cut that keeps earlier months at their old salary. Use for '调整salary到3500', 'got a raise to 5000 from July', 'my take-home is 4200 now'. If it's unclear whether they're correcting a mistake vs logging a raise (which changes the effective month), ASK. Gross salary + CPF/deductions are OPTIONAL refinements — if the user only gives take-home, that's enough; don't force asking.",
+    input_schema: {
+      type: "object",
+      properties: {
+        monthlySalary: { type: "number", description: "Take-home pay per month (positive)." },
+        effectiveMonth: { type: "string", description: "Month it takes effect, YYYY-MM. Omit for the current month." },
+        grossSalary: { type: "number", description: "Optional gross (pre-deduction) monthly salary." },
+        deductions: { type: "number", description: "Optional CPF / other monthly deductions." },
+        label: { type: "string", description: "Optional note, e.g. 'Raise', 'Promotion'." },
+      },
+      required: ["monthlySalary"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_bonus",
+    description:
+      "Propose adding a BONUS — a one-off amount on top of salary, filed to a specific year + month. Does NOT save — the user confirms a card first. Use for 'add my 5000 year-end bonus', '三月发了3000奖金'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        amount: { type: "number", description: "Bonus amount (positive)." },
+        label: { type: "string", description: "Short name, e.g. 'Year-end bonus', 'Q2 bonus'." },
+        month: { type: "number", description: "Month 1–12 it was/will be received. Omit for the current month." },
+        year: { type: "number", description: "Year it belongs to. Omit for the current year." },
+      },
+      required: ["amount"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_bonus",
+    description:
+      "Propose editing an existing BONUS. Does NOT save — the user confirms a before→after card first. You MUST pass the bonus `id` (from find_bonuses). Only the fields you include change (amount, label, month, year).",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "The bonus id (from find_bonuses)." },
+        amount: { type: "number", description: "New amount." },
+        label: { type: "string", description: "New label." },
+        month: { type: "number", description: "New month, 1–12." },
+        year: { type: "number", description: "New year." },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_bonus",
+    description:
+      "Propose DELETING a bonus. Does NOT delete — the user confirms first. You MUST pass the bonus `id` (from find_bonuses). If several could match, ask which one instead of guessing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "The bonus id (from find_bonuses)." },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Names of the tools that mutate — used by the engine to route their output to a
@@ -311,6 +410,12 @@ export const WRITE_TOOL_NAMES = new Set([
   "edit_recurring",
   "set_preference",
   "set_month_status",
+  // income management (Slice 2d)
+  "set_savings_goal",
+  "adjust_salary",
+  "create_bonus",
+  "update_bonus",
+  "delete_bonus",
 ]);
 
 // ── executors ────────────────────────────────────────────────
@@ -468,7 +573,7 @@ async function getFinancialOverview(userId: string, now: Date) {
       totalMonthlyIncome: (active?.monthlySalary ?? 0) + otherIncome,
       payDay: user.payDay,
       payFrequency: user.payFrequency,
-      bonusesThisYear: bonuses.map((b) => ({ month: b.month, amount: Number(b.amount), label: b.label })),
+      bonusesThisYear: bonuses.map((b) => ({ bonusId: b.id, month: b.month, amount: Number(b.amount), label: b.label })),
     },
     savings: {
       goal: Number(user.savingsGoal),
@@ -629,6 +734,28 @@ async function getPreferences(userId: string) {
   return {
     preferences: rows.map((r) => ({ key: r.key, value: r.value })),
     ...(rows.length === 0 && { note: "no saved preferences yet — avoid assuming what the user values" }),
+  };
+}
+
+async function findBonuses(userId: string, input: ToolInput) {
+  const where: Record<string, unknown> = { userId };
+  const y = toNum(input.year);
+  if (y != null) where.year = Math.round(y);
+  const rows = await prisma.bonus.findMany({
+    where,
+    orderBy: [{ year: "desc" }, { month: "asc" }],
+  });
+  return {
+    bonuses: rows.map((b) => ({
+      bonusId: b.id,
+      year: b.year,
+      month: b.month,
+      amount: Number(b.amount),
+      label: b.label,
+    })),
+    ...(rows.length === 0 && {
+      note: `no bonuses recorded${y != null ? ` for ${Math.round(y)}` : ""}`,
+    }),
   };
 }
 
@@ -1193,6 +1320,256 @@ async function proposeSetMonthStatus(
   };
 }
 
+// ── income-management proposals (Slice 2d) ───────────────────
+// WRITE counterparts to get_financial_overview. Each resolves the CURRENT values (so
+// the card shows before→after and the model has honest context) and returns a proposal
+// — nothing is saved until Confirm → executeAssistantAction routes to the same server
+// actions the Income page uses (updateIncomeSettings / addSalaryPeriod / bonus CRUD).
+
+const monthYearLabel = (y: number, m: number) =>
+  new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+
+async function userCurrency(userId: string): Promise<Currency> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { currency: true } });
+  return (user?.currency as Currency) ?? "SGD";
+}
+
+async function proposeSetSavingsGoal(
+  userId: string,
+  input: ToolInput,
+): Promise<WriteToolOutput | ToolError> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return { error: "user not found" };
+  const currency = user.currency as Currency;
+
+  const changes: SavingsSettingsFields = {};
+  const before: SavingsSettingsFields = {};
+
+  const goal = toNum(input.savingsGoal);
+  if (goal != null) {
+    if (goal < 0) return { error: "savingsGoal can't be negative" };
+    changes.savingsGoal = goal;
+    before.savingsGoal = Number(user.savingsGoal);
+  }
+  const saved = toNum(input.saved);
+  if (saved != null) {
+    if (saved < 0) return { error: "saved can't be negative" };
+    changes.saved = saved;
+    before.saved = Number(user.saved);
+  }
+  const budget = toNum(input.monthlyBudget);
+  if (budget != null) {
+    if (budget < 0) return { error: "monthlyBudget can't be negative" };
+    changes.monthlyBudget = budget;
+    before.monthlyBudget = Number(user.monthlyBudget);
+  }
+  const payDay = toNum(input.payDay);
+  if (payDay != null) {
+    changes.payDay = Math.min(31, Math.max(1, Math.round(payDay)));
+    before.payDay = user.payDay;
+  }
+  if (typeof input.payFrequency === "string" && input.payFrequency.trim()) {
+    changes.payFrequency = input.payFrequency.trim().slice(0, 24);
+    before.payFrequency = user.payFrequency;
+  }
+  if (Object.keys(changes).length === 0) {
+    return { error: "say what to change: savings goal, saved amount, monthly budget, pay day, or pay frequency" };
+  }
+
+  const parts: string[] = [];
+  if (changes.savingsGoal != null) parts.push(`goal ${fmtMoney(changes.savingsGoal, currency)}`);
+  if (changes.saved != null) parts.push(`saved ${fmtMoney(changes.saved, currency)}`);
+  if (changes.monthlyBudget != null) parts.push(`budget ${fmtMoney(changes.monthlyBudget, currency)}`);
+  if (changes.payDay != null) parts.push(`pay day ${changes.payDay}`);
+  if (changes.payFrequency != null) parts.push(`pay ${changes.payFrequency}`);
+
+  return {
+    proposal: {
+      id: "",
+      kind: "set_savings_goal",
+      summary: `Update ${parts.join(", ")}`,
+      savingsGoal: { currency, changes, before },
+    },
+    modelResult:
+      "A savings/settings change card is on screen — nothing is saved yet. Briefly ask the user to review & Confirm (don't restate every field).",
+  };
+}
+
+async function proposeAdjustSalary(
+  userId: string,
+  input: ToolInput,
+  now: Date,
+): Promise<WriteToolOutput | ToolError> {
+  const amount = toNum(input.monthlySalary);
+  if (amount == null || amount <= 0) return { error: "monthlySalary must be a positive number" };
+
+  let ey = now.getFullYear();
+  let em = now.getMonth() + 1;
+  if (input.effectiveMonth != null) {
+    const d = parseDay(input.effectiveMonth); // accepts YYYY-MM
+    if (!d) return { error: "effectiveMonth must be YYYY-MM" };
+    ey = d.getFullYear();
+    em = d.getMonth() + 1;
+  }
+  const grossInput = toNum(input.grossSalary);
+  const dedInput = toNum(input.deductions);
+  if (grossInput != null && grossInput < 0) return { error: "grossSalary can't be negative" };
+  if (dedInput != null && dedInput < 0) return { error: "deductions can't be negative" };
+  const labelInput = typeof input.label === "string" ? input.label.trim().slice(0, 40) : "";
+
+  const [user, periods] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId } }),
+    prisma.salaryPeriod.findMany({ where: { userId } }),
+  ]);
+  if (!user) return { error: "user not found" };
+  const currency = user.currency as Currency;
+  const uiPeriods = periods.map(toUiSalaryPeriod);
+  const active = activeSalaryForMonth(uiPeriods, ey, em);
+  const previousTakeHome = active ? active.monthlySalary : null;
+  // The period (if any) that already starts exactly at this month — correcting it.
+  const existing = uiPeriods.find((p) => p.year === ey && p.month === em) ?? null;
+  const overwritesExisting = existing != null;
+
+  // Preserve the existing period's gross/deductions/label when the user is correcting
+  // it and didn't restate them — addSalaryPeriod's upsert would otherwise reset them.
+  const gross = grossInput != null ? grossInput : existing ? existing.grossSalary : null;
+  const deductions = dedInput != null ? dedInput : existing ? existing.deductions : null;
+  const label = labelInput || existing?.label || "";
+
+  const fields: SalaryFields = {
+    effectiveYear: ey,
+    effectiveMonth: em,
+    monthlySalary: amount,
+    grossSalary: gross,
+    deductions,
+    label,
+  };
+
+  return {
+    proposal: {
+      id: "",
+      kind: "adjust_salary",
+      summary: `Salary → ${fmtMoney(amount, currency)}/mo from ${fmtYM(ey, em)}`,
+      salary: { currency, fields, previousTakeHome, overwritesExisting },
+    },
+    modelResult:
+      "A salary-change card is on screen — nothing is saved yet. Ask the user to review & Confirm. " +
+      (overwritesExisting
+        ? `This CORRECTS the salary period that already starts ${monthYearLabel(ey, em)}.`
+        : `This sets the salary effective from ${monthYearLabel(ey, em)} onward; earlier months keep their current salary` +
+          (previousTakeHome != null ? ` (${fmtMoney(previousTakeHome, currency)})` : "") +
+          ".") +
+      (gross == null && deductions == null
+        ? " Gross/CPF weren't given — that's fine (they're optional; the card's Edit can add them)."
+        : ""),
+  };
+}
+
+async function proposeCreateBonus(
+  userId: string,
+  input: ToolInput,
+  now: Date,
+): Promise<WriteToolOutput | ToolError> {
+  const amount = toNum(input.amount);
+  if (amount == null || amount <= 0) return { error: "amount must be a positive number" };
+  const label =
+    typeof input.label === "string" && input.label.trim() ? input.label.trim().slice(0, 40) : "Bonus";
+  const yRaw = toNum(input.year);
+  const year = yRaw != null ? Math.round(yRaw) : now.getFullYear();
+  const mRaw = toNum(input.month);
+  const month = mRaw != null ? Math.min(12, Math.max(1, Math.round(mRaw))) : now.getMonth() + 1;
+  const currency = await userCurrency(userId);
+  const fields: BonusFields = { year, month, amount, label };
+  return {
+    proposal: {
+      id: "",
+      kind: "create_bonus",
+      summary: `Add bonus ${fmtMoney(amount, currency)} · ${monthYearLabel(year, month)}`,
+      bonus: { currency, after: fields },
+    },
+    modelResult:
+      "An add-bonus card is on screen — nothing is saved yet. Ask the user to review & Confirm.",
+  };
+}
+
+async function proposeUpdateBonus(
+  userId: string,
+  input: ToolInput,
+): Promise<WriteToolOutput | ToolError> {
+  const id = toNum(input.id);
+  if (id == null || !Number.isInteger(id)) {
+    return { error: "pass the numeric id of the bonus (from find_bonuses)" };
+  }
+  const row = await prisma.bonus.findFirst({ where: { id, userId } });
+  if (!row) return { error: "no bonus with that id — call find_bonuses to get the id" };
+  const currency = await userCurrency(userId);
+
+  const before: BonusFields = { year: row.year, month: row.month, amount: Number(row.amount), label: row.label };
+  const after: BonusFields = { ...before };
+  let changed = false;
+  if (input.amount !== undefined) {
+    const a = toNum(input.amount);
+    if (a == null || a <= 0) return { error: "amount must be a positive number" };
+    after.amount = a;
+    changed = true;
+  }
+  if (input.label !== undefined) {
+    after.label = typeof input.label === "string" && input.label.trim() ? input.label.trim().slice(0, 40) : "Bonus";
+    changed = true;
+  }
+  if (input.month !== undefined) {
+    const m = toNum(input.month);
+    if (m == null || m < 1 || m > 12) return { error: "month must be 1–12" };
+    after.month = Math.round(m);
+    changed = true;
+  }
+  if (input.year !== undefined) {
+    const y = toNum(input.year);
+    if (y == null) return { error: "year must be a number" };
+    after.year = Math.round(y);
+    changed = true;
+  }
+  if (!changed) return { error: "no changes given — say what to change (amount, label, month, year)" };
+
+  const amountMoved = after.amount !== before.amount;
+  return {
+    proposal: {
+      id: "",
+      kind: "update_bonus",
+      summary: amountMoved
+        ? `Update bonus ${fmtMoney(before.amount, currency)} → ${fmtMoney(after.amount, currency)}`
+        : `Update bonus · ${after.label}`,
+      bonus: { currency, bonusId: row.id, before, after },
+    },
+    modelResult:
+      "An edit-bonus card (before→after) is on screen — nothing is saved yet. Ask the user to review & Confirm.",
+  };
+}
+
+async function proposeDeleteBonus(
+  userId: string,
+  input: ToolInput,
+): Promise<WriteToolOutput | ToolError> {
+  const id = toNum(input.id);
+  if (id == null || !Number.isInteger(id)) {
+    return { error: "pass the numeric id of the bonus (from find_bonuses)" };
+  }
+  const row = await prisma.bonus.findFirst({ where: { id, userId } });
+  if (!row) return { error: "no bonus with that id — call find_bonuses to get the id" };
+  const currency = await userCurrency(userId);
+  const before: BonusFields = { year: row.year, month: row.month, amount: Number(row.amount), label: row.label };
+  return {
+    proposal: {
+      id: "",
+      kind: "delete_bonus",
+      summary: `Delete bonus ${fmtMoney(before.amount, currency)} · ${before.label}`,
+      bonus: { currency, bonusId: row.id, before },
+    },
+    modelResult:
+      "A delete-bonus card is on screen — nothing is deleted yet. Ask the user to confirm.",
+  };
+}
+
 /** Run one tool by name; the engine wraps this per tool_use block. */
 export async function executeAssistantTool(
   userId: string,
@@ -1215,6 +1592,8 @@ export async function executeAssistantTool(
       return getClosedMonths(userId);
     case "get_preferences":
       return getPreferences(userId);
+    case "find_bonuses":
+      return findBonuses(userId, input);
     // WRITE tools (Slice 2) — return a proposal (no DB write); engine → confirm card.
     case "create_expense":
       return proposeCreateExpense(userId, input, now);
@@ -1230,6 +1609,17 @@ export async function executeAssistantTool(
       return proposeSetPreference(input);
     case "set_month_status":
       return proposeSetMonthStatus(userId, input);
+    // WRITE tools (Slice 2d — income management).
+    case "set_savings_goal":
+      return proposeSetSavingsGoal(userId, input);
+    case "adjust_salary":
+      return proposeAdjustSalary(userId, input, now);
+    case "create_bonus":
+      return proposeCreateBonus(userId, input, now);
+    case "update_bonus":
+      return proposeUpdateBonus(userId, input);
+    case "delete_bonus":
+      return proposeDeleteBonus(userId, input);
     default:
       return { error: `unknown tool: ${name}` };
   }
