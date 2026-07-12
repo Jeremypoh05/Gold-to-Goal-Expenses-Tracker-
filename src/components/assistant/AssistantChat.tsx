@@ -36,7 +36,7 @@ import { CATEGORIES } from '@/data/categories';
 import { notifyDataChanged } from '@/lib/data-events';
 import { VoiceEntryEditor, type VoiceEntryValue } from '@/components/voice/VoiceEntryEditor';
 import { RecurringEntryEditor } from './RecurringEntryEditor';
-import { BonusEntryEditor, SalaryEntryEditor, SavingsGoalEditor } from './IncomeEntryEditors';
+import { BonusEntryEditor, SalaryEntryEditor, SavingsGoalEditor, IncomeSourceEntryEditor } from './IncomeEntryEditors';
 import {
     fetchAssistantSessions,
     fetchAssistantMessages,
@@ -56,6 +56,7 @@ import type {
     BonusFields,
     SalaryFields,
     SavingsSettingsFields,
+    IncomeSourceFields,
 } from '@/lib/assistant/types';
 
 /** A proposal as the client tracks it — the raw Proposal plus its resolved outcome
@@ -534,6 +535,15 @@ function describeConfirmed(p: Proposal): string {
         if (!f) return p.summary;
         const verb = p.kind === 'create_bonus' ? 'Added' : p.kind === 'update_bonus' ? 'Edited' : 'Deleted';
         return `${verb} bonus ${money(f.amount, p.bonus.currency)} · ${monthYearOf(f.year, f.month)}`;
+    }
+    if (p.kind === 'create_income_source' && p.incomeSourceCreate) {
+        const f = p.incomeSourceCreate;
+        return `Added income "${f.label}" · ${money(f.monthlyAmount, f.currency)}${f.recurring ? '/mo' : ''}`;
+    }
+    if (p.kind === 'edit_income_source' && p.incomeSourceEdit) {
+        const e = p.incomeSourceEdit;
+        if (e.mode === 'delete') return `Deleted income "${e.before.label}"`;
+        return `Income "${e.after.label}" · ${money(e.after.monthlyAmount, e.currency)}${e.after.recurring ? '/mo' : ''}`;
     }
     return p.summary;
 }
@@ -1758,6 +1768,240 @@ function BonusProposalCard({
     );
 }
 
+/** Emoji tile used by the income-source cards. */
+function EmojiTile({ emoji }: { emoji: string }) {
+    return (
+        <div
+            className="mt-0.5 flex-shrink-0 w-[26px] h-[26px] rounded-[8px] flex items-center justify-center text-[15px]"
+            style={{ background: 'linear-gradient(135deg, var(--grad-soft-a), var(--grad-soft-b))', border: '1px solid var(--color-line-soft)' }}
+        >
+            {emoji}
+        </div>
+    );
+}
+
+function CreateIncomeSourceProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<CardStatus>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const f = proposal.incomeSourceCreate;
+    if (!f) return null;
+
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+
+    const run = async (finalFields?: IncomeSourceFields) => {
+        setStatus('saving');
+        setError('');
+        try {
+            const res = await executeAssistantAction({ kind: 'create_income_source', fields: finalFields ?? f });
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong setting that up.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+    if (status === 'editing')
+        return (
+            <div className="mt-2">
+                <IncomeSourceEntryEditor initial={f} onCancel={() => setStatus('idle')} onSave={(v) => run(v)} />
+            </div>
+        );
+
+    const rangeLabel = !f.recurring
+        ? `one-off · ${monthYearOf(f.effectiveYear, f.effectiveMonth)}`
+        : f.endYear != null && f.endMonth != null
+          ? `${monthYearOf(f.effectiveYear, f.effectiveMonth)} – ${monthYearOf(f.endYear, f.endMonth)}`
+          : `from ${monthYearOf(f.effectiveYear, f.effectiveMonth)}, ongoing`;
+    const saving = status === 'saving';
+    return (
+        <div className={CARD_WRAP} style={{ background: 'var(--color-bg-card)' }}>
+            <div className={CARD_HEAD}>
+                <WalletIcon size={13} /> New income
+                <CardHeadTag />
+            </div>
+            <div className="flex items-start gap-2.5">
+                <EmojiTile emoji={f.emoji} />
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-ink-0 break-words">{f.label}</div>
+                    <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
+                        <span className="text-[15px] font-semibold mono">{money(f.monthlyAmount, f.currency)}</span>
+                        {f.recurring && <span className="text-[10px] text-ink-2">/mo</span>}
+                    </div>
+                </div>
+            </div>
+            <div className="text-[10.5px] text-ink-1 leading-relaxed rounded-lg px-2 py-1.5 bg-bg-2">
+                {f.recurring ? (
+                    <>Contributes every month · <b>{rangeLabel}</b>. Updates the dashboard &amp; income.</>
+                ) : (
+                    <>Counts once · <b>{rangeLabel}</b>. Updates the dashboard &amp; income.</>
+                )}
+            </div>
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button type="button" disabled={saving} onClick={() => run()} className={GOLD_BTN} style={GOLD_STYLE}>
+                    {saving ? 'Setting up…' : (<><CheckMark size={13} /> Confirm</>)}
+                </button>
+                <button type="button" disabled={saving} onClick={() => setStatus('editing')} className={EDIT_BTN}>
+                    <EditIcon size={12} /> Edit
+                </button>
+                <button type="button" disabled={saving} onClick={cancel} className={CANCEL_BTN}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function EditIncomeSourceProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<CardStatus>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const e = proposal.incomeSourceEdit;
+    if (!e) return null;
+
+    const isDelete = e.mode === 'delete';
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+    const { before, after } = e;
+    const amountMoved = before.monthlyAmount !== after.monthlyAmount;
+
+    const run = async () => {
+        setStatus('saving');
+        setError('');
+        try {
+            const res =
+                e.mode === 'delete'
+                    ? await executeAssistantAction({ kind: 'edit_income_source', sourceId: e.sourceId, mode: 'delete' })
+                    : e.mode === 'rate_change'
+                      ? await executeAssistantAction({
+                            kind: 'edit_income_source',
+                            sourceId: e.sourceId,
+                            mode: 'rate_change',
+                            fromYear: e.fromYear!,
+                            fromMonth: e.fromMonth!,
+                            newAmount: e.newAmount!,
+                        })
+                      : await executeAssistantAction({
+                            kind: 'edit_income_source',
+                            sourceId: e.sourceId,
+                            mode: 'redefine',
+                            changes: e.changes ?? {},
+                        });
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong applying that.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+
+    const saving = status === 'saving';
+    return (
+        <div
+            className={cn('mt-2 rounded-2xl border p-3 flex flex-col gap-2.5', isDelete ? 'border-red-500/40' : 'border-gold-500/40')}
+            style={{ background: 'var(--color-bg-card)' }}
+        >
+            <div className={CARD_HEAD}>
+                <WalletIcon size={13} /> {isDelete ? 'Delete income' : 'Edit income'}
+                <CardHeadTag />
+            </div>
+            <div className="flex items-start gap-2.5">
+                <EmojiTile emoji={after.emoji} />
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-ink-0 break-words">{after.label}</div>
+                    <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
+                        {amountMoved && !isDelete && (
+                            <span className="text-[12px] text-ink-2 line-through mono">{money(before.monthlyAmount, e.currency)}</span>
+                        )}
+                        <span className="text-[15px] font-semibold mono">{money(after.monthlyAmount, e.currency)}</span>
+                        {after.recurring && <span className="text-[10px] text-ink-2">/mo</span>}
+                    </div>
+                </div>
+            </div>
+            {!isDelete && (
+                <div className="text-[10.5px] text-ink-1 leading-relaxed rounded-lg px-2 py-1.5 bg-bg-2">
+                    {e.mode === 'rate_change' ? (
+                        <>Applies from <b>{ymLabel(ym(e.fromYear!, e.fromMonth!))}</b> onward; earlier months keep {money(before.monthlyAmount, e.currency)}. Updates the dashboard &amp; income.</>
+                    ) : (
+                        <>Rewrites the stream ({after.activeFrom === after.activeUntil ? after.activeFrom : `${after.activeFrom} → ${after.activeUntil}`}). Updates the dashboard &amp; income.</>
+                    )}
+                </div>
+            )}
+            {isDelete && (
+                <div className="text-[10.5px] leading-relaxed rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-400 bg-amber-500/10">
+                    Removes this income stream from every month it covered.
+                </div>
+            )}
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+            <div className="flex items-center gap-2 pt-0.5">
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={run}
+                    className={cn(
+                        'inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60',
+                        isDelete ? 'bg-red-500 text-white hover:brightness-105 cursor-pointer' : 'text-[#1a120a] cursor-pointer hover:brightness-[1.03]',
+                    )}
+                    style={isDelete ? undefined : GOLD_STYLE}
+                >
+                    {saving ? (isDelete ? 'Deleting…' : 'Applying…') : isDelete ? (<><TrashIcon size={13} /> Delete</>) : (<><CheckMark size={13} /> Confirm</>)}
+                </button>
+                <button type="button" disabled={saving} onClick={cancel} className={CANCEL_BTN}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ── the chat core ────────────────────────────────────────────
 
 export function AssistantChat({
@@ -2326,6 +2570,22 @@ export function AssistantChat({
                                               p.kind === 'update_bonus' ||
                                               p.kind === 'delete_bonus' ? (
                                                 <BonusProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'create_income_source' ? (
+                                                <CreateIncomeSourceProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'edit_income_source' ? (
+                                                <EditIncomeSourceProposalCard
                                                     key={p.id}
                                                     proposal={p}
                                                     onWritten={handleWritten}

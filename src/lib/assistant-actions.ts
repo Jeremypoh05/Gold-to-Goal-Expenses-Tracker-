@@ -25,6 +25,10 @@ import {
   addBonus,
   updateBonus,
   deleteBonus,
+  addIncomeSource,
+  updateIncomeSource,
+  deleteIncomeSource,
+  changeIncomeSourceAmount,
 } from "@/lib/actions";
 import { ALL_CATEGORIES } from "@/lib/assistant/tools";
 import {
@@ -39,6 +43,7 @@ import {
   type SavingsSettingsFields,
   type SalaryFields,
   type BonusFields,
+  type IncomeSourceFields,
 } from "@/lib/assistant/types";
 import type { Currency } from "@/types";
 import type { Prisma } from "@/generated/prisma/client";
@@ -272,6 +277,29 @@ function sanitizeBonus(f: BonusFields): BonusFields | null {
   };
 }
 
+/** Defense-in-depth for a create_income_source write. */
+function sanitizeIncomeSource(f: IncomeSourceFields): IncomeSourceFields | null {
+  const amount = Number(f.monthlyAmount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const ey = Math.round(Number(f.effectiveYear));
+  const em = Math.round(Number(f.effectiveMonth));
+  if (!Number.isFinite(ey) || em < 1 || em > 12) return null;
+  const recurring = f.recurring !== false;
+  const endYear = recurring && f.endYear != null ? Math.round(Number(f.endYear)) : null;
+  const endMonth = recurring && f.endMonth != null ? Math.min(12, Math.max(1, Math.round(Number(f.endMonth)))) : null;
+  return {
+    label: (typeof f.label === "string" ? f.label.trim() : "").slice(0, 40) || "Income",
+    emoji: typeof f.emoji === "string" && f.emoji.trim() ? f.emoji.trim().slice(0, 8) : "💰",
+    monthlyAmount: amount,
+    effectiveYear: ey,
+    effectiveMonth: em,
+    endYear,
+    endMonth,
+    recurring,
+    currency: f.currency,
+  };
+}
+
 export async function executeAssistantAction(
   action: AssistantActionInput,
 ): Promise<AssistantActionResult> {
@@ -437,8 +465,55 @@ export async function executeAssistantAction(
       return { ok: true, summary: `Noted — I'll remember "${key}"` };
     }
 
-    // Income-source writes (Slice 2d part 2) are handled by their own branches added
-    // in the next checkpoint; until then this is a safe fallthrough.
+    // ── income sources (Slice 2d) ──────────────────────────────
+    // Route to the Income page's own machinery: addIncomeSource / changeIncomeSourceAmount
+    // (rate change, keeps history) / updateIncomeSource (redefine) / deleteIncomeSource.
+    if (action.kind === "create_income_source") {
+      const f = sanitizeIncomeSource(action.fields);
+      if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await addIncomeSource({
+        label: f.label,
+        emoji: f.emoji,
+        monthlyAmount: f.monthlyAmount,
+        effectiveYear: f.effectiveYear,
+        effectiveMonth: f.effectiveMonth,
+        endYear: f.endYear,
+        endMonth: f.endMonth,
+        recurring: f.recurring,
+      });
+      return { ok: true, summary: `Income "${f.label}" added` };
+    }
+
+    if (action.kind === "edit_income_source") {
+      if (action.mode === "delete") {
+        await deleteIncomeSource(action.sourceId);
+        return { ok: true, summary: "Income source deleted" };
+      }
+      if (action.mode === "rate_change") {
+        await changeIncomeSourceAmount(action.sourceId, {
+          fromYear: action.fromYear,
+          fromMonth: action.fromMonth,
+          newAmount: action.newAmount,
+        });
+        return { ok: true, summary: "Income amount updated" };
+      }
+      // redefine — pass only the fields present (endYear may be null = clear/reopen).
+      const c = action.changes;
+      await updateIncomeSource(action.sourceId, {
+        ...(c.label !== undefined && { label: c.label }),
+        ...(c.emoji !== undefined && { emoji: c.emoji }),
+        ...(c.monthlyAmount !== undefined && { monthlyAmount: c.monthlyAmount }),
+        ...(c.effectiveYear !== undefined && { effectiveYear: c.effectiveYear }),
+        ...(c.effectiveMonth !== undefined && { effectiveMonth: c.effectiveMonth }),
+        ...("endYear" in c && { endYear: c.endYear }),
+        ...("endMonth" in c && { endMonth: c.endMonth }),
+        ...(c.recurring !== undefined && { recurring: c.recurring }),
+        // Clearing the end (reopen) should also un-pause the stream.
+        ...(c.endYear === null && { active: true }),
+      });
+      return { ok: true, summary: "Income source updated" };
+    }
+
     return { ok: false, error: "That action isn't supported yet." };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Something went wrong saving that." };

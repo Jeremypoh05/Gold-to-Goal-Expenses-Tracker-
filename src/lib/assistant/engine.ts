@@ -188,6 +188,12 @@ function buildSystemPrompt(now: Date, cardContext = ""): string {
     `- create_bonus / update_bonus / delete_bonus: a bonus is a year-scoped one-off amount on top of salary. ` +
     `For update/delete you MUST have the bonus id — call find_bonuses first to locate it (it also answers ` +
     `questions about bonuses). If several bonuses could match, ask which one.\n` +
+    `- create_income_source: a NEW income stream beyond salary (freelance, dividends, rental…) — recurring ` +
+    `across a date range, or a one-off in a single month.\n` +
+    `- edit_income_source: change an EXISTING stream (find_income_sources first for the sourceId). Like ` +
+    `edit_recurring, pick 'rate_change' when the amount changed from a point in time (keep earlier months) vs ` +
+    `'redefine' to rewrite it (label/amount/start/end/recurring; set an end to stop it, ongoing=true to reopen), ` +
+    `or 'delete' to remove it. If rate_change vs redefine is unclear, ASK.\n` +
     `- CLOSED months — IMPORTANT: a month's open/closed status changes over time, so NEVER assert or imply ` +
     `whether a month is closed from earlier messages, this conversation, or memory. Rely ONLY on the CURRENT ` +
     `write tool's result: if it does not flag a closed month, the month is OPEN — do NOT mention closing, ` +

@@ -203,6 +203,10 @@ export interface IncomeSourceFields {
   endYear: number | null;
   endMonth: number | null;
   recurring: boolean;
+  /** DISPLAY ONLY — income streams have no per-record currency (stored/shown in the
+   *  user's base currency); carried so the card can format the amount. The executor
+   *  ignores it (addIncomeSource takes no currency). */
+  currency: Currency;
 }
 export interface IncomeSourceSnapshot {
   label: string;

@@ -10,6 +10,8 @@ import {
   recurringMonthlyIncome,
   toUiSalaryPeriod,
   toUiIncomeSource,
+  incomeSourceStatus,
+  isIncomeSourceArchived,
   normalizeTags,
   closedMonthsInRange,
 } from "@/lib/expense-utils";
@@ -24,6 +26,8 @@ import {
   type SavingsSettingsFields,
   type SalaryFields,
   type BonusFields,
+  type IncomeSourceFields,
+  type IncomeSourceSnapshot,
 } from "./types";
 
 // Exported: create_recurring allows "family" (家用/family support), unlike plain
@@ -174,6 +178,19 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
       type: "object",
       properties: {
         year: { type: "number", description: "Only bonuses in this year (e.g. 2026). Omit for all years." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "find_income_sources",
+    description:
+      "List the user's custom income streams beyond salary (freelance, dividends, rental…). Each is either recurring across a date range or a one-off in a single month. Call this to get a stream's id before edit_income_source, or to answer questions about other income.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Case-insensitive keyword matched against the stream label." },
+        includeInactive: { type: "boolean", description: "Also include ended / paused / past one-off streams (default false)." },
       },
       additionalProperties: false,
     },
@@ -398,6 +415,51 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "create_income_source",
+    description:
+      "Propose adding a NEW custom income stream beyond salary (freelance, side gig, dividends, rental…). Does NOT save — the user confirms a card first. A recurring stream contributes every month from its start (until an optional end month); a one-off contributes once in its month. Use for 'I make 800/month freelancing from March', 'got a 2000 one-off consulting payment in May'. To edit an existing stream use edit_income_source.",
+    input_schema: {
+      type: "object",
+      properties: {
+        label: { type: "string", description: "Short name, e.g. 'Freelance', 'Dividends', 'Rental'." },
+        monthlyAmount: { type: "number", description: "Amount per month (recurring) or the one-off amount (positive)." },
+        recurring: { type: "boolean", description: "true = every month across a range (default); false = a one-off in a single month." },
+        startMonth: { type: "string", description: "First month it applies, YYYY-MM (the single month for a one-off). Defaults to the current month." },
+        endMonth: { type: "string", description: "Last month for a recurring stream, YYYY-MM. Omit for ongoing." },
+        emoji: { type: "string", description: "Optional emoji glyph (default 💰)." },
+      },
+      required: ["label", "monthlyAmount"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "edit_income_source",
+    description:
+      "Propose editing an EXISTING income stream. Does NOT save — the user confirms a card first. Get `sourceId` from find_income_sources. Choose the mode:\n" +
+      "• mode='rate_change' — the amount changed FROM a point in time (a raise/cut). Earlier months keep their old amount; the new amount applies from `fromMonth` onward. Provide `newAmount` (+ optional `fromMonth`, default = this month).\n" +
+      "• mode='redefine' — rewrite the stream (label, emoji, amount across the board, start/end month, recurring vs one-off). Provide the fields to change. Set `endMonth` to STOP an ongoing stream at a month; set `ongoing`=true to reopen an ended stream (clears its end).\n" +
+      "• mode='delete' — remove the stream entirely.\n" +
+      "If it's unclear whether the user wants rate_change (from now on, keep history) or redefine (all months), ASK.",
+    input_schema: {
+      type: "object",
+      properties: {
+        sourceId: { type: "number", description: "The stream's id (from find_income_sources)." },
+        mode: { type: "string", enum: ["rate_change", "redefine", "delete"], description: "How to edit the stream." },
+        newAmount: { type: "number", description: "rate_change: the new monthly amount (positive)." },
+        fromMonth: { type: "string", description: "rate_change: month the new amount starts, YYYY-MM. Omit for the current month." },
+        label: { type: "string", description: "redefine: new label." },
+        emoji: { type: "string", description: "redefine: new emoji." },
+        monthlyAmount: { type: "number", description: "redefine: new amount applied to the whole stream." },
+        startMonth: { type: "string", description: "redefine: new start month, YYYY-MM." },
+        endMonth: { type: "string", description: "redefine: new end month, YYYY-MM (stops/pauses the stream)." },
+        ongoing: { type: "boolean", description: "redefine: set true to reopen an ended stream (clears its end month → ongoing)." },
+        recurring: { type: "boolean", description: "redefine: recurring (every month) vs one-off (single month)." },
+      },
+      required: ["sourceId", "mode"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Names of the tools that mutate — used by the engine to route their output to a
@@ -416,6 +478,8 @@ export const WRITE_TOOL_NAMES = new Set([
   "create_bonus",
   "update_bonus",
   "delete_bonus",
+  "create_income_source",
+  "edit_income_source",
 ]);
 
 // ── executors ────────────────────────────────────────────────
@@ -756,6 +820,35 @@ async function findBonuses(userId: string, input: ToolInput) {
     ...(rows.length === 0 && {
       note: `no bonuses recorded${y != null ? ` for ${Math.round(y)}` : ""}`,
     }),
+  };
+}
+
+async function findIncomeSources(userId: string, input: ToolInput, now: Date) {
+  const rows = await prisma.incomeSource.findMany({ where: { userId }, orderBy: { createdAt: "asc" } });
+  const nowY = now.getFullYear();
+  const nowM = now.getMonth() + 1;
+  let sources = rows.map(toUiIncomeSource);
+  const q = typeof input.query === "string" ? input.query.trim().toLowerCase() : "";
+  if (q) sources = sources.filter((s) => s.label.toLowerCase().includes(q));
+  if (input.includeInactive !== true) {
+    sources = sources.filter((s) => s.active && !isIncomeSourceArchived(s, nowY, nowM));
+  }
+  return {
+    sources: sources.map((s) => ({
+      sourceId: s.id,
+      label: s.label,
+      emoji: s.emoji,
+      monthlyAmount: s.monthlyAmount,
+      recurring: s.recurring,
+      activeFrom: fmtYM(s.year, s.month),
+      activeUntil:
+        s.endYear != null && s.endMonth != null ? fmtYM(s.endYear, s.endMonth) : s.recurring ? "ongoing" : "one-off",
+      status: s.active ? incomeSourceStatus(s, nowY, nowM) : "paused",
+    })),
+    note:
+      sources.length === 0
+        ? "no matching income streams"
+        : "recurring streams contribute every month in their range; changing a stream (rate_change/redefine) changes all its months.",
   };
 }
 
@@ -1570,6 +1663,229 @@ async function proposeDeleteBonus(
   };
 }
 
+// ── income-source proposals (Slice 2d) ───────────────────────
+// create_income_source → addIncomeSource; edit_income_source routes to
+// changeIncomeSourceAmount (rate_change, keeps history) / updateIncomeSource
+// (redefine) / deleteIncomeSource (delete) — the same machinery the Income page uses.
+
+async function proposeCreateIncomeSource(
+  userId: string,
+  input: ToolInput,
+  now: Date,
+): Promise<WriteToolOutput | ToolError> {
+  const label = typeof input.label === "string" ? input.label.trim().slice(0, 40) : "";
+  if (!label) return { error: "provide a label/name for the income stream" };
+  const amount = toNum(input.monthlyAmount);
+  if (amount == null || amount <= 0) return { error: "monthlyAmount must be a positive number" };
+  const recurring = input.recurring !== false; // default true
+  const emoji = typeof input.emoji === "string" && input.emoji.trim() ? input.emoji.trim().slice(0, 8) : "💰";
+
+  let sy = now.getFullYear();
+  let sm = now.getMonth() + 1;
+  if (input.startMonth != null) {
+    const d = parseDay(input.startMonth);
+    if (!d) return { error: "startMonth must be YYYY-MM" };
+    sy = d.getFullYear();
+    sm = d.getMonth() + 1;
+  }
+  let ey: number | null = null;
+  let em: number | null = null;
+  if (recurring && input.endMonth != null) {
+    const d = parseDay(input.endMonth);
+    if (!d) return { error: "endMonth must be YYYY-MM" };
+    ey = d.getFullYear();
+    em = d.getMonth() + 1;
+    if (cmpYM(ey, em, sy, sm) < 0) return { error: "endMonth can't be before startMonth" };
+  }
+  const currency = await userCurrency(userId);
+  const fields: IncomeSourceFields = {
+    label,
+    emoji,
+    monthlyAmount: amount,
+    effectiveYear: sy,
+    effectiveMonth: sm,
+    endYear: ey,
+    endMonth: em,
+    recurring,
+    currency,
+  };
+  const rangeLabel = !recurring
+    ? fmtYM(sy, sm)
+    : ey != null && em != null
+      ? `${fmtYM(sy, sm)}–${fmtYM(ey, em)}`
+      : `from ${fmtYM(sy, sm)}`;
+
+  return {
+    proposal: {
+      id: "",
+      kind: "create_income_source",
+      summary: `Add income ${label} · ${fmtMoney(amount, currency)}${recurring ? "/mo" : ""} · ${rangeLabel}`,
+      incomeSourceCreate: fields,
+    },
+    modelResult:
+      "A new-income-source card is on screen — nothing is saved yet. " +
+      (recurring
+        ? "It contributes to every month in its range once confirmed."
+        : "It counts once in that month once confirmed.") +
+      " Ask the user to review & Confirm.",
+  };
+}
+
+async function proposeEditIncomeSource(
+  userId: string,
+  input: ToolInput,
+  now: Date,
+): Promise<WriteToolOutput | ToolError> {
+  const sourceId = toNum(input.sourceId);
+  if (sourceId == null || !Number.isInteger(sourceId)) {
+    return { error: "pass the numeric sourceId of the income stream (from find_income_sources)" };
+  }
+  const row = await prisma.incomeSource.findFirst({ where: { id: sourceId, userId } });
+  if (!row) return { error: "no income stream with that id — call find_income_sources to get the sourceId" };
+
+  const mode =
+    input.mode === "rate_change" ? "rate_change" : input.mode === "redefine" ? "redefine" : input.mode === "delete" ? "delete" : null;
+  if (!mode) return { error: "mode must be 'rate_change', 'redefine', or 'delete'" };
+
+  const currency = await userCurrency(userId);
+  const src = toUiIncomeSource(row);
+  const snap = (s: {
+    label: string;
+    emoji: string;
+    monthlyAmount: number;
+    year: number;
+    month: number;
+    endYear: number | null;
+    endMonth: number | null;
+    recurring: boolean;
+  }): IncomeSourceSnapshot => ({
+    label: s.label,
+    emoji: s.emoji,
+    monthlyAmount: s.monthlyAmount,
+    activeFrom: fmtYM(s.year, s.month),
+    activeUntil: s.endYear != null && s.endMonth != null ? fmtYM(s.endYear, s.endMonth) : s.recurring ? "ongoing" : "one-off",
+    recurring: s.recurring,
+  });
+  const before = snap(src);
+
+  const edit: NonNullable<Proposal["incomeSourceEdit"]> = {
+    currency,
+    sourceId,
+    mode,
+    before,
+    after: before,
+  };
+
+  if (mode === "delete") {
+    return {
+      proposal: {
+        id: "",
+        kind: "edit_income_source",
+        summary: `Delete income ${before.label} · ${fmtMoney(before.monthlyAmount, currency)}`,
+        incomeSourceEdit: edit,
+      },
+      modelResult: "A delete-income-source card is on screen — nothing is deleted yet. Ask the user to confirm.",
+    };
+  }
+
+  if (mode === "rate_change") {
+    const amt = toNum(input.newAmount);
+    if (amt == null || amt <= 0) return { error: "newAmount must be a positive number for a rate_change" };
+    let fy = now.getFullYear();
+    let fm = now.getMonth() + 1;
+    if (input.fromMonth != null) {
+      const d = parseDay(input.fromMonth);
+      if (!d) return { error: "fromMonth must be YYYY-MM" };
+      fy = d.getFullYear();
+      fm = d.getMonth() + 1;
+    }
+    edit.fromYear = fy;
+    edit.fromMonth = fm;
+    edit.newAmount = amt;
+    edit.after = { ...before, monthlyAmount: amt, activeFrom: fmtYM(fy, fm), activeUntil: "ongoing", recurring: true };
+    return {
+      proposal: {
+        id: "",
+        kind: "edit_income_source",
+        summary: `Income ${before.label}: ${fmtMoney(before.monthlyAmount, currency)} → ${fmtMoney(amt, currency)} from ${fmtYM(fy, fm)}`,
+        incomeSourceEdit: edit,
+      },
+      modelResult:
+        `An income rate-change card is on screen — nothing is saved yet. Months before ${fmtYM(fy, fm)} keep ` +
+        `${fmtMoney(before.monthlyAmount, currency)}; the new amount applies from then. Ask the user to review & Confirm.`,
+    };
+  }
+
+  // redefine — only the fields the model set.
+  const changes: Partial<IncomeSourceFields> = {};
+  if (input.label !== undefined) {
+    const l = typeof input.label === "string" ? input.label.trim().slice(0, 40) : "";
+    if (l) changes.label = l;
+  }
+  if (input.emoji !== undefined && typeof input.emoji === "string" && input.emoji.trim()) {
+    changes.emoji = input.emoji.trim().slice(0, 8);
+  }
+  if (input.monthlyAmount !== undefined) {
+    const a = toNum(input.monthlyAmount);
+    if (a == null || a <= 0) return { error: "monthlyAmount must be a positive number" };
+    changes.monthlyAmount = a;
+  }
+  if (input.recurring !== undefined) changes.recurring = input.recurring === true;
+  if (input.startMonth !== undefined) {
+    const d = parseDay(input.startMonth);
+    if (!d) return { error: "startMonth must be YYYY-MM" };
+    changes.effectiveYear = d.getFullYear();
+    changes.effectiveMonth = d.getMonth() + 1;
+  }
+  // ongoing=true clears the end (reopen); else an explicit endMonth sets/moves it.
+  if (input.ongoing === true) {
+    changes.endYear = null;
+    changes.endMonth = null;
+  } else if (input.endMonth !== undefined) {
+    const d = parseDay(input.endMonth);
+    if (!d) return { error: "endMonth must be YYYY-MM" };
+    changes.endYear = d.getFullYear();
+    changes.endMonth = d.getMonth() + 1;
+  }
+  if (Object.keys(changes).length === 0) {
+    return { error: "no changes given — for redefine, say what to change (label, amount, emoji, start/end month, recurring)" };
+  }
+
+  const after: IncomeSourceSnapshot = {
+    label: changes.label ?? before.label,
+    emoji: changes.emoji ?? before.emoji,
+    monthlyAmount: changes.monthlyAmount ?? before.monthlyAmount,
+    recurring: changes.recurring ?? before.recurring,
+    activeFrom:
+      changes.effectiveYear != null && changes.effectiveMonth != null
+        ? fmtYM(changes.effectiveYear, changes.effectiveMonth)
+        : before.activeFrom,
+    activeUntil:
+      "endYear" in changes
+        ? changes.endYear != null && changes.endMonth != null
+          ? fmtYM(changes.endYear, changes.endMonth)
+          : (changes.recurring ?? before.recurring)
+            ? "ongoing"
+            : "one-off"
+        : before.activeUntil,
+  };
+  edit.changes = changes;
+  edit.after = after;
+
+  const amountMoved = after.monthlyAmount !== before.monthlyAmount;
+  return {
+    proposal: {
+      id: "",
+      kind: "edit_income_source",
+      summary: `Income ${before.label}${amountMoved ? `: ${fmtMoney(before.monthlyAmount, currency)} → ${fmtMoney(after.monthlyAmount, currency)}` : " updated"}`,
+      incomeSourceEdit: edit,
+    },
+    modelResult:
+      "An income-source edit card is on screen — nothing is saved yet. It rewrites the stream across every month " +
+      "it covers + the dashboard/income. Ask the user to review & Confirm.",
+  };
+}
+
 /** Run one tool by name; the engine wraps this per tool_use block. */
 export async function executeAssistantTool(
   userId: string,
@@ -1594,6 +1910,8 @@ export async function executeAssistantTool(
       return getPreferences(userId);
     case "find_bonuses":
       return findBonuses(userId, input);
+    case "find_income_sources":
+      return findIncomeSources(userId, input, now);
     // WRITE tools (Slice 2) — return a proposal (no DB write); engine → confirm card.
     case "create_expense":
       return proposeCreateExpense(userId, input, now);
@@ -1620,6 +1938,10 @@ export async function executeAssistantTool(
       return proposeUpdateBonus(userId, input);
     case "delete_bonus":
       return proposeDeleteBonus(userId, input);
+    case "create_income_source":
+      return proposeCreateIncomeSource(userId, input, now);
+    case "edit_income_source":
+      return proposeEditIncomeSource(userId, input, now);
     default:
       return { error: `unknown tool: ${name}` };
   }

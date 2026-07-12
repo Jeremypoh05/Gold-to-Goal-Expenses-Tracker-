@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import { MonthGridDropdown, YearStepper, num } from '@/components/income/pickers';
-import type { BonusFields, SalaryFields, SavingsSettingsFields } from '@/lib/assistant/types';
+import type { BonusFields, SalaryFields, SavingsSettingsFields, IncomeSourceFields } from '@/lib/assistant/types';
 import type { Currency } from '@/types';
 
 const SYMBOL: Record<string, string> = { SGD: 'S$', MYR: 'RM', CNY: '¥', USD: '$' };
@@ -298,6 +298,130 @@ export function SavingsGoalEditor({
                         ))}
                     </div>
                 </div>
+            )}
+            <Actions onSave={save} onCancel={onCancel} saveLabel={saveLabel} />
+        </div>
+    );
+}
+
+/** A pair of pill toggles (matches RecurringEntryEditor's Ongoing/Has-end look). */
+function PillToggle({
+    label,
+    options,
+    value,
+    onChange,
+}: {
+    label: string;
+    options: { value: string; text: string }[];
+    value: string;
+    onChange: (v: string) => void;
+}) {
+    return (
+        <div>
+            <div className="text-[10px] text-ink-2 uppercase tracking-[0.06em] font-semibold mb-1.5">{label}</div>
+            <div className="flex gap-1.5 flex-wrap">
+                {options.map((o) => {
+                    const on = o.value === value;
+                    return (
+                        <button
+                            key={o.value}
+                            type="button"
+                            onClick={() => onChange(o.value)}
+                            className="chip"
+                            style={{
+                                cursor: 'pointer',
+                                background: on ? 'oklch(0.96 0.06 92)' : 'var(--color-bg-2)',
+                                color: on ? 'var(--color-gold-900)' : 'var(--color-ink-1)',
+                                border: on ? '1px solid oklch(0.85 0.10 88)' : '1px solid var(--color-line-soft)',
+                            }}
+                        >
+                            {o.text}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+/** Manual-edit fallback for the create_income_source card. */
+export function IncomeSourceEntryEditor({
+    initial,
+    onSave,
+    onCancel,
+    saveLabel = 'Save income source',
+}: {
+    initial: IncomeSourceFields;
+    onSave: (f: IncomeSourceFields) => void;
+    onCancel: () => void;
+    saveLabel?: string;
+}) {
+    const [label, setLabel] = useState(initial.label);
+    const [amt, setAmt] = useState(initial.monthlyAmount.toFixed(2));
+    const [recurring, setRecurring] = useState(initial.recurring);
+    const [startMonth, setStartMonth] = useState(initial.effectiveMonth);
+    const [startYear, setStartYear] = useState(String(initial.effectiveYear));
+    const now = new Date();
+    const [hasEnd, setHasEnd] = useState(initial.endYear != null && initial.endMonth != null);
+    const [endMonth, setEndMonth] = useState(initial.endMonth ?? now.getMonth() + 1);
+    const [endYear, setEndYear] = useState(String(initial.endYear ?? now.getFullYear()));
+    const symbol = SYMBOL[initial.currency] ?? 'S$';
+
+    const save = () =>
+        onSave({
+            ...initial, // keep emoji + currency
+            label: label.trim() || 'Income',
+            monthlyAmount: parseFloat(amt) || 0,
+            recurring,
+            effectiveYear: Math.round(num(startYear)) || initial.effectiveYear,
+            effectiveMonth: startMonth,
+            endYear: recurring && hasEnd ? Math.round(num(endYear)) || now.getFullYear() : null,
+            endMonth: recurring && hasEnd ? endMonth : null,
+        });
+
+    return (
+        <div className={wrapCls} style={wrapStyle}>
+            <TextField label="Name" value={label} onChange={setLabel} placeholder="e.g. Freelance, Dividends" />
+            <AmountField label={recurring ? 'Amount / month' : 'Amount'} symbol={symbol} value={amt} onChange={setAmt} />
+            <PillToggle
+                label="Type"
+                value={recurring ? 'recurring' : 'oneoff'}
+                onChange={(v) => setRecurring(v === 'recurring')}
+                options={[
+                    { value: 'recurring', text: 'Every month' },
+                    { value: 'oneoff', text: 'One-off' },
+                ]}
+            />
+            <div className="flex flex-wrap gap-3">
+                <div className="flex-1 min-w-[140px]">
+                    <MonthGridDropdown value={startMonth} onChange={setStartMonth} label={recurring ? 'Starts' : 'Month'} />
+                </div>
+                <div className="w-[110px]">
+                    <YearStepper value={startYear} onChange={setStartYear} />
+                </div>
+            </div>
+            {recurring && (
+                <>
+                    <PillToggle
+                        label="Ends?"
+                        value={hasEnd ? 'end' : 'ongoing'}
+                        onChange={(v) => setHasEnd(v === 'end')}
+                        options={[
+                            { value: 'ongoing', text: 'Ongoing' },
+                            { value: 'end', text: 'Has an end month' },
+                        ]}
+                    />
+                    {hasEnd && (
+                        <div className="flex flex-wrap gap-3">
+                            <div className="flex-1 min-w-[140px]">
+                                <MonthGridDropdown value={endMonth} onChange={setEndMonth} label="End month" />
+                            </div>
+                            <div className="w-[110px]">
+                                <YearStepper value={endYear} onChange={setEndYear} />
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
             <Actions onSave={save} onCancel={onCancel} saveLabel={saveLabel} />
         </div>
