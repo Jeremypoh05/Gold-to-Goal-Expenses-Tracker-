@@ -17,9 +17,11 @@ import {
   deleteExpense,
   changeFixedAmount,
   updateFixedExpense,
+  addFixedExpense,
   reopenMonth,
   closeMonth,
 } from "@/lib/actions";
+import { ALL_CATEGORIES } from "@/lib/assistant/tools";
 import {
   WRITABLE_CATEGORIES,
   type AssistantActionInput,
@@ -28,6 +30,7 @@ import {
   type Proposal,
   type ChatMessageData,
   type ProposalOutcome,
+  type RecurringCreateFields,
 } from "@/lib/assistant/types";
 import type { Currency } from "@/types";
 import type { Prisma } from "@/generated/prisma/client";
@@ -167,6 +170,30 @@ function sanitizeFields(f: ExpenseFields): ExpenseFields | null {
   };
 }
 
+/** Defense-in-depth validation for a create_recurring proposal's fields — mirrors
+ *  sanitizeFields's spirit (amount>0, category/currency in-range, sane clamps). */
+function sanitizeRecurringCreate(f: RecurringCreateFields): RecurringCreateFields | null {
+  const amount = Number(f.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (!ALL_CATEGORIES.includes(f.category)) return null;
+  const currency: Currency = (["SGD", "MYR", "CNY", "USD"] as Currency[]).includes(f.currency)
+    ? f.currency
+    : "SGD";
+  const label = f.label.trim().slice(0, 40) || "Fixed expense";
+  return {
+    label,
+    note: typeof f.note === "string" ? f.note.slice(0, 120) : "",
+    category: f.category,
+    currency,
+    amount,
+    dueDay: Math.min(31, Math.max(1, Math.round(Number(f.dueDay) || 1))),
+    startYear: f.startYear,
+    startMonth: f.startMonth,
+    endYear: f.endYear ?? null,
+    endMonth: f.endMonth ?? null,
+  };
+}
+
 export async function executeAssistantAction(
   action: AssistantActionInput,
 ): Promise<AssistantActionResult> {
@@ -242,6 +269,25 @@ export async function executeAssistantAction(
         action.overrideClosed ?? false,
       );
       return { ok: true, summary: "Recurring rule updated" };
+    }
+
+    // ── create a brand-new recurring rule (Slice 2c) ───────────
+    if (action.kind === "create_recurring") {
+      const f = sanitizeRecurringCreate(action.fields);
+      if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
+      await addFixedExpense({
+        label: f.label,
+        note: f.note || undefined,
+        category: f.category,
+        amount: f.amount,
+        currency: f.currency,
+        dueDay: f.dueDay,
+        startYear: f.startYear,
+        startMonth: f.startMonth,
+        endYear: f.endYear,
+        endMonth: f.endMonth,
+      });
+      return { ok: true, summary: `Recurring "${f.label}" set up · ${fmtMoney(f.amount, f.currency)}/mo` };
     }
 
     // ── reopen / close a month (Slice 2b fix batch) ────────────

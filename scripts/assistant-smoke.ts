@@ -50,6 +50,7 @@ async function main() {
       }
       if (p.preference) extra += ` · pref:${p.preference.key}`;
       if (p.monthStatus) extra += ` · ${p.monthStatus.action}:${p.monthStatus.monthLabel}`;
+      if (p.recurringCreate) extra += ` · ${p.recurringCreate.category} from ${p.recurringCreate.startYear}-${p.recurringCreate.startMonth}`;
       console.log(`📝 PROPOSAL [${p.kind}]: ${p.summary}${extra}`);
     }
     console.log("─".repeat(60));

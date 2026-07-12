@@ -160,6 +160,14 @@ const NAV_DEFAULT_LABELS: Record<NavTarget, { en: string; zh: string }> = {
 };
 const CJK_RE = /[一-鿿]/;
 const GO_RE = /\[\[go:(dashboard|ledger|calendar|income|recurring)\|([^\]|]+)\]\]/g;
+// ADDED (Slice 2c): a tappable "do this next" chip — LABEL is both the button text
+// AND the exact message auto-sent (as if the user typed it) when tapped. Reuses the
+// normal send() pipeline, so every existing reliability guard (phantom-card check,
+// language lock, live closed-month status) applies automatically to whatever it
+// triggers — this is just a shortcut past typing, not a new code path.
+const SUGGEST_RE = /\[\[suggest:([^\]]+)\]\]/g;
+
+type Chip = { kind: 'nav'; target: NavTarget; label: string } | { kind: 'suggest'; label: string };
 
 /** Inline **bold** within a plain-text run. */
 function renderBold(text: string, keyBase: string): React.ReactNode {
@@ -167,16 +175,27 @@ function renderBold(text: string, keyBase: string): React.ReactNode {
     return parts.map((p, i) => (i % 2 === 1 ? <b key={`${keyBase}b${i}`}>{p}</b> : <span key={`${keyBase}t${i}`}>{p}</span>));
 }
 
-/** Renderer for assistant replies: **bold**, "-" bullets, line breaks, and
- *  [[go:…]] navigation chips. onNavigate lets a click close the surface. */
-function AssistantText({ text, onNavigate }: { text: string; onNavigate: (target: NavTarget) => void }) {
+/** Renderer for assistant replies: **bold**, "-" bullets, line breaks, [[go:…]]
+ *  navigation chips, and [[suggest:…]] tappable next-step chips. onNavigate lets a
+ *  nav click close the surface; onSuggest fires the suggested message (= send()). */
+function AssistantText({
+    text,
+    onNavigate,
+    onSuggest,
+    disabled,
+}: {
+    text: string;
+    onNavigate: (target: NavTarget) => void;
+    onSuggest: (label: string) => void;
+    disabled?: boolean;
+}) {
     const lines = text.split('\n');
     // Decide the chip-label language from the reply's DOMINANT script — but only
-    // over the prose, with the [[go:…]] tokens stripped first (otherwise a Chinese
-    // label inside the token would make the reply look Chinese and defeat the fix).
-    // Dominant (count) rather than "contains any CJK" so an English reply that
+    // over the prose, with the [[go:…]]/[[suggest:…]] tokens stripped first
+    // (otherwise a Chinese label inside a token would skew the count and defeat the
+    // fix). Dominant (count) rather than "contains any CJK" so an English reply that
     // quotes a Chinese merchant note still counts as English.
-    const prose = text.replace(GO_RE, ' ');
+    const prose = text.replace(GO_RE, ' ').replace(SUGGEST_RE, ' ');
     const cjkCount = (prose.match(/[一-鿿]/g) ?? []).length;
     const latinCount = (prose.match(/[A-Za-z]/g) ?? []).length;
     const replyIsCJK = cjkCount > latinCount;
@@ -191,10 +210,14 @@ function AssistantText({ text, onNavigate }: { text: string; onNavigate: (target
     return (
         <>
             {lines.map((line, li) => {
-                // Pull out any nav tokens on this line into chips; keep surrounding text.
-                const chips: { target: NavTarget; label: string }[] = [];
-                const stripped = line.replace(GO_RE, (_full, target: string, label: string) => {
-                    chips.push({ target: target as NavTarget, label: resolveLabel(target as NavTarget, label) });
+                // Pull out any nav/suggest tokens on this line into chips; keep the rest.
+                const chips: Chip[] = [];
+                const afterGo = line.replace(GO_RE, (_full, target: string, label: string) => {
+                    chips.push({ kind: 'nav', target: target as NavTarget, label: resolveLabel(target as NavTarget, label) });
+                    return '';
+                });
+                const stripped = afterGo.replace(SUGGEST_RE, (_full, label: string) => {
+                    chips.push({ kind: 'suggest', label: label.trim() });
                     return '';
                 });
                 const bullet = stripped.match(/^\s*[-•]\s+(.*)$/);
@@ -218,6 +241,22 @@ function AssistantText({ text, onNavigate }: { text: string; onNavigate: (target
                                 // within a single line; gap-x keeps side-by-side chips tight.
                                 <span className={cn('flex flex-wrap gap-x-1.5 gap-y-2', hasText && 'mt-1.5')}>
                                     {chips.map((c, ci) => {
+                                        if (c.kind === 'suggest') {
+                                            // Outlined pill (matches the empty-state STARTERS style) so
+                                            // it reads as "tap to ask" — distinct from the gold nav chips.
+                                            return (
+                                                <button
+                                                    key={ci}
+                                                    type="button"
+                                                    disabled={disabled}
+                                                    onClick={() => onSuggest(c.label)}
+                                                    className="inline-flex items-center gap-1 text-[11.5px] font-medium px-2.5 py-1 rounded-full border border-line-soft bg-bg-card text-ink-1 hover:bg-bg-2 hover:text-ink-0 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                                                >
+                                                    {c.label}
+                                                    <ChevronIcon size={12} className="opacity-60" />
+                                                </button>
+                                            );
+                                        }
                                         const Icon = NAV_ICONS[c.target];
                                         return (
                                             <button
@@ -459,6 +498,8 @@ function describeConfirmed(p: Proposal): string {
         return `Deleted ${money(p.target.amount, p.target.currency)} · ${catLabel(p.target.category)}`;
     if (p.kind === 'edit_recurring' && p.recurring)
         return `Recurring “${p.recurring.after.label}” · ${money(p.recurring.after.amount, p.recurring.after.currency)}/mo`;
+    if (p.kind === 'create_recurring' && p.recurringCreate)
+        return `Set up recurring "${p.recurringCreate.label}" · ${money(p.recurringCreate.amount, p.recurringCreate.currency)}/mo`;
     if (p.kind === 'set_preference' && p.preference)
         return `Saved preference · ${p.preference.key}`;
     if (p.kind === 'set_month_status' && p.monthStatus)
@@ -781,6 +822,8 @@ function ymLabel(ym: string): string {
     if (!y || !m) return ym;
     return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
+/** (2026, 7) → "2026-07", for building the ymLabel input from raw year/month. */
+const ym = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
 
 function RecurringProposalCard({
     proposal,
@@ -981,6 +1024,117 @@ function RecurringProposalCard({
                     className="inline-flex items-center gap-1 text-[11.5px] font-medium px-3 py-1.5 rounded-full border border-line text-ink-1 hover:border-ink-2 transition-all cursor-pointer disabled:opacity-60"
                 >
                     <EditIcon size={12} /> Edit
+                </button>
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={cancel}
+                    className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60"
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+/** A brand-new recurring rule the agent proposes (Slice 2c) — routes to
+ *  addFixedExpense on Confirm. No "Edit" manual fallback (unlike the edit-existing
+ *  card): there's no rule yet for openFixedEdit to open, so a wrong detail is best
+ *  fixed by cancelling and re-describing, or a quick follow-up correction in chat. */
+function CreateRecurringProposalCard({
+    proposal,
+    onWritten,
+    initialOutcome,
+    onResolve,
+}: {
+    proposal: Proposal;
+    onWritten: () => void;
+    initialOutcome?: ProposalOutcome;
+    onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+}) {
+    const [status, setStatus] = useState<'idle' | 'saving' | 'done' | 'cancelled' | 'error'>(
+        initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
+    );
+    const [error, setError] = useState('');
+    const f = proposal.recurringCreate;
+    if (!f) return null;
+
+    const doneDetail = describeConfirmed(proposal);
+    const cancel = () => {
+        setStatus('cancelled');
+        onResolve?.('cancelled');
+    };
+
+    const run = async () => {
+        setStatus('saving');
+        setError('');
+        try {
+            const res = await executeAssistantAction({ kind: 'create_recurring', fields: f });
+            if (res.ok) {
+                setStatus('done');
+                onWritten();
+                onResolve?.('confirmed', doneDetail);
+            } else {
+                setError(res.error ?? 'Something went wrong.');
+                setStatus('error');
+            }
+        } catch {
+            setError('Something went wrong setting that up.');
+            setStatus('error');
+        }
+    };
+
+    if (status === 'done') return <ConfirmedChip text={doneDetail} />;
+    if (status === 'cancelled') return <CancelledChip />;
+
+    const saving = status === 'saving';
+    return (
+        <div className="mt-2 rounded-2xl border border-gold-500/40 p-3 flex flex-col gap-2.5" style={{ background: 'var(--color-bg-card)' }}>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-2">
+                <RepeatIcon size={13} />
+                New recurring
+                <span className="ml-auto normal-case tracking-normal font-normal text-[10px] text-ink-3">Needs your OK</span>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 flex-shrink-0">
+                    <CategoryTile kind={f.category} size={26} variant="filled" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-ink-0 break-words">{f.label}</div>
+                    <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
+                        <span className="text-[15px] font-semibold mono">{money(f.amount, f.currency)}</span>
+                        <span className="text-[10px] text-ink-2">/mo</span>
+                    </div>
+                    {f.note && <div className="text-[12px] text-ink-1 mt-0.5 break-words">{f.note}</div>}
+                </div>
+            </div>
+
+            <div className="text-[10.5px] text-ink-1 leading-relaxed rounded-lg px-2 py-1.5 bg-bg-2">
+                Starts <b>{ymLabel(ym(f.startYear, f.startMonth))}</b>
+                {f.endYear != null && f.endMonth != null ? (
+                    <>
+                        {' '}until <b>{ymLabel(ym(f.endYear, f.endMonth))}</b>
+                    </>
+                ) : (
+                    ', ongoing'
+                )}{' '}
+                · due on day {f.dueDay} each month. Generates a real expense every month automatically (already-due
+                months get filled in right away).
+            </div>
+
+            {error && <div className="text-[10.5px] text-red-500">{error}</div>}
+
+            <div className="flex items-center gap-2 pt-0.5">
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={run}
+                    className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60 text-[#1a120a] cursor-pointer hover:brightness-[1.03]"
+                    style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' }}
+                >
+                    {saving ? 'Setting up…' : (<><CheckMark size={13} /> Confirm</>)}
                 </button>
                 <button
                     type="button"
@@ -1629,7 +1783,12 @@ export function AssistantChat({
                                             </span>
                                         ) : (
                                             <>
-                                                <AssistantText text={m.content} onNavigate={handleNavigate} />
+                                                <AssistantText
+                                                    text={m.content}
+                                                    onNavigate={handleNavigate}
+                                                    onSuggest={send}
+                                                    disabled={sending}
+                                                />
                                                 {m.streaming && (
                                                     // Live cursor while tokens keep arriving.
                                                     <span className="inline-block w-[2px] h-[0.95em] align-[-0.15em] bg-ink-1 ml-0.5 animate-pulse" />
@@ -1682,7 +1841,15 @@ export function AssistantChat({
                                 {m.role === 'assistant' && m.proposals && m.proposals.length > 0 && (
                                     <div className="w-full flex flex-col gap-1">
                                         {m.proposals.map((p) =>
-                                            p.kind === 'edit_recurring' ? (
+                                            p.kind === 'create_recurring' ? (
+                                                <CreateRecurringProposalCard
+                                                    key={p.id}
+                                                    proposal={p}
+                                                    onWritten={handleWritten}
+                                                    initialOutcome={p.outcome}
+                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
+                                                />
+                                            ) : p.kind === 'edit_recurring' ? (
                                                 <RecurringProposalCard
                                                     key={p.id}
                                                     proposal={p}

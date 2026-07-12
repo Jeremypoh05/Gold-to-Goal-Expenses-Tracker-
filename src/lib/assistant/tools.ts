@@ -20,9 +20,12 @@ import {
   type Proposal,
   type RecurringSnapshot,
   type RecurringChanges,
+  type RecurringCreateFields,
 } from "./types";
 
-const ALL_CATEGORIES: CategoryKey[] = [
+// Exported: create_recurring allows "family" (家用/family support), unlike plain
+// expense create/update which is restricted to WRITABLE_CATEGORIES.
+export const ALL_CATEGORIES: CategoryKey[] = [
   "food",
   "shop",
   "ent",
@@ -216,6 +219,30 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "create_recurring",
+    description:
+      "Propose setting up a brand-NEW recurring/fixed monthly commitment (rent, subscription, family support/家用…) — NOT for editing an existing one (use edit_recurring for that). Does NOT save — the user confirms a card first. Creates a RULE that auto-generates one real expense per month going forward, and retroactively materializes any already-due months back to the start month (skipping any that are hard-closed). Consider calling find_recurring first if a similar rule might already exist, to avoid a duplicate.",
+    input_schema: {
+      type: "object",
+      properties: {
+        label: { type: "string", description: "Short name, e.g. 'Rent', 'Netflix', 'Family support'." },
+        amount: { type: "number", description: "Monthly amount (positive)." },
+        category: {
+          type: "string",
+          enum: ALL_CATEGORIES,
+          description: "Best-fit category — recurring items MAY use 'family' (unlike plain expenses).",
+        },
+        currency: { type: "string", enum: WRITABLE_CURRENCIES, description: "Currency (default SGD)." },
+        note: { type: "string", description: "Optional short detail." },
+        dueDay: { type: "number", description: "Day of month it's due, 1–31 (default 1)." },
+        startMonth: { type: "string", description: "First month it applies, YYYY-MM. Defaults to the current month." },
+        endMonth: { type: "string", description: "Last month it applies, YYYY-MM. Omit for ongoing." },
+      },
+      required: ["label", "amount", "category"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "edit_recurring",
     description:
       "Propose editing a RECURRING RULE (rent, subscription, 家用…) — the smart way to change a repeating commitment so EVERY affected month, the ledger, calendar, dashboard and income all move together (NOT one stray generated row; for that use update_expense). Does NOT save — the user confirms a card first. Get `ruleId` from find_recurring. Choose the mode:\n" +
@@ -280,6 +307,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "create_expense",
   "update_expense",
   "delete_expense",
+  "create_recurring",
   "edit_recurring",
   "set_preference",
   "set_month_status",
@@ -634,6 +662,11 @@ function pickCategory(v: unknown): CategoryKey | null {
   return typeof v === "string" && WRITABLE_CATEGORIES.includes(v as CategoryKey)
     ? (v as CategoryKey)
     : null;
+}
+/** Like pickCategory but allows "family" too — recurring rules support it, plain
+ *  expenses don't (WRITABLE_CATEGORIES intentionally excludes it). */
+function pickCategoryAny(v: unknown): CategoryKey | null {
+  return typeof v === "string" && ALL_CATEGORIES.includes(v as CategoryKey) ? (v as CategoryKey) : null;
 }
 function pickCurrency(v: unknown): Currency | null {
   return typeof v === "string" && WRITABLE_CURRENCIES.includes(v as Currency) ? (v as Currency) : null;
@@ -1028,6 +1061,74 @@ function proposeSetPreference(input: ToolInput): WriteToolOutput | ToolError {
   };
 }
 
+// ── create a brand-new recurring rule (Slice 2c) ─────────────
+// Unlike edit_recurring (which resolves an EXISTING ruleId), this builds a fresh
+// FixedExpense definition. Confirming routes to addFixedExpense, which materializes
+// due months immediately (skipping any that are hard-closed) — mirrors what the
+// Recurring page's own "Add" does.
+
+async function proposeCreateRecurring(
+  input: ToolInput,
+  now: Date,
+): Promise<WriteToolOutput | ToolError> {
+  const label = typeof input.label === "string" ? input.label.trim().slice(0, 40) : "";
+  if (!label) return { error: "provide a label/name for the recurring commitment" };
+  const amount = toNum(input.amount);
+  if (amount == null || amount <= 0) return { error: "amount must be a positive number" };
+  const category = pickCategoryAny(input.category);
+  if (!category) return { error: `category must be one of: ${ALL_CATEGORIES.join(", ")}` };
+  const currency = pickCurrency(input.currency) ?? "SGD";
+  const note = typeof input.note === "string" ? input.note.trim().slice(0, 120) : "";
+  const dueDayRaw = toNum(input.dueDay);
+  const dueDay = dueDayRaw != null ? Math.min(31, Math.max(1, Math.round(dueDayRaw))) : 1;
+
+  let startYear = now.getFullYear();
+  let startMonth = now.getMonth() + 1;
+  if (input.startMonth != null) {
+    const d = parseDay(input.startMonth);
+    if (!d) return { error: "startMonth must be YYYY-MM" };
+    startYear = d.getFullYear();
+    startMonth = d.getMonth() + 1;
+  }
+  let endYear: number | null = null;
+  let endMonth: number | null = null;
+  if (input.endMonth != null) {
+    const d = parseDay(input.endMonth);
+    if (!d) return { error: "endMonth must be YYYY-MM" };
+    endYear = d.getFullYear();
+    endMonth = d.getMonth() + 1;
+    if (cmpYM(endYear, endMonth, startYear, startMonth) < 0) {
+      return { error: "endMonth can't be before startMonth" };
+    }
+  }
+
+  const fields: RecurringCreateFields = {
+    label,
+    note,
+    category,
+    currency,
+    amount,
+    dueDay,
+    startYear,
+    startMonth,
+    endYear,
+    endMonth,
+  };
+
+  return {
+    proposal: {
+      id: "",
+      kind: "create_recurring",
+      summary: `Set up recurring ${label} · ${fmtMoney(amount, currency)}/mo from ${fmtYM(startYear, startMonth)}`,
+      recurringCreate: fields,
+    },
+    modelResult:
+      "A new-recurring-rule card is on screen — nothing is saved yet. Once confirmed it generates a real " +
+      "expense every month from the start month onward (retroactively materializing any already-due months, " +
+      "skipping any that are hard-closed). Ask the user to review & Confirm.",
+  };
+}
+
 // ── month reopen/close proposal (Slice 2b fix batch) ─────────
 // Lets the assistant reopen/close a month's books (confirm-gated) instead of sending
 // the user off to the Ledger page. Checks the LIVE status so it never proposes a
@@ -1100,6 +1201,8 @@ export async function executeAssistantTool(
       return proposeUpdateExpense(userId, input);
     case "delete_expense":
       return proposeDeleteExpense(userId, input);
+    case "create_recurring":
+      return proposeCreateRecurring(input, now);
     case "edit_recurring":
       return proposeEditRecurring(userId, input, now);
     case "set_preference":

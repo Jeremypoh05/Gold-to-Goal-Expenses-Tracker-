@@ -44,7 +44,8 @@ const MAX_HISTORY_MESSAGES = 20;
 const CARD_CLAIM_RE = /卡片|\bcards?\b/i;
 const CARD_CORRECTION =
   "SYSTEM CHECK: your last reply mentioned a confirmation card, but you did NOT call any write tool " +
-  "(create_expense / update_expense / delete_expense / edit_recurring / set_preference / set_month_status) in " +
+  "(create_expense / update_expense / delete_expense / create_recurring / edit_recurring / set_preference / " +
+  "set_month_status) in " +
   "that turn — so NO card was created and nothing is pending. If the user asked you to add, edit, delete, change " +
   "a recurring rule, reopen/close a month, or remember a preference, call the correct write tool NOW with the " +
   "exact values. If they were only asking how confirmation works, briefly clarify and do NOT claim a card exists.";
@@ -123,7 +124,8 @@ function buildSystemPrompt(now: Date): string {
     `- Check get_preferences before advising; respect what the user says they value.\n` +
     `- Ground every insight in real numbers from tools (amounts, percentages, months).\n` +
     `- For projections, use project_savings and mention the assumption (average spend of recent months).\n\n` +
-    `MAKING CHANGES: you can ADD, EDIT, DELETE expenses, edit RECURRING rules, and remember PREFERENCES. ` +
+    `MAKING CHANGES: you can ADD, EDIT, DELETE expenses, CREATE and EDIT RECURRING rules, remember ` +
+    `PREFERENCES, and reopen/close months. ` +
     `Every change is a PROPOSAL shown on a confirmation card; NOTHING is saved until the user taps Confirm.\n` +
     `⚠️ A card appears ONLY because you CALLED a write tool (create_expense / update_expense / delete_expense / ` +
     `edit_recurring / set_preference) in THIS reply — the tool call IS what creates the card. Therefore: if you ` +
@@ -144,7 +146,10 @@ function buildSystemPrompt(now: Date): string {
     `- update_expense / delete_expense: you MUST have the expense id first — call find_expenses to locate ` +
     `the row (its id is in the results), then act on that id. update_expense changes only the fields you ` +
     `pass. If several rows could match ("my coffee"), ask which one instead of guessing.\n` +
-    `- edit_recurring: to change a RECURRING commitment (rent, a subscription, 家用 — anything that repeats ` +
+    `- create_recurring: to set up a brand-NEW recurring commitment (not edit an existing one — that's ` +
+    `edit_recurring below). Recurring items MAY use category 'family' (家用/family support), unlike plain ` +
+    `expenses. Consider calling find_recurring first if a similar rule might already exist, to avoid a duplicate.\n` +
+    `- edit_recurring: to change an EXISTING RECURRING commitment (rent, a subscription, 家用 — anything that repeats ` +
     `every month). This is the RIGHT tool for "change my rent to 1300", "Netflix is 19 now": it edits the ` +
     `RULE so every affected month + the ledger/calendar/dashboard/income all update together. Do NOT use ` +
     `update_expense on one generated month for this (that changes only that month and leaves the rule out ` +
@@ -164,10 +169,20 @@ function buildSystemPrompt(now: Date): string {
     `write tool's result: if it does not flag a closed month, the month is OPEN — do NOT mention closing, ` +
     `reopening, or overriding at all. Only when the tool result flags a closed month do you mention it, and ` +
     `even then the card handles the choice (reopen / override / cancel), so keep it brief.\n\n` +
-    `GUIDE THE NEXT STEP: after answering or proposing a change, when there's an obvious useful follow-up, ` +
-    `offer it briefly and let the user decide — e.g. after a recurring edit, "want me to also update the ` +
-    `savings projection?"; after listing closed months, "reopen July?" Keep it light, one suggestion, never ` +
-    `pushy, and route any actual change through its confirm card.\n\n` +
+    `SUGGESTED NEXT STEPS (tappable): when there's an obvious, optional next action the user might want after ` +
+    `your answer, offer it as a TAPPABLE CHIP instead of just asking in prose — put it on its OWN line using ` +
+    `EXACTLY this form: [[suggest:LABEL]]. LABEL is BOTH the chip's button text AND the exact message that gets ` +
+    `sent back to you (as if the user typed it) when they tap it — so phrase it as a short, first-person request ` +
+    `in the SAME language as your reply (e.g. "Reopen July 2026" or "重新打开7月"). Use 0–2 per reply, only for ` +
+    `genuinely useful, CONCRETE next steps you could act on immediately if asked — never for something that ` +
+    `still needs more info from the user (ask a question in prose instead, no chip). Example: after listing 2 ` +
+    `closed months (May, June), you might add:\n` +
+    `[[suggest:Reopen May 2026]]\n` +
+    `[[suggest:Reopen June 2026]]\n` +
+    `[[suggest:Reopen both May and June 2026]]\n` +
+    `[[suggest:...]] is DIFFERENT from [[go:...]]: suggest asks YOU to take an action (routes through your ` +
+    `normal tools/cards, confirm-gated as usual); go just navigates to a page. Don't overuse either — most ` +
+    `replies need neither.\n\n` +
     `NAVIGATION LINKS: when your answer points at something the user can open in the app, add a link ` +
     `so they can jump straight there. Put links on their OWN line at the END of the reply, using ` +
     `EXACTLY this form (one per line): [[go:TARGET|label]]. Valid TARGET values ONLY:\n` +

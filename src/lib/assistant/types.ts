@@ -36,7 +36,24 @@ export type ProposalKind =
   | "edit_recurring" // change a recurring RULE (all/future months) — the "big one"
   | "set_preference" // remember what the user values (persona-aware suggestions)
   // ADDED (Slice 2b fix batch):
-  | "set_month_status"; // reopen / close a month's books, confirm-gated
+  | "set_month_status" // reopen / close a month's books, confirm-gated
+  // ADDED (Slice 2c):
+  | "create_recurring"; // set up a brand-new recurring rule
+
+/** A brand-new recurring rule the agent proposes (routes to addFixedExpense). Unlike
+ *  plain expenses, a recurring item MAY use category "family" (家用/family support). */
+export interface RecurringCreateFields {
+  label: string;
+  note: string;
+  category: CategoryKey;
+  currency: Currency;
+  amount: number;
+  dueDay: number;
+  startYear: number;
+  startMonth: number;
+  endYear: number | null;
+  endMonth: number | null;
+}
 
 /** A month reopen/close the agent proposes (routes to reopenMonth/closeMonth). */
 export interface MonthStatusEdit {
@@ -143,6 +160,9 @@ export interface Proposal {
 
   // set_month_status (Slice 2b fix batch)
   monthStatus?: MonthStatusEdit;
+
+  // create_recurring (Slice 2c)
+  recurringCreate?: RecurringCreateFields;
 }
 
 /** What the client sends back to executeAssistantAction on Confirm (or after a
@@ -171,7 +191,9 @@ export type AssistantActionInput =
   // set_preference (Slice 2b) — upserts UserPreference.
   | { kind: "set_preference"; key: string; value: string }
   // set_month_status (Slice 2b fix batch) — reopenMonth / closeMonth.
-  | { kind: "set_month_status"; year: number; month: number; action: "reopen" | "close" };
+  | { kind: "set_month_status"; year: number; month: number; action: "reopen" | "close" }
+  // create_recurring (Slice 2c) — addFixedExpense.
+  | { kind: "create_recurring"; fields: RecurringCreateFields };
 
 export interface AssistantActionResult {
   ok: boolean;
