@@ -163,6 +163,9 @@ export interface Proposal {
 
   // create_recurring (Slice 2c)
   recurringCreate?: RecurringCreateFields;
+  /** Closed months within a create_recurring's [start, today] span — a heads-up;
+   *  the card's guard re-checks live and threads overrideClosed on Confirm. */
+  closedInRange?: string[];
 }
 
 /** What the client sends back to executeAssistantAction on Confirm (or after a
@@ -193,7 +196,7 @@ export type AssistantActionInput =
   // set_month_status (Slice 2b fix batch) — reopenMonth / closeMonth.
   | { kind: "set_month_status"; year: number; month: number; action: "reopen" | "close" }
   // create_recurring (Slice 2c) — addFixedExpense.
-  | { kind: "create_recurring"; fields: RecurringCreateFields };
+  | { kind: "create_recurring"; fields: RecurringCreateFields; overrideClosed?: boolean };
 
 export interface AssistantActionResult {
   ok: boolean;

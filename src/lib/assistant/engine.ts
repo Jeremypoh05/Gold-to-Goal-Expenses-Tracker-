@@ -27,6 +27,7 @@ export type AssistantStreamEvent =
   | { type: "tool"; name: string } // a read tool was invoked (UI shows a chip)
   | { type: "proposal"; proposal: Proposal } // a WRITE tool proposed a change (confirm card)
   | { type: "text"; text: string } // an incremental chunk of the final reply
+  | { type: "reset" } // discard the reply text streamed so far — it was pre-tool narration
   | { type: "error" }; // API/abort failure — caller keeps whatever streamed
 
 // Enough for read → follow-up read → answer, while bounding a runaway loop.
@@ -372,6 +373,14 @@ export async function* runAssistantTurnStreaming(
 
   try {
     for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
+      // Text produced in THIS iteration only. If the iteration turns out to call a
+      // tool, that text was pre-tool narration ("let me check…") — we tell the
+      // client to discard it (a `reset`), so it can't stack with the final answer
+      // into one doubled bubble (+ duplicate [[go:]]/[[suggest:]] chips). This is
+      // the deterministic guarantee; the "call tools silently" prompt rule just
+      // reduces how often there's anything to discard.
+      let iterProducedText = false;
+
       const stream = client.messages.stream(
         {
           model: "claude-sonnet-5",
@@ -388,6 +397,7 @@ export async function* runAssistantTurnStreaming(
       for await (const event of stream) {
         if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           producedText = true;
+          iterProducedText = true;
           fullText += event.delta.text;
           yield { type: "text", text: event.delta.text };
         }
@@ -397,6 +407,13 @@ export async function* runAssistantTurnStreaming(
       messages.push({ role: "assistant", content: msg.content });
 
       if (msg.stop_reason === "tool_use") {
+        // This iteration's text was pre-tool narration — discard it client-side and
+        // from the backstop accumulator, so only the FINAL answer's text survives.
+        if (iterProducedText) {
+          yield { type: "reset" };
+          fullText = "";
+          producedText = false;
+        }
         const toolBlocks = msg.content.filter(
           (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
         );

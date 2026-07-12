@@ -275,18 +275,21 @@ export async function executeAssistantAction(
     if (action.kind === "create_recurring") {
       const f = sanitizeRecurringCreate(action.fields);
       if (!f) return { ok: false, error: "Those values didn't look right — try editing manually." };
-      await addFixedExpense({
-        label: f.label,
-        note: f.note || undefined,
-        category: f.category,
-        amount: f.amount,
-        currency: f.currency,
-        dueDay: f.dueDay,
-        startYear: f.startYear,
-        startMonth: f.startMonth,
-        endYear: f.endYear,
-        endMonth: f.endMonth,
-      });
+      await addFixedExpense(
+        {
+          label: f.label,
+          note: f.note || undefined,
+          category: f.category,
+          amount: f.amount,
+          currency: f.currency,
+          dueDay: f.dueDay,
+          startYear: f.startYear,
+          startMonth: f.startMonth,
+          endYear: f.endYear,
+          endMonth: f.endMonth,
+        },
+        action.overrideClosed ?? false,
+      );
       return { ok: true, summary: `Recurring "${f.label}" set up · ${fmtMoney(f.amount, f.currency)}/mo` };
     }
 

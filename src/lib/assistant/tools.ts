@@ -1068,6 +1068,7 @@ function proposeSetPreference(input: ToolInput): WriteToolOutput | ToolError {
 // Recurring page's own "Add" does.
 
 async function proposeCreateRecurring(
+  userId: string,
   input: ToolInput,
   now: Date,
 ): Promise<WriteToolOutput | ToolError> {
@@ -1115,17 +1116,37 @@ async function proposeCreateRecurring(
     endMonth,
   };
 
+  // Which already-due months in [start, today] (capped at end) are hard-closed —
+  // those won't get a generated entry unless the user overrides on the card.
+  const closed = await closedKeySet(userId);
+  const closedInRange = closedMonthsInRange(
+    closed,
+    startYear,
+    startMonth,
+    endYear,
+    endMonth,
+    now.getFullYear(),
+    now.getMonth() + 1,
+  ).map((h) => fmtYM(h.year, h.month));
+
   return {
     proposal: {
       id: "",
       kind: "create_recurring",
       summary: `Set up recurring ${label} · ${fmtMoney(amount, currency)}/mo from ${fmtYM(startYear, startMonth)}`,
       recurringCreate: fields,
+      closedInRange,
     },
     modelResult:
       "A new-recurring-rule card is on screen — nothing is saved yet. Once confirmed it generates a real " +
-      "expense every month from the start month onward (retroactively materializing any already-due months, " +
-      "skipping any that are hard-closed). Ask the user to review & Confirm.",
+      "expense every month from the start month onward (retroactively materializing already-due months). " +
+      "Ask the user to review & Confirm." +
+      (closedInRange.length > 0
+        ? ` NOTE: ${closedInRange.join(", ")} ${closedInRange.length === 1 ? "is" : "are"} hard-CLOSED, so by ` +
+          `default no entry is added there — mention this, and note the card lets them add into the closed ` +
+          `month(s) anyway or skip them. (If they'd rather fully reopen a closed month first, you can offer a ` +
+          `[[suggest:Reopen ${closedInRange[0]}]] chip.)`
+        : ""),
   };
 }
 
@@ -1202,7 +1223,7 @@ export async function executeAssistantTool(
     case "delete_expense":
       return proposeDeleteExpense(userId, input);
     case "create_recurring":
-      return proposeCreateRecurring(input, now);
+      return proposeCreateRecurring(userId, input, now);
     case "edit_recurring":
       return proposeEditRecurring(userId, input, now);
     case "set_preference":

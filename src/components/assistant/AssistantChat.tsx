@@ -1054,6 +1054,7 @@ function CreateRecurringProposalCard({
     initialOutcome?: ProposalOutcome;
     onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
 }) {
+    const guardClosedMonths = useClosedMonthGuard();
     const [status, setStatus] = useState<'idle' | 'editing' | 'saving' | 'done' | 'cancelled' | 'error'>(
         initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
     );
@@ -1062,16 +1063,37 @@ function CreateRecurringProposalCard({
     if (!f) return null;
 
     const doneDetail = describeConfirmed(proposal);
+    const closedInRange = proposal.closedInRange ?? [];
     const cancel = () => {
         setStatus('cancelled');
         onResolve?.('cancelled');
     };
 
     const run = async (finalFields?: typeof f) => {
+        const fields = finalFields ?? f;
         setStatus('saving');
         setError('');
         try {
-            const res = await executeAssistantAction({ kind: 'create_recurring', fields: finalFields ?? f });
+            // If the new rule's [start, today] range spans any hard-closed month, ask
+            // how to handle it (add into it anyway / skip / cancel) — re-checks live.
+            const g = await guardClosedMonths(
+                {
+                    startYear: fields.startYear,
+                    startMonth: fields.startMonth,
+                    endYear: fields.endYear,
+                    endMonth: fields.endMonth,
+                },
+                'create',
+            );
+            if (!g.proceed) {
+                setStatus('idle');
+                return;
+            }
+            const res = await executeAssistantAction({
+                kind: 'create_recurring',
+                fields,
+                overrideClosed: g.overrideClosed,
+            });
             if (res.ok) {
                 setStatus('done');
                 onWritten();
@@ -1139,6 +1161,14 @@ function CreateRecurringProposalCard({
                 · due on day {f.dueDay} each month. Generates a real expense every month automatically (already-due
                 months get filled in right away).
             </div>
+
+            {/* Closed-months heads-up — the guard makes the final call on Confirm */}
+            {closedInRange.length > 0 && (
+                <div className="text-[10.5px] leading-relaxed rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-400 bg-amber-500/10">
+                    {closedInRange.map(ymLabel).join(', ')} {closedInRange.length === 1 ? 'is' : 'are'} closed — by
+                    default no entry is added there; on Confirm you can add into {closedInRange.length === 1 ? 'it' : 'them'} anyway or skip.
+                </div>
+            )}
 
             {error && <div className="text-[10.5px] text-red-500">{error}</div>}
 
@@ -1515,6 +1545,10 @@ export function AssistantChat({
                             setSessionId(data.sessionId);
                         } else if (data.type === 'text' && data.text) {
                             patch((m) => ({ ...m, content: m.content + data.text }));
+                        } else if (data.type === 'reset') {
+                            // Pre-tool narration — drop it so it can't double up with the
+                            // final answer (deterministic dedupe of the two-narration bug).
+                            patch((m) => ({ ...m, content: '' }));
                         } else if (data.type === 'tool' && data.name) {
                             patch((m) => ({ ...m, toolsUsed: [...(m.toolsUsed ?? []), data.name!] }));
                         } else if (data.type === 'proposal' && data.proposal) {

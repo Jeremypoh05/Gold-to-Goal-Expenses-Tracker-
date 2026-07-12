@@ -890,7 +890,7 @@ export interface FixedExpenseInput {
 
 const clampDay = (d: number) => Math.min(31, Math.max(1, Math.round(d)));
 
-export async function addFixedExpense(input: FixedExpenseInput) {
+export async function addFixedExpense(input: FixedExpenseInput, overrideClosed = false) {
   const userId = await requireUserId();
   // Fill emoji/category from the local suggester when the client didn't set them.
   const fallback = suggestFixedMetaLocal(input.label);
@@ -911,8 +911,10 @@ export async function addFixedExpense(input: FixedExpenseInput) {
       active: input.active ?? true,
     },
   });
-  // Materialize its due entries right away (from start to today).
-  await resyncFixedExpense(created.id);
+  // Materialize its due entries right away (from start to today). CHANGED (Slice 2c
+  // fix): when overrideClosed, also generate into hard-closed months in range (the
+  // user opted in on the create card's closed-month guard); default keeps them frozen.
+  await resyncFixedExpense(created.id, overrideClosed);
   revalidateDashboard();
 }
 

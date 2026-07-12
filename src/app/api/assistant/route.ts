@@ -86,6 +86,11 @@ export async function POST(req: Request): Promise<Response> {
           if (ev.type === "text") {
             full += ev.text;
             if (!send({ type: "text", text: ev.text })) break;
+          } else if (ev.type === "reset") {
+            // Pre-tool narration discarded — drop it from what we persist too, so the
+            // saved reply matches the de-duplicated bubble the user sees.
+            full = "";
+            send({ type: "reset" });
           } else if (ev.type === "tool") {
             toolsUsed.push(ev.name);
             send({ type: "tool", name: ev.name });

@@ -46,7 +46,7 @@ export function useClosedMonthGuard() {
      */
     return async function guardClosedMonths(
         range: Range,
-        action: 'edit' | 'delete' = 'edit',
+        action: 'edit' | 'delete' | 'create' = 'edit',
     ): Promise<GuardResult> {
         const now = new Date();
         const closedList = await fetchClosedMonths();
@@ -66,6 +66,30 @@ export function useClosedMonthGuard() {
 
         const one = hits.length === 1;
         const names = hits.map((h) => `${MONTH_NAMES[h.month - 1]} ${h.year}`).join(', ');
+
+        if (action === 'create') {
+            // A brand-new recurring rule: closed months in range don't get an entry
+            // by default (their books are frozen). Offer to add into them anyway.
+            const overrideLabel = one ? `Also add to ${names}` : `Also add to ${hits.length} closed months`;
+            const picked = await choose({
+                title: one ? 'The start range includes a closed month' : 'The start range includes closed months',
+                message: (
+                    <>
+                        <b>{names}</b> {one ? 'is' : 'are'} closed, so by default the new recurring entry
+                        <b> will not be added</b> there — only open months get it. You can also add it into
+                        the closed {one ? 'month' : 'months'} anyway.
+                    </>
+                ),
+                actions: [
+                    { key: 'open', label: 'Add to open months only', tone: 'primary' },
+                    { key: 'all', label: overrideLabel, tone: 'warn' },
+                    { key: 'cancel', label: 'Cancel', tone: 'ghost' },
+                ],
+            });
+            if (picked === 'open') return PROCEED_OPEN;
+            if (picked === 'all') return { proceed: true, overrideClosed: true };
+            return { proceed: false, overrideClosed: false };
+        }
 
         if (action === 'delete') {
             const overrideLabel = one ? `Also delete ${names}` : `Also delete ${hits.length} closed months`;
