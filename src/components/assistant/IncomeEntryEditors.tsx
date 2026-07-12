@@ -162,8 +162,9 @@ export function BonusEntryEditor({
 
     return (
         <div className={wrapCls} style={wrapStyle}>
-            <TextField label="Name" value={label} onChange={setLabel} placeholder="e.g. Year-end bonus" />
-            <AmountField label="Amount" symbol={symbol} value={amt} onChange={setAmt} />
+            {/* Labels mirror AddBonusModal for consistency. */}
+            <AmountField label="Bonus amount" symbol={symbol} value={amt} onChange={setAmt} />
+            <TextField label="Label" value={label} onChange={setLabel} placeholder="e.g. Q3 bonus" />
             <div className="flex flex-wrap gap-3">
                 <div className="flex-1 min-w-[140px]">
                     <MonthGridDropdown value={month} onChange={setMonth} label="Month" />
@@ -211,20 +212,21 @@ export function SalaryEntryEditor({
 
     return (
         <div className={wrapCls} style={wrapStyle}>
-            <AmountField label="Take-home / month" symbol={symbol} value={amt} onChange={setAmt} />
+            {/* Labels mirror SalaryTimelineModal exactly, for consistency. */}
+            <AmountField label="Monthly salary (take-home)" symbol={symbol} value={amt} onChange={setAmt} />
             <div className="flex flex-wrap gap-3">
                 <div className="flex-1 min-w-[140px]">
-                    <MonthGridDropdown value={month} onChange={setMonth} label="Effective from" />
+                    <MonthGridDropdown value={month} onChange={setMonth} label="Effective month" />
                 </div>
                 <div className="w-[110px]">
                     <YearStepper value={year} onChange={setYear} />
                 </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-                <AmountField label="Gross" symbol={symbol} value={gross} onChange={setGross} />
+                <AmountField label="Gross monthly" symbol={symbol} value={gross} onChange={setGross} />
                 <AmountField label="CPF / deductions" symbol={symbol} value={ded} onChange={setDed} />
             </div>
-            <TextField label="Note" value={label} onChange={setLabel} placeholder="e.g. Raise, Promotion" />
+            <TextField label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Joined, Raise, Promotion" />
             <Actions onSave={save} onCancel={onCancel} saveLabel={saveLabel} />
         </div>
     );
@@ -381,8 +383,9 @@ export function IncomeSourceEntryEditor({
 
     return (
         <div className={wrapCls} style={wrapStyle}>
+            {/* Labels mirror IncomeSourceModal for consistency. */}
             <TextField label="Name" value={label} onChange={setLabel} placeholder="e.g. Freelance, Dividends" />
-            <AmountField label={recurring ? 'Amount / month' : 'Amount'} symbol={symbol} value={amt} onChange={setAmt} />
+            <AmountField label={recurring ? 'Amount per month' : 'Amount'} symbol={symbol} value={amt} onChange={setAmt} />
             <PillToggle
                 label="Type"
                 value={recurring ? 'recurring' : 'oneoff'}

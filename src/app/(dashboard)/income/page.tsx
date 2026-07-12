@@ -45,6 +45,7 @@ import {
     changeIncomeSourceAmount,
 } from '@/lib/actions';
 import { formatMoney, MONTH_NAMES } from '@/lib/utils';
+import { DATA_CHANGED_EVENT } from '@/lib/data-events';
 import type { IncomeInfo } from '@/types';
 
 type Bonus = IncomeInfo['bonuses'][number];
@@ -448,6 +449,18 @@ export default function IncomePage() {
 
     useEffect(() => {
         loadSummary();
+    }, [loadSummary]);
+
+    // ADDED (Slice 2d): the assistant is a global overlay layered over this page. When
+    // it confirms an income write (salary / bonus / income-source / goal) it fires
+    // DATA_CHANGED_EVENT — ExpensesContext already re-fetches the month snapshot on it
+    // (so the salary headline updates), but this page's YEAR summary (salary timeline,
+    // bonuses, income sources, goal & stats) is a separate fetch, so re-run it too.
+    // Makes AI-driven income changes reflect immediately, no manual navigation.
+    useEffect(() => {
+        const onChanged = () => loadSummary();
+        window.addEventListener(DATA_CHANGED_EVENT, onChanged);
+        return () => window.removeEventListener(DATA_CHANGED_EVENT, onChanged);
     }, [loadSummary]);
 
     // How far back the user can browse: only as far as there's real data (salary
