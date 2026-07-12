@@ -6,6 +6,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ASSISTANT_TOOLS, executeAssistantTool, isWriteToolOutput } from "./tools";
 import type { Proposal, ChatMessageData } from "./types";
+import { AiUsageAccumulator } from "@/lib/ai-usage";
+
+const ASSISTANT_MODEL = "claude-sonnet-5";
 
 export interface AssistantHistoryMessage {
   role: "user" | "assistant";
@@ -302,11 +305,12 @@ export async function runAssistantTurn(
   const toolsUsed: string[] = [];
   const proposals: Proposal[] = [];
   let cardNudged = false;
+  const usage = new AiUsageAccumulator();
 
   try {
     for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
       const response = await client.messages.create({
-        model: "claude-sonnet-5",
+        model: ASSISTANT_MODEL,
         max_tokens: 1600,
         // Interactive chat — keep round-trips snappy; the tools do the heavy math.
         thinking: { type: "disabled" },
@@ -314,6 +318,7 @@ export async function runAssistantTurn(
         tools: ASSISTANT_TOOLS,
         messages,
       });
+      usage.add(response.usage);
 
       messages.push({ role: "assistant", content: response.content });
 
@@ -396,6 +401,10 @@ export async function runAssistantTurn(
       proposals,
       error: "api-failed",
     };
+  } finally {
+    // Best-effort — one row per user-visible turn, accumulated across every loop
+    // iteration's API call, so a tool-heavy turn logs as ONE usage entry per action.
+    await usage.flush(userId, "assistant_chat", ASSISTANT_MODEL).catch(() => {});
   }
 }
 
@@ -434,6 +443,7 @@ export async function* runAssistantTurnStreaming(
   // confirm cards always render below a COMPLETE reply (user: "先 answer 再出卡片"),
   // never mid-sentence when the tool runs.
   const pendingProposals: Proposal[] = [];
+  const usage = new AiUsageAccumulator();
 
   try {
     for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
@@ -447,7 +457,7 @@ export async function* runAssistantTurnStreaming(
 
       const stream = client.messages.stream(
         {
-          model: "claude-sonnet-5",
+          model: ASSISTANT_MODEL,
           max_tokens: 1600,
           thinking: { type: "disabled" },
           system,
@@ -468,6 +478,7 @@ export async function* runAssistantTurnStreaming(
       }
 
       const msg = await stream.finalMessage();
+      usage.add(msg.usage);
       messages.push({ role: "assistant", content: msg.content });
 
       if (msg.stop_reason === "tool_use") {
@@ -566,5 +577,7 @@ export async function* runAssistantTurnStreaming(
     // API error, or the client stopped (signal aborted). Whatever streamed so
     // far is kept; just signal the end so the caller can finalize/persist.
     yield { type: "error" };
+  } finally {
+    await usage.flush(userId, "assistant_chat", ASSISTANT_MODEL).catch(() => {});
   }
 }

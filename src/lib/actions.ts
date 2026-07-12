@@ -24,6 +24,7 @@ import {
   getClosedMonthKeys,
 } from "@/lib/queries";
 import type { CategoryKey, Currency } from "@/types";
+import { logAiUsage } from "@/lib/ai-usage";
 
 const VALID_CATEGORIES: CategoryKey[] = [
   "food",
@@ -210,8 +211,9 @@ export async function suggestExpenseMeta(
 
   try {
     const client = new Anthropic({ apiKey });
+    const model = "claude-haiku-4-5";
     const msg = await client.messages.create({
-      model: "claude-haiku-4-5",
+      model,
       max_tokens: 120,
       system:
         `You categorize a personal expense from its short note and suggest up to 3 tags. ` +
@@ -221,6 +223,11 @@ export async function suggestExpenseMeta(
         `(e.g. merchant, people, occasion). Pick the single closest category.`,
       messages: [{ role: "user", content: trimmed }],
     });
+    try {
+      await logAiUsage(await requireUserId(), "ai_suggest_category", model, msg.usage);
+    } catch {
+      /* best-effort — never let logging affect the suggestion */
+    }
     const text = msg.content
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("");
@@ -342,8 +349,9 @@ async function resolveVoiceEdit(
   const changes: VoiceEditChanges = {};
   try {
     const client = new Anthropic({ apiKey });
+    const model = "claude-sonnet-5";
     const msg = await client.messages.create({
-      model: "claude-sonnet-5",
+      model,
       max_tokens: 220,
       thinking: { type: "disabled" },
       system:
@@ -363,6 +371,7 @@ async function resolveVoiceEdit(
         },
       ],
     });
+    await logAiUsage(userId, "voice_edit", model, msg.usage).catch(() => {});
     const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
@@ -490,8 +499,9 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
 
   try {
     const client = new Anthropic({ apiKey: anthropicKey });
+    const model = "claude-sonnet-5";
     const msg = await client.messages.create({
-      model: "claude-sonnet-5",
+      model,
       max_tokens: 320,
       // Simple extraction — no thinking needed; keep the voice round-trip fast.
       thinking: { type: "disabled" },
@@ -517,6 +527,7 @@ export async function transcribeExpense(formData: FormData): Promise<VoiceParseR
         `For "edit" or "recurring" intents, still return the JSON but the other fields may be approximate.`,
       messages: [{ role: "user", content: transcript }],
     });
+    await logAiUsage(userId, "voice_parse", model, msg.usage).catch(() => {});
     const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return { ok: true, transcript, lang: local.lang, intent: "create", parsed: local, edit: null };
@@ -870,8 +881,9 @@ export async function suggestFixedMeta(
 
   try {
     const client = new Anthropic({ apiKey });
+    const model = "claude-haiku-4-5";
     const msg = await client.messages.create({
-      model: "claude-haiku-4-5",
+      model,
       max_tokens: 80,
       system:
         `You tag a personal recurring-expense label with one emoji and one spending category. ` +
@@ -880,6 +892,11 @@ export async function suggestFixedMeta(
         `Pick the single most fitting emoji and the closest category.`,
       messages: [{ role: "user", content: trimmed }],
     });
+    try {
+      await logAiUsage(await requireUserId(), "ai_suggest_fixed_meta", model, msg.usage);
+    } catch {
+      /* best-effort — never let logging affect the suggestion */
+    }
     const text = msg.content
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("");

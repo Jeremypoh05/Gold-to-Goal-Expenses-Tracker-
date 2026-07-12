@@ -84,6 +84,7 @@ model User {
   monthCloses    MonthClose[]
   chatSessions   ChatSession[]
   preferences    UserPreference[]
+  aiUsageLogs    AiUsageLog[]
 }
 
 /// ADDED (AI Assistant · Slice 1): a persisted assistant conversation. Messages
@@ -131,6 +132,29 @@ model UserPreference {
 
   @@unique([userId, key])
   @@index([userId])
+}
+
+/// ADDED (cost tracking): one row per completed Anthropic API call, so real
+/// per-user token spend can be measured instead of guessed — the foundation for
+/// subscription-plan quotas / usage-based billing / spend alerts once this becomes
+/// a paid product. `feature` distinguishes the call sites (assistant chat vs voice
+/// parse vs AI-suggest) since they have very different cost profiles. Token counts
+/// come straight off `response.usage` — cache reads/writes are broken out because
+/// they're priced very differently (~0.1x / ~1.25x normal input) from plain input.
+model AiUsageLog {
+  id                Int      @id @default(autoincrement())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature           String   // "assistant_chat" | "voice_parse" | "voice_edit" | "ai_suggest_category" | "ai_suggest_fixed_meta"
+  model             String   // e.g. "claude-sonnet-5", "claude-haiku-4-5"
+  inputTokens       Int      @default(0)
+  outputTokens      Int      @default(0)
+  cacheReadTokens   Int      @default(0)
+  cacheWriteTokens  Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([feature, createdAt])
 }
 
 /// ADDED (Module 5): a per-month hard close. The mere existence of a row for
