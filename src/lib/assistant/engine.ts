@@ -74,35 +74,41 @@ function languageDirective(userMessage: string): string {
 }
 
 /**
- * Fold a persisted assistant message's card OUTCOMES into its history content, so
- * the model knows what happened to cards it proposed earlier (confirmed / cancelled
- * / still pending). Without this the model only sees its own past TEXT ("I prepared
- * a card for May") and wrongly assumes that card is still actionable even after the
- * user cancelled it — then it fails to re-offer the action. Reused by both the SSE
- * route and the non-streaming action when building history. `data` is the row's JSON.
+ * Build a SYSTEM-prompt aside describing what happened to cards proposed earlier in
+ * this chat (confirmed / cancelled / pending), so the model doesn't re-reference a
+ * dead card. Lives in the SYSTEM prompt — NOT appended to the assistant's own past
+ * message content — because the model echoed that bracketed annotation back to the
+ * user verbatim (same failure class as the old nav-label echo). System-prompt text
+ * with an explicit "never repeat" instruction is followed but not reproduced.
+ * `messages` are the raw persisted rows (role + data JSON).
  */
-export function assistantHistoryContent(content: string, data: unknown): string {
-  const d = data as ChatMessageData | null;
-  if (!d?.proposals?.length) return content;
-  const lines = d.proposals
-    .map((p) => {
+export function cardOutcomeContext(messages: { role: string; data: unknown }[]): string {
+  const lines: string[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    const d = m.data as ChatMessageData | null;
+    if (!d?.proposals?.length) continue;
+    for (const p of d.proposals) {
       const outcome =
         p.outcome === "confirmed"
           ? "CONFIRMED & saved"
           : p.outcome === "cancelled"
-            ? "CANCELLED by the user — NOT saved"
-            : "still PENDING — the user hasn't tapped it yet";
-      return `"${p.summary}" → ${outcome}`;
-    })
-    .join("; ");
+            ? "CANCELLED — not saved"
+            : "PENDING — the user hasn't tapped it yet";
+      lines.push(`- "${p.summary}" → ${outcome}`);
+    }
+  }
+  if (!lines.length) return "";
   return (
-    `${content}\n\n[Cards you proposed in this message and their status: ${lines}. ` +
-    `A CANCELLED or CONFIRMED card is finished and no longer actionable — never tell the user an old card ` +
-    `is still waiting. If they still want a cancelled/failed action, propose a BRAND-NEW card for it.]`
+    "\n\nCARD HISTORY (internal context — this block is NOT part of the conversation; NEVER repeat, quote, " +
+    "or paraphrase it to the user): confirmation cards you proposed earlier in this chat resolved as:\n" +
+    lines.join("\n") +
+    "\nA CONFIRMED or CANCELLED card is finished and no longer on screen — don't tell the user an old card " +
+    "is still waiting; if they still want a cancelled action, propose a fresh card by calling the tool again."
   );
 }
 
-function buildSystemPrompt(now: Date): string {
+function buildSystemPrompt(now: Date, cardContext = ""): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
@@ -205,7 +211,8 @@ function buildSystemPrompt(now: Date): string {
     `user act on the answer — skip it for a plain factual reply, and never invent a TARGET outside the list above.\n\n` +
     `STYLE: concise and conversational. Short paragraphs; use simple "-" bullet lists for breakdowns; ` +
     `use **bold** for key figures. No headers or tables. If the question is ambiguous (e.g. which ` +
-    `"coffee" or which month), ask one short clarifying question instead of guessing.`
+    `"coffee" or which month), ask one short clarifying question instead of guessing.` +
+    cardContext
   );
 }
 
@@ -219,6 +226,7 @@ export async function runAssistantTurn(
   history: AssistantHistoryMessage[],
   userMessage: string,
   now: Date = new Date(),
+  cardContext = "",
 ): Promise<AssistantTurnResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -232,7 +240,7 @@ export async function runAssistantTurn(
   }
 
   const client = new Anthropic({ apiKey });
-  const system = buildSystemPrompt(now) + languageDirective(userMessage);
+  const system = buildSystemPrompt(now, cardContext) + languageDirective(userMessage);
 
   const messages: Anthropic.MessageParam[] = [
     ...history.slice(-MAX_HISTORY_MESSAGES).map((m) => ({ role: m.role, content: m.content })),
@@ -350,7 +358,7 @@ export async function* runAssistantTurnStreaming(
   userId: string,
   history: AssistantHistoryMessage[],
   userMessage: string,
-  opts: { now?: Date; signal?: AbortSignal } = {},
+  opts: { now?: Date; signal?: AbortSignal; cardContext?: string } = {},
 ): AsyncGenerator<AssistantStreamEvent> {
   const now = opts.now ?? new Date();
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -360,7 +368,7 @@ export async function* runAssistantTurnStreaming(
   }
 
   const client = new Anthropic({ apiKey });
-  const system = buildSystemPrompt(now) + languageDirective(userMessage);
+  const system = buildSystemPrompt(now, opts.cardContext ?? "") + languageDirective(userMessage);
   const messages: Anthropic.MessageParam[] = [
     ...history.slice(-MAX_HISTORY_MESSAGES).map((m) => ({ role: m.role, content: m.content })),
     { role: "user" as const, content: userMessage },
@@ -370,6 +378,10 @@ export async function* runAssistantTurnStreaming(
   let fullText = ""; // accumulated reply text — used by the phantom-card backstop
   let proposalCount = 0; // write proposals raised this whole turn
   let cardNudged = false;
+  // Buffer write proposals and emit them only AFTER the final answer text, so the
+  // confirm cards always render below a COMPLETE reply (user: "先 answer 再出卡片"),
+  // never mid-sentence when the tool runs.
+  const pendingProposals: Proposal[] = [];
 
   try {
     for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
@@ -460,11 +472,11 @@ export async function* runAssistantTurnStreaming(
             }
           }),
         );
-        // Emit proposal events (confirm cards) before continuing the loop.
+        // Collect proposals — emitted AFTER the final answer (see pendingProposals).
         for (const r of results) {
           if (r.proposal) {
             proposalCount += 1;
-            yield { type: "proposal", proposal: r.proposal };
+            pendingProposals.push(r.proposal);
           }
         }
         messages.push({ role: "user", content: results.map((r) => r.toolResult) });
@@ -488,6 +500,8 @@ export async function* runAssistantTurnStreaming(
           text: "I looked but couldn't find anything to answer that — could you rephrase?",
         };
       }
+      // Answer complete → now surface the confirm cards below it.
+      for (const p of pendingProposals) yield { type: "proposal", proposal: p };
       return;
     }
 
@@ -495,6 +509,7 @@ export async function* runAssistantTurnStreaming(
       type: "text",
       text: "I dug through quite a lot there and ran out of room — could you ask that in a slightly narrower way?",
     };
+    for (const p of pendingProposals) yield { type: "proposal", proposal: p };
   } catch {
     // API error, or the client stopped (signal aborted). Whatever streamed so
     // far is kept; just signal the end so the caller can finalize/persist.

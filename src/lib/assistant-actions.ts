@@ -8,7 +8,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import {
   runAssistantTurn,
-  assistantHistoryContent,
+  cardOutcomeContext,
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
 import {
@@ -85,6 +85,8 @@ export async function sendAssistantMessage(input: {
   // Resolve (and own-check) the session, creating one on first message.
   let sessionId = input.sessionId;
   let history: AssistantHistoryMessage[] = [];
+  // Past cards' outcomes go in the SYSTEM prompt, not the message content (see route.ts).
+  let cardContext = "";
   if (sessionId != null) {
     const session = await prisma.chatSession.findFirst({
       where: { id: sessionId, userId },
@@ -94,9 +96,9 @@ export async function sendAssistantMessage(input: {
     else {
       history = session.messages.map((m) => ({
         role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-        // Fold in past cards' outcomes so the model knows what was cancelled/confirmed.
-        content: m.role === "assistant" ? assistantHistoryContent(m.content, m.data) : m.content,
+        content: m.content,
       }));
+      cardContext = cardOutcomeContext(session.messages);
     }
   }
   if (sessionId == null) {
@@ -107,7 +109,7 @@ export async function sendAssistantMessage(input: {
   }
   const sid: number = sessionId;
 
-  const result = await runAssistantTurn(userId, history, message);
+  const result = await runAssistantTurn(userId, history, message, new Date(), cardContext);
 
   // Persist the turn (user msg first, then reply) and bump the session's
   // updatedAt so it sorts to the top of the history list. `data` carries any

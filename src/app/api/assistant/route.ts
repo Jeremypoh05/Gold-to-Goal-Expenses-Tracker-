@@ -8,7 +8,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import {
   runAssistantTurnStreaming,
-  assistantHistoryContent,
+  cardOutcomeContext,
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
 import type { Proposal } from "@/lib/assistant/types";
@@ -35,6 +35,10 @@ export async function POST(req: Request): Promise<Response> {
   // logic as sendAssistantMessage so both paths behave identically.
   let sessionId = typeof body.sessionId === "number" ? body.sessionId : null;
   let history: AssistantHistoryMessage[] = [];
+  // Past cards' outcomes go in the SYSTEM prompt (cardOutcomeContext), not the
+  // message content — appending them to the assistant's own content made the model
+  // echo the annotation back to the user verbatim.
+  let cardContext = "";
   if (sessionId != null) {
     const session = await prisma.chatSession.findFirst({
       where: { id: sessionId, userId },
@@ -44,9 +48,9 @@ export async function POST(req: Request): Promise<Response> {
     else {
       history = session.messages.map((m) => ({
         role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-        // Fold in past cards' outcomes so the model knows what was cancelled/confirmed.
-        content: m.role === "assistant" ? assistantHistoryContent(m.content, m.data) : m.content,
+        content: m.content,
       }));
+      cardContext = cardOutcomeContext(session.messages);
     }
   }
   if (sessionId == null) {
@@ -82,6 +86,7 @@ export async function POST(req: Request): Promise<Response> {
       try {
         for await (const ev of runAssistantTurnStreaming(userId, history, message, {
           signal: req.signal,
+          cardContext,
         })) {
           if (ev.type === "text") {
             full += ev.text;
