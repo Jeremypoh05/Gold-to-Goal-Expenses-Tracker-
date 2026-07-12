@@ -18,12 +18,23 @@ export interface NewBonus {
     label: string;
 }
 
+/** An existing bonus being edited (CHANGED Slice 2d: the modal now also edits/deletes). */
+export interface EditingBonus extends NewBonus {
+    id: number;
+}
+
 interface AddBonusModalProps {
     open: boolean;
     /** The year currently being viewed on the Income page — the bonus is filed here. */
     defaultYear: number;
+    /** When set, the modal opens in EDIT mode pre-filled with this bonus (Slice 2d). */
+    editing?: EditingBonus | null;
     onClose: () => void;
     onAdd: (bonus: NewBonus) => void;
+    /** Save an edit (Slice 2d) — required when `editing` may be set. */
+    onUpdate?: (id: number, bonus: NewBonus) => void;
+    /** Delete the bonus being edited (Slice 2d). */
+    onDelete?: (id: number) => void;
 }
 
 function CloseIcon({ size = 14 }: { size?: number }) {
@@ -186,14 +197,34 @@ function BonusForm({
 function Footer({
     onClose,
     onSave,
+    onDelete,
+    isEditing,
     compact,
 }: {
     onClose: () => void;
     onSave: () => void;
+    /** Shown only in edit mode (Slice 2d). */
+    onDelete?: () => void;
+    isEditing?: boolean;
     compact?: boolean;
 }) {
     return (
         <div className={`flex items-center gap-2.5 ${compact ? 'pt-4' : ''}`}>
+            {isEditing && onDelete && (
+                <button
+                    type="button"
+                    onClick={onDelete}
+                    className="h-10 px-4 rounded-full border text-[13px] md:text-sm font-semibold flex items-center gap-1.5 transition-all hover:brightness-[1.03]"
+                    style={{
+                        color: 'oklch(0.55 0.2 25)',
+                        border: '1px solid oklch(0.63 0.2 25 / 0.4)',
+                        background: 'oklch(0.63 0.2 25 / 0.06)',
+                    }}
+                    aria-label="Delete bonus"
+                >
+                    <TrashIcon size={14} /> Delete
+                </button>
+            )}
             <div className="flex-1" />
             <button
                 type="button"
@@ -213,9 +244,17 @@ function Footer({
                 }}
             >
                 <CheckIcon size={14} />
-                Add bonus
+                {isEditing ? 'Save' : 'Add bonus'}
             </button>
         </div>
+    );
+}
+
+function TrashIcon({ size = 14 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 11v6 M14 11v6" />
+        </svg>
     );
 }
 
@@ -228,25 +267,43 @@ function Footer({
 // anti-pattern) — see .claude/Instructions/06-LEARNINGS.md.
 function ModalContent({
     defaultYear,
+    editing,
     onClose,
     onAdd,
+    onUpdate,
+    onDelete,
 }: {
     defaultYear: number;
+    editing?: EditingBonus | null;
     onClose: () => void;
     onAdd: (b: NewBonus) => void;
+    onUpdate?: (id: number, b: NewBonus) => void;
+    onDelete?: (id: number) => void;
 }) {
-    const [label, setLabel] = useState('Q3 bonus');
-    const [month, setMonth] = useState(9); // Sep — next un-bonused quarter
-    const [amount, setAmount] = useState('5000.00');
+    const isEditing = !!editing;
+    // Seed from the bonus being edited, else sensible add defaults.
+    const [label, setLabel] = useState(editing?.label ?? 'Q3 bonus');
+    const [month, setMonth] = useState(editing?.month ?? 9); // Sep — next un-bonused quarter
+    const [amount, setAmount] = useState(editing ? editing.amt.toFixed(2) : '5000.00');
+    // Editing keeps the bonus's own year; a new one files into the viewed year.
+    const year = editing?.year ?? defaultYear;
 
     const handleSave = () => {
         const amt = parseFloat(amount);
         if (!Number.isFinite(amt) || amt <= 0) return; // ignore empty/invalid
-        onAdd({ year: defaultYear, month, amt, label: label.trim() || 'Bonus' });
+        const value: NewBonus = { year, month, amt, label: label.trim() || 'Bonus' };
+        if (isEditing && editing && onUpdate) onUpdate(editing.id, value);
+        else onAdd(value);
         onClose();
     };
 
-    const formProps = { label, setLabel, month, setMonth, amount, setAmount, year: defaultYear };
+    const handleDelete = () => {
+        if (editing && onDelete) onDelete(editing.id);
+        onClose();
+    };
+
+    const formProps = { label, setLabel, month, setMonth, amount, setAmount, year };
+    const footerProps = { onClose, onSave: handleSave, isEditing, onDelete: handleDelete };
 
     return (
         <>
@@ -294,7 +351,7 @@ function ModalContent({
                                             Bonus
                                         </div>
                                         <h2 className="display mt-0.5" style={{ fontSize: 24, lineHeight: 1.1 }}>
-                                            Add a bonus
+                                            {isEditing ? 'Edit bonus' : 'Add a bonus'}
                                         </h2>
                                     </div>
                                     <button
@@ -309,7 +366,7 @@ function ModalContent({
                                 <div className="px-4">
                                     <BonusForm {...formProps} isMobile />
                                     <div className="pt-4">
-                                        <Footer onClose={onClose} onSave={handleSave} />
+                                        <Footer {...footerProps} />
                                     </div>
                                 </div>
                             </motion.div>
@@ -353,16 +410,18 @@ function ModalContent({
                                         Bonus
                                     </div>
                                     <h2 className="display mt-1" style={{ fontSize: 28, lineHeight: 1.1 }}>
-                                        Add a bonus
+                                        {isEditing ? 'Edit bonus' : 'Add a bonus'}
                                     </h2>
                                     <div className="text-[12px] text-ink-2 mt-1">
-                                        Salary stays the same — bonuses stack on top of your yearly income.
+                                        {isEditing
+                                            ? 'Update this bonus, or remove it from your yearly income.'
+                                            : 'Salary stays the same — bonuses stack on top of your yearly income.'}
                                     </div>
                                 </div>
                                 <div className="px-7 pb-7">
                                     <BonusForm {...formProps} />
                                     <div className="pt-5">
-                                        <Footer onClose={onClose} onSave={handleSave} />
+                                        <Footer {...footerProps} />
                                     </div>
                                 </div>
                             </motion.div>
@@ -372,7 +431,7 @@ function ModalContent({
     );
 }
 
-export function AddBonusModal({ open, defaultYear, onClose, onAdd }: AddBonusModalProps) {
+export function AddBonusModal({ open, defaultYear, editing, onClose, onAdd, onUpdate, onDelete }: AddBonusModalProps) {
     // ESC closes
     useEffect(() => {
         if (!open) return;
@@ -394,8 +453,20 @@ export function AddBonusModal({ open, defaultYear, onClose, onAdd }: AddBonusMod
 
     return (
         <AnimatePresence>
-            {/* key forces a fresh ModalContent mount per open → form resets cleanly */}
-            {open && <ModalContent key="add-bonus" defaultYear={defaultYear} onClose={onClose} onAdd={onAdd} />}
+            {/* key by mode/id forces a fresh ModalContent mount per open → the form
+                re-seeds cleanly (a different bonus, or add vs edit) without a
+                setState-in-effect. */}
+            {open && (
+                <ModalContent
+                    key={editing ? `edit-bonus-${editing.id}` : 'add-bonus'}
+                    defaultYear={defaultYear}
+                    editing={editing}
+                    onClose={onClose}
+                    onAdd={onAdd}
+                    onUpdate={onUpdate}
+                    onDelete={onDelete}
+                />
+            )}
         </AnimatePresence>
     );
 }

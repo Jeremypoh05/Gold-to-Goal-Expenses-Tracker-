@@ -2,7 +2,7 @@
 export { GoalProgress } from "./GoalProgress";
 export { IncomeBreakdown } from "./IncomeBreakdown";
 export { IncomeSummary } from "./IncomeSummary";
-export { AddBonusModal, type NewBonus } from "./AddBonusModal";
+export { AddBonusModal, type NewBonus, type EditingBonus } from "./AddBonusModal";
 export { IncomeSettingsModal, type IncomeSettingsValue } from "./IncomeSettingsModal";
 export { SalaryTimelineModal, type SalaryPeriodForm } from "./SalaryTimelineModal";
 export { MonthlyFlowChart } from "./MonthlyFlowChart";

@@ -33,6 +33,8 @@ import { computeYearIncomeStats } from '@/lib/expense-utils';
 import type { YearSummary } from '@/lib/queries';
 import {
     addBonus,
+    updateBonus,
+    deleteBonus,
     updateIncomeSettings,
     fetchYearSummary,
     addSalaryPeriod,
@@ -270,12 +272,15 @@ function BonusesCard({
     total,
     year,
     onAdd,
+    onEdit,
     delay = 0,
 }: {
     bonuses: Bonus[];
     total: number;
     year: number;
     onAdd: () => void;
+    /** Tap a bonus row to edit/delete it (Slice 2d). */
+    onEdit: (b: Bonus) => void;
     delay?: number;
 }) {
     return (
@@ -306,12 +311,21 @@ function BonusesCard({
             <div className="mt-4 flex flex-col gap-2.5">
                 {bonuses.map((b, i) => (
                     <motion.div
-                        // key by content+index so a freshly added bonus animates in
-                        key={`${b.label}-${b.month}-${i}`}
+                        // key by id so a freshly added/edited bonus animates in cleanly
+                        key={b.id}
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.4, delay: delay + 0.2 + i * 0.06 }}
-                        className="flex items-center gap-3 p-3.5 rounded-[14px]"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onEdit(b)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                onEdit(b);
+                            }
+                        }}
+                        className="group flex items-center gap-3 p-3.5 rounded-[14px] cursor-pointer transition-all hover:brightness-[1.02]"
                         style={{
                             // CHANGED (dark mode): theme-aware soft-gold so the row darkens
                             // and its (theme-ink) text stays legible in dark.
@@ -331,6 +345,8 @@ function BonusesCard({
                             <div className="text-[11px] text-ink-2">{MONTH_NAMES[b.month - 1]} {b.year}</div>
                         </div>
                         <div className="mono text-[16px] font-semibold">{formatMoney(b.amt)}</div>
+                        {/* Edit affordance — always visible on touch, emphasized on hover */}
+                        <EditIcon size={13} className="text-ink-3 group-hover:text-on-soft transition-colors flex-shrink-0" />
                     </motion.div>
                 ))}
             </div>
@@ -447,6 +463,8 @@ export default function IncomePage() {
 
     const yearBonuses = summary?.bonuses ?? [];
     const [addOpen, setAddOpen] = useState(false);
+    // ADDED (Slice 2d): tapping a bonus row opens the same modal in edit mode.
+    const [editingBonus, setEditingBonus] = useState<Bonus | null>(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [salaryOpen, setSalaryOpen] = useState(false);
     const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -479,6 +497,20 @@ export default function IncomePage() {
     const handleAddBonus = (b: NewBonus) => {
         startTransition(async () => {
             await addBonus({ year: b.year, month: b.month, amount: b.amt, label: b.label });
+            refreshAll();
+        });
+    };
+
+    const handleUpdateBonus = (id: number, b: NewBonus) => {
+        startTransition(async () => {
+            await updateBonus(id, { year: b.year, month: b.month, amount: b.amt, label: b.label });
+            refreshAll();
+        });
+    };
+
+    const handleDeleteBonus = (id: number) => {
+        startTransition(async () => {
+            await deleteBonus(id);
             refreshAll();
         });
     };
@@ -623,6 +655,7 @@ export default function IncomePage() {
                             total={stats.totalBonuses}
                             year={viewYear}
                             onAdd={() => setAddOpen(true)}
+                            onEdit={setEditingBonus}
                             delay={0.1}
                         />
                     </div>
@@ -683,6 +716,7 @@ export default function IncomePage() {
                         total={stats.totalBonuses}
                         year={viewYear}
                         onAdd={() => setAddOpen(true)}
+                        onEdit={setEditingBonus}
                         delay={0.15}
                     />
                     <IncomeSourcesCard sources={summary?.incomeSources ?? []} onManage={() => setSourcesOpen(true)} delay={0.18} />
@@ -695,8 +729,20 @@ export default function IncomePage() {
                 </div>
             </div>
 
-            {/* Interactive Add Bonus modal / sheet — files into the viewed year */}
-            <AddBonusModal open={addOpen} defaultYear={viewYear} onClose={() => setAddOpen(false)} onAdd={handleAddBonus} />
+            {/* Interactive Add / Edit Bonus modal — a new bonus files into the viewed
+                year; tapping a row opens it in edit mode (Slice 2d: edit + delete). */}
+            <AddBonusModal
+                open={addOpen || editingBonus != null}
+                defaultYear={viewYear}
+                editing={editingBonus}
+                onClose={() => {
+                    setAddOpen(false);
+                    setEditingBonus(null);
+                }}
+                onAdd={handleAddBonus}
+                onUpdate={handleUpdateBonus}
+                onDelete={handleDeleteBonus}
+            />
 
             {/* Goal / budget / pay settings (salary itself lives in the timeline) */}
             <IncomeSettingsModal

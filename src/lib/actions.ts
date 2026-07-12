@@ -575,6 +575,32 @@ export async function addBonus(input: BonusInput) {
   revalidateDashboard();
 }
 
+/** ADDED (Slice 2d): edit a bonus by id (ownership-checked) — the Income-page
+ *  BonusesCard gained edit/delete affordances, and the assistant's update_bonus
+ *  tool routes here. Only the passed fields change. */
+export async function updateBonus(id: number, input: Partial<BonusInput>) {
+  const userId = await requireUserId();
+  const owned = await prisma.bonus.findFirst({ where: { id, userId } });
+  if (!owned) throw new Error("Bonus not found");
+  await prisma.bonus.update({
+    where: { id },
+    data: {
+      ...(input.year !== undefined && { year: input.year }),
+      ...(input.month !== undefined && { month: input.month }),
+      ...(input.amount !== undefined && { amount: input.amount }),
+      ...(input.label !== undefined && { label: input.label }),
+    },
+  });
+  revalidateDashboard();
+}
+
+/** ADDED (Slice 2d): remove a bonus (ownership-checked). */
+export async function deleteBonus(id: number) {
+  const userId = await requireUserId();
+  await prisma.bonus.deleteMany({ where: { id, userId } });
+  revalidateDashboard();
+}
+
 export interface IncomeSettingsInput {
   monthlySalary?: number;
   savingsGoal?: number;

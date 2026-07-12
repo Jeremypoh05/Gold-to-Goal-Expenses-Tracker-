@@ -451,6 +451,7 @@ export function suggestExpenseMetaLocal(note: string): {
 export function toUiBonus(rows: DbBonus[]) {
   return rows
     .map((b) => ({
+      id: b.id,
       year: b.year,
       month: b.month,
       amt: Number(b.amount),

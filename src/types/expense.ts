@@ -46,7 +46,7 @@ export interface MonthInfo {
 
 export interface IncomeInfo {
   salary: number;
-  bonuses: { year: number; month: number; amt: number; label: string }[];
+  bonuses: { id: number; year: number; month: number; amt: number; label: string }[];
   yearly: number;
   saved: number;
 }
