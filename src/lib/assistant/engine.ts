@@ -108,7 +108,7 @@ export function cardOutcomeContext(messages: { role: string; data: unknown }[]):
   );
 }
 
-function buildSystemPrompt(now: Date, cardContext = ""): string {
+function buildSystemPrompt(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
@@ -228,9 +228,44 @@ function buildSystemPrompt(now: Date, cardContext = ""): string {
     `user act on the answer — skip it for a plain factual reply, and never invent a TARGET outside the list above.\n\n` +
     `STYLE: concise and conversational. Short paragraphs; use simple "-" bullet lists for breakdowns; ` +
     `use **bold** for key figures. No headers or tables. If the question is ambiguous (e.g. which ` +
-    `"coffee" or which month), ask one short clarifying question instead of guessing.` +
-    cardContext
+    `"coffee" or which month), ask one short clarifying question instead of guessing.`
   );
+}
+
+// ADDED (cost optimization): prompt caching. buildSystemPrompt's output is the same
+// ~2-3K-token block for every user/session on a given day — and it renders BEFORE
+// cardContext/languageDirective, which change per turn. Without caching, that whole
+// block (plus all of ASSISTANT_TOOLS, which renders even earlier) was re-billed at
+// full price on EVERY turn of EVERY conversation. Splitting it into a cached STABLE
+// block + an uncached small VOLATILE block means a cache_control breakpoint on the
+// stable block's end caches tools+system together (they share one prefix — see the
+// claude-api skill's prompt-caching notes); repeat turns (and, since the stable text
+// carries no per-user data, EVERY user's turns) pay ~10% for that portion instead of
+// full price. Ephemeral (5-minute) TTL, no beta header required.
+function systemBlocks(now: Date, cardContext: string, userMessage: string): Anthropic.TextBlockParam[] {
+  const stable = buildSystemPrompt(now);
+  const volatile = cardContext + languageDirective(userMessage);
+  const blocks: Anthropic.TextBlockParam[] = [
+    { type: "text", text: stable, cache_control: { type: "ephemeral" } },
+  ];
+  if (volatile) blocks.push({ type: "text", text: volatile });
+  return blocks;
+}
+
+/** Turn the trailing history slice into MessageParams, marking the LAST message
+ *  with a cache_control breakpoint so the whole prior conversation (which never
+ *  changes once written) is cached too — each new turn then only pays full price
+ *  for whatever's appended after it (this turn's tool rounds + the new message).
+ *  The standard "multi-turn conversation" caching pattern. No-op on empty history. */
+function cachedHistoryMessages(history: AssistantHistoryMessage[]): Anthropic.MessageParam[] {
+  const slice = history.slice(-MAX_HISTORY_MESSAGES);
+  return slice.map((m, i) => {
+    if (i < slice.length - 1) return { role: m.role, content: m.content };
+    return {
+      role: m.role,
+      content: [{ type: "text" as const, text: m.content, cache_control: { type: "ephemeral" as const } }],
+    };
+  });
 }
 
 /**
@@ -257,10 +292,10 @@ export async function runAssistantTurn(
   }
 
   const client = new Anthropic({ apiKey });
-  const system = buildSystemPrompt(now, cardContext) + languageDirective(userMessage);
+  const system = systemBlocks(now, cardContext, userMessage);
 
   const messages: Anthropic.MessageParam[] = [
-    ...history.slice(-MAX_HISTORY_MESSAGES).map((m) => ({ role: m.role, content: m.content })),
+    ...cachedHistoryMessages(history),
     { role: "user" as const, content: userMessage },
   ];
 
@@ -385,9 +420,9 @@ export async function* runAssistantTurnStreaming(
   }
 
   const client = new Anthropic({ apiKey });
-  const system = buildSystemPrompt(now, opts.cardContext ?? "") + languageDirective(userMessage);
+  const system = systemBlocks(now, opts.cardContext ?? "", userMessage);
   const messages: Anthropic.MessageParam[] = [
-    ...history.slice(-MAX_HISTORY_MESSAGES).map((m) => ({ role: m.role, content: m.content })),
+    ...cachedHistoryMessages(history),
     { role: "user" as const, content: userMessage },
   ];
 
