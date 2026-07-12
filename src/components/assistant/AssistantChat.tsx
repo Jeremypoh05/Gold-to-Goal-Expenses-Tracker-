@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { CATEGORIES } from '@/data/categories';
 import { notifyDataChanged } from '@/lib/data-events';
 import { VoiceEntryEditor, type VoiceEntryValue } from '@/components/voice/VoiceEntryEditor';
+import { RecurringEntryEditor } from './RecurringEntryEditor';
 import {
     fetchAssistantSessions,
     fetchAssistantMessages,
@@ -1053,7 +1054,7 @@ function CreateRecurringProposalCard({
     initialOutcome?: ProposalOutcome;
     onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
 }) {
-    const [status, setStatus] = useState<'idle' | 'saving' | 'done' | 'cancelled' | 'error'>(
+    const [status, setStatus] = useState<'idle' | 'editing' | 'saving' | 'done' | 'cancelled' | 'error'>(
         initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
     );
     const [error, setError] = useState('');
@@ -1066,11 +1067,11 @@ function CreateRecurringProposalCard({
         onResolve?.('cancelled');
     };
 
-    const run = async () => {
+    const run = async (finalFields?: typeof f) => {
         setStatus('saving');
         setError('');
         try {
-            const res = await executeAssistantAction({ kind: 'create_recurring', fields: f });
+            const res = await executeAssistantAction({ kind: 'create_recurring', fields: finalFields ?? f });
             if (res.ok) {
                 setStatus('done');
                 onWritten();
@@ -1087,6 +1088,21 @@ function CreateRecurringProposalCard({
 
     if (status === 'done') return <ConfirmedChip text={doneDetail} />;
     if (status === 'cancelled') return <CancelledChip />;
+
+    // Manual-edit fallback (user feedback): fix any field — category (incl.
+    // "family"), amount/currency, due day, start/end month — without another AI
+    // round-trip. Mirrors ProposalCard's "Edit" → VoiceEntryEditor pattern.
+    if (status === 'editing') {
+        return (
+            <div className="mt-2">
+                <RecurringEntryEditor
+                    initial={f}
+                    onCancel={() => setStatus('idle')}
+                    onSave={(v) => run(v)}
+                />
+            </div>
+        );
+    }
 
     const saving = status === 'saving';
     return (
@@ -1130,11 +1146,19 @@ function CreateRecurringProposalCard({
                 <button
                     type="button"
                     disabled={saving}
-                    onClick={run}
+                    onClick={() => run()}
                     className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full transition-all disabled:opacity-60 text-[#1a120a] cursor-pointer hover:brightness-[1.03]"
                     style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' }}
                 >
                     {saving ? 'Setting up…' : (<><CheckMark size={13} /> Confirm</>)}
+                </button>
+                <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setStatus('editing')}
+                    className="inline-flex items-center gap-1 text-[11.5px] font-medium px-3 py-1.5 rounded-full border border-line text-ink-1 hover:border-ink-2 transition-all cursor-pointer disabled:opacity-60"
+                >
+                    <EditIcon size={12} /> Edit
                 </button>
                 <button
                     type="button"

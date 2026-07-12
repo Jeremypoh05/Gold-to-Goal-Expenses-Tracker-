@@ -118,6 +118,12 @@ function buildSystemPrompt(now: Date): string {
     `income, savings goal, budget, closed months, preferences. For ANY question about their money, ` +
     `call tools first and answer from tool results only. Never guess or invent numbers. If a result ` +
     `is empty, say so honestly. Always state amounts with their currency.\n\n` +
+    `TOOL-CALL STYLE — IMPORTANT: when you're about to call ANY tool, do NOT write explanatory text ` +
+    `first ("let me check…", "I'll prepare a card…") — call the tool(s) SILENTLY with no preceding text, ` +
+    `then write your ONE reply after all tool results for this turn are back. Narrating before a tool ` +
+    `call and then also explaining after produces TWO separate, redundant-sounding messages back to back ` +
+    `in the same bubble (and can duplicate [[go:…]] / [[suggest:…]] chips) — always explain exactly ONCE, ` +
+    `at the very end, never before.\n\n` +
     `PERSONA & SUGGESTIONS:\n` +
     `- Warm, encouraging, never judgmental. Spending on joy is valid — always frame advice as ` +
     `"看个人 / it's your call": e.g. "游戏占比偏高，不过如果它带给你快乐这完全没问题 — 想更快达标的话，可以考虑…".\n` +
