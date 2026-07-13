@@ -6,20 +6,20 @@
 // mobile drag-to-dismiss).
 //
 // CHANGED (Slice 3 — "one brain"): this modal no longer runs the old single-shot
-// transcribeExpense intent-router (VoiceCapture). It now hosts <QuickVoice /> — a
+// transcribeExpense intent-router (VoiceCapture — retired). It now hosts <QuickVoice /> — a
 // VOICE-FIRST surface (big animated "tap to talk" mic + confirm-card feedback) powered
 // by the SAME assistant engine, so the mic can log/edit expenses AND recurring AND
 // income AND answer briefly — but with a distinct, non-chat UI so it never reads as a
 // duplicate of the assistant. "Continue in assistant" hands the session off to the
 // slide-over panel (openPanel({ sessionId })) so a complex thread carries over
-// seamlessly. VoiceCapture / transcribeExpense remain in the tree but unwired (kept
-// for an easy revert; slated for cleanup once this is confirmed in the browser).
+// seamlessly.
 
 import { useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { MicIcon } from '@/components/icons';
 import { QuickVoice } from '@/components/assistant/QuickVoice';
 import { useAssistant } from '@/components/assistant/AssistantContext';
+import { promoteQuickSession } from '@/lib/assistant-actions';
 import { useVoice } from './VoiceContext';
 
 function CloseIcon({ size = 14 }: { size?: number }) {
@@ -32,13 +32,18 @@ function CloseIcon({ size = 14 }: { size?: number }) {
 
 export function VoiceModal() {
     const { isModalOpen, closeModal } = useVoice();
-    const { openPanel } = useAssistant();
+    const { openPanel, setQuickSessionId } = useAssistant();
+    const dragControls = useDragControls();
 
     // Escalate the quick session into the full slide-over chat, carrying the
     // session id so the panel opens on THIS exact thread (seamless hand-off —
-    // the vision's "先给 summary, 再引导去助手").
+    // the vision's "先给 summary, 再引导去助手"). The session is PROMOTED to a
+    // real, History-visible chat (it's no longer a throwaway voice log) and the
+    // persisted quick-session id is cleared so the next mic tap starts a fresh one.
     const handleHandoff = (sessionId: number | null) => {
         closeModal();
+        if (sessionId != null) promoteQuickSession(sessionId).catch(() => {});
+        setQuickSessionId(null);
         openPanel(sessionId != null ? { sessionId } : undefined);
     };
 
@@ -109,6 +114,8 @@ export function VoiceModal() {
                             exit={{ y: '100%' }}
                             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
                             drag="y"
+                            dragListener={false}
+                            dragControls={dragControls}
                             dragConstraints={{ top: 0, bottom: 0 }}
                             dragElastic={0.2}
                             onDragEnd={(_, info) => {
@@ -122,8 +129,13 @@ export function VoiceModal() {
                                 boxShadow: '0 -20px 60px -10px rgba(60, 40, 10, 0.3)',
                             }}
                         >
-                            {/* Drag handle */}
-                            <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0">
+                            {/* Drag handle — the ONLY drag-to-dismiss trigger (dragListener={false}
+                                above), so dragging inside the scrollable QuickVoice content never
+                                fights the sheet's dismiss gesture. */}
+                            <div
+                                onPointerDown={(e) => dragControls.start(e)}
+                                className="flex justify-center pt-2.5 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none"
+                            >
                                 <div className="w-10 h-1 rounded-full bg-line" />
                             </div>
                             {content}

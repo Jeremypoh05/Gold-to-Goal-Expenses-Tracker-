@@ -22,6 +22,7 @@ import { notifyDataChanged } from '@/lib/data-events';
 import { sendAssistantMessage, recordProposalOutcome } from '@/lib/assistant-actions';
 import type { Proposal, ProposalOutcome } from '@/lib/assistant/types';
 import { AssistantText, ProposalCardList, useChatMic } from './AssistantChat';
+import { useAssistant } from './AssistantContext';
 
 // recurring → /fixed (matches the chat's NAV_ROUTES). Only reached by a card's
 // "Open Ledger" fallback (closed-month delete); nav chips are suppressed in quick mode.
@@ -136,17 +137,21 @@ export function QuickVoice({
     onClose: () => void;
 }) {
     const router = useRouter();
+    const { quickSessionId, setQuickSessionId } = useAssistant();
     const [turns, setTurns] = useState<Turn[]>([]);
     const [thinking, setThinking] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
-    const [sessionId, setSessionId] = useState<number | null>(null);
-    const sessionIdRef = useRef<number | null>(null);
+    // Seeded from the context's last-known quick session (see AssistantContext) so
+    // reopening the modal continues the SAME session instead of minting a new one.
+    const [sessionId, setSessionId] = useState<number | null>(quickSessionId);
+    const sessionIdRef = useRef<number | null>(quickSessionId);
     const keyRef = useRef(0);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         sessionIdRef.current = sessionId;
-    }, [sessionId]);
+        setQuickSessionId(sessionId);
+    }, [sessionId, setQuickSessionId]);
 
     // Keep the results pinned to the bottom as new turns land.
     useEffect(() => {

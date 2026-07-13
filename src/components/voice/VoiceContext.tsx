@@ -16,7 +16,6 @@ import {
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { useConfirm, useChoice } from '@/components/shared';
 import { createExpense, updateExpense, deleteExpense, reopenMonth, fetchClosedMonths } from '@/lib/actions';
-import type { VoiceEditTarget, VoiceEditChanges } from '@/lib/actions';
 import { MONTH_NAMES } from '@/lib/utils';
 import type { VoiceLog, CategoryKey, Currency } from '@/types';
 
@@ -47,8 +46,6 @@ interface VoiceContextValue {
     logs: VoiceLog[];
     addLog: (entry: NewVoiceLog) => void;
     editLog: (id: number, patch: VoiceLogPatch) => void;
-    /** ADDED (Phase B): apply an edit-by-voice to any expense (matched by the AI). */
-    editByVoice: (target: VoiceEditTarget, changes: VoiceEditChanges) => void;
     deleteLog: (id: number) => void;
     isModalOpen: boolean;
     openModal: () => void;
@@ -191,87 +188,6 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    // ADDED (Phase B): apply an AI-matched edit to ANY expense (manual or voice).
-    // Mirrors addLog's closed-month handling: if the target's month is closed, offer
-    // reopen / edit-anyway (override) / cancel. The target month comes from the
-    // matched row's spentAt, so an edit to a past month is checked correctly.
-    const editByVoice = (target: VoiceEditTarget, changes: VoiceEditChanges) => {
-        if (Object.keys(changes).length === 0) return; // nothing to do
-        const newAmt = changes.amount ?? target.amt;
-        const newCur = changes.currency ?? target.currency;
-        showToast({ amt: newAmt, currency: newCur });
-        const patch = {
-            ...(changes.amount !== undefined && { amount: changes.amount }),
-            ...(changes.category !== undefined && { category: changes.category }),
-            ...(changes.currency !== undefined && { currency: changes.currency }),
-            ...(changes.note !== undefined && { note: changes.note }),
-        };
-        const t = new Date(target.spentAt);
-        const y = t.getFullYear();
-        const m = t.getMonth() + 1;
-
-        const genericError = () =>
-            confirm({
-                title: "Couldn't update that",
-                message: 'Something went wrong updating the expense. Please try again.',
-                confirmLabel: 'OK',
-                hideCancel: true,
-            });
-
-        void (async () => {
-            setBusy(true);
-            try {
-                await updateExpense(target.id, patch);
-            } catch {
-                dismissToast();
-                let isClosed = false;
-                try {
-                    const closed = await fetchClosedMonths();
-                    isClosed = closed.some((c) => c.year === y && c.month === m);
-                } catch {
-                    /* fall through to the generic error */
-                }
-
-                if (!isClosed) {
-                    await genericError();
-                } else {
-                    const monthName = `${MONTH_NAMES[m - 1]} ${y}`;
-                    const picked = await choose({
-                        title: `${monthName} is closed`,
-                        message: (
-                            <>
-                                That expense is in <b>closed</b> <b>{monthName}</b>. You can{' '}
-                                <b>reopen</b> the month and edit normally (it stays open until you
-                                close it again), or <b>apply the change directly</b> — the month
-                                stays closed, only this entry changes.
-                            </>
-                        ),
-                        actions: [
-                            { key: 'reopen', label: 'Reopen month & edit', tone: 'primary' },
-                            { key: 'apply', label: `Edit in ${monthName} (stays closed)`, tone: 'warn' },
-                            { key: 'cancel', label: 'Cancel', tone: 'ghost' },
-                        ],
-                    });
-                    try {
-                        if (picked === 'reopen') {
-                            await reopenMonth(y, m);
-                            await updateExpense(target.id, patch);
-                            showToast({ amt: newAmt, currency: newCur });
-                        } else if (picked === 'apply') {
-                            await updateExpense(target.id, patch, true); // override the closed-month freeze
-                            showToast({ amt: newAmt, currency: newCur });
-                        }
-                    } catch {
-                        await genericError();
-                    }
-                }
-            } finally {
-                refresh();
-                setBusy(false);
-            }
-        })();
-    };
-
     const deleteLog = (id: number) => {
         startTransition(async () => {
             await deleteExpense(id);
@@ -297,7 +213,6 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
                 logs: voiceLogs,
                 addLog,
                 editLog,
-                editByVoice,
                 deleteLog,
                 isModalOpen,
                 openModal,

@@ -118,7 +118,7 @@ export async function sendAssistantMessage(input: {
   }
   if (sessionId == null) {
     const created = await prisma.chatSession.create({
-      data: { userId, title: message.slice(0, 60) },
+      data: { userId, title: message.slice(0, 60), source: input.mode === "quick" ? "quick" : "chat" },
     });
     sessionId = created.id;
   }
@@ -527,11 +527,13 @@ export async function executeAssistantAction(
   }
 }
 
-/** Recent chat sessions — pinned first, then newest. Powers the history list. */
+/** Recent chat sessions — pinned first, then newest. Powers the history list.
+ *  Excludes "quick" (voice-mic) sessions — those are throwaway logs, not browsable
+ *  conversations, unless promoted to "chat" via promoteQuickSession on hand-off. */
 export async function fetchAssistantSessions(): Promise<AssistantSessionSummary[]> {
   const userId = await requireUserId();
   const rows = await prisma.chatSession.findMany({
-    where: { userId },
+    where: { userId, source: "chat" },
     orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
     take: 50,
     select: { id: true, title: true, pinned: true, updatedAt: true },
@@ -542,6 +544,14 @@ export async function fetchAssistantSessions(): Promise<AssistantSessionSummary[
     pinned: r.pinned,
     updatedAt: r.updatedAt.toISOString(),
   }));
+}
+
+/** ADDED (Slice 3c): a quick-mic session becomes a real, browsable chat the moment
+ *  the user hands it off to the full assistant ("Continue in assistant") — from then
+ *  on it should show in History like any other conversation. Ownership-checked. */
+export async function promoteQuickSession(sessionId: number): Promise<void> {
+  const userId = await requireUserId();
+  await prisma.chatSession.updateMany({ where: { id: sessionId, userId }, data: { source: "chat" } });
 }
 
 /** ADDED (Slice 1 polish): rename a chat (ownership-checked). */

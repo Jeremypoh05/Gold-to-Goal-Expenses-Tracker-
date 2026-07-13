@@ -134,6 +134,11 @@ function buildSystemPrompt(now: Date): string {
     `call and then also explaining after produces TWO separate, redundant-sounding messages back to back ` +
     `in the same bubble (and can duplicate [[go:…]] / [[suggest:…]] chips) — always explain exactly ONCE, ` +
     `at the very end, never before.\n\n` +
+    `MULTI-INTENT MESSAGES: one message can bundle more than one distinct request — e.g. a log PLUS an ` +
+    `unrelated question ("log lunch 12 today, and how much have I spent on food this month?"), or a write ` +
+    `plus a separate ask. Handle EVERY part in the SAME turn: call every tool each part needs (a write tool ` +
+    `and a read tool together is fine — call them all before replying), then address each part once in your ` +
+    `single final reply. Never silently drop the second half of a compound message.\n\n` +
     `PERSONA & SUGGESTIONS:\n` +
     `- Warm, encouraging, never judgmental. Spending on joy is valid — always frame advice as ` +
     `"看个人 / it's your call": e.g. "游戏占比偏高，不过如果它带给你快乐这完全没问题 — 想更快达标的话，可以考虑…".\n` +

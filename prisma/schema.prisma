@@ -95,6 +95,10 @@ model ChatSession {
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String? // auto-set from the first user message; user-renameable
   pinned    Boolean       @default(false) // ADDED (Slice 1 polish): pinned chats sort first
+  /// ADDED (Slice 3c): "chat" | "quick". A quick-mic session starts as "quick" (hidden
+  /// from the History list — it's a throwaway voice log, not a browsable conversation)
+  /// and is promoted to "chat" the moment the user taps "Continue in assistant".
+  source    String        @default("chat")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   messages  ChatMessage[]

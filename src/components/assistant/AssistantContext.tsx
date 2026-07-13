@@ -31,6 +31,14 @@ interface AssistantContextValue {
     pending: AssistantHandoff | null;
     /** Called by the full chat once it has consumed `pending`. */
     consumePending: () => void;
+    /** ADDED (Slice 3c): the quick-mic's last session id, kept HERE (not in QuickVoice's
+     *  own state) because QuickVoice fully unmounts/remounts every time the voice modal
+     *  closes/reopens — without lifting this up, each reopen minted a brand-new
+     *  ChatSession row even for a casual "open → say one thing → close" flow. This
+     *  provider persists for the whole tab session, so a fresh QuickVoice mount picks
+     *  up where the last one left off and keeps appending to the SAME session. */
+    quickSessionId: number | null;
+    setQuickSessionId: (id: number | null) => void;
 }
 
 const AssistantContext = createContext<AssistantContextValue | null>(null);
@@ -38,6 +46,7 @@ const AssistantContext = createContext<AssistantContextValue | null>(null);
 export function AssistantProvider({ children }: { children: React.ReactNode }) {
     const [open, setOpen] = useState(false);
     const [pending, setPending] = useState<AssistantHandoff | null>(null);
+    const [quickSessionId, setQuickSessionId] = useState<number | null>(null);
     const openPanel = useCallback((handoff?: AssistantHandoff) => {
         // Only stash a hand-off if it actually carries something; a bare
         // openPanel() (Ask-Honey button, sidebar) just opens the panel as before.
@@ -48,8 +57,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     const togglePanel = useCallback(() => setOpen((o) => !o), []);
     const consumePending = useCallback(() => setPending(null), []);
     const value = useMemo(
-        () => ({ open, openPanel, closePanel, togglePanel, pending, consumePending }),
-        [open, openPanel, closePanel, togglePanel, pending, consumePending],
+        () => ({ open, openPanel, closePanel, togglePanel, pending, consumePending, quickSessionId, setQuickSessionId }),
+        [open, openPanel, closePanel, togglePanel, pending, consumePending, quickSessionId],
     );
     return <AssistantContext.Provider value={value}>{children}</AssistantContext.Provider>;
 }
