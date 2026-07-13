@@ -148,12 +148,30 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
   {
     name: "project_savings",
     description:
-      "Estimate how long until the user reaches a savings target, from real income minus real average spend (last 3 full months). Returns saved-so-far, monthly net, months-to-target, estimated arrival month, and a category breakdown of recent spend (material for gentle what-if suggestions). Use for '多久才能存到X' / 'when can I afford X' questions.",
+      "Estimate how long until the user reaches a savings target, from real income minus real average spend (last 3 full months). Returns saved-so-far, monthly net, months-to-target, estimated arrival, and a category breakdown of recent spend. ALSO a WHAT-IF SIMULATOR: pass any what-if lever below to get a `scenario` compared against the `baseline` (monthsSaved / sooner arrival). A SINGLE call with levers returns BOTH the baseline and the scenario — do NOT call twice. Use for '多久才能存到X' / 'when can I afford X' AND follow-ups like 'what if I cut gaming 20%', 'if I earn 500 more freelance', 'if I save 300 more a month'. Prefer the specific levers over monthlySpendOverride so the answer explains what changed.",
     input_schema: {
       type: "object",
       properties: {
         targetAmount: { type: "number", description: "The savings target. Omit to use the user's configured savings goal." },
-        monthlySpendOverride: { type: "number", description: "What-if: assume this monthly spend instead of the real average (e.g. after a proposed cutback)." },
+        monthlySpendOverride: { type: "number", description: "What-if: assume this EXACT total monthly spend instead of the real average." },
+        cutTotalPercent: { type: "number", description: "What-if: cut TOTAL monthly spend by this percent (e.g. 20 = spend 20% less overall)." },
+        cutCategories: {
+          type: "array",
+          description:
+            "What-if: cut specific categories. Each item cuts one category by either a percent of its recent average OR an absolute monthly amount. e.g. 'cut gaming 20%' → [{category:'ent', percent:20}].",
+          items: {
+            type: "object",
+            properties: {
+              category: { type: "string", description: "Category key to cut (food, transport, shopping, ent, bills, health, other, family)." },
+              percent: { type: "number", description: "Cut this category by this percent of its recent monthly average." },
+              amount: { type: "number", description: "Or cut this category by this absolute monthly amount." },
+            },
+            required: ["category"],
+            additionalProperties: false,
+          },
+        },
+        extraMonthlyIncome: { type: "number", description: "What-if: add this much recurring monthly income (a raise, freelance, side income)." },
+        extraMonthlySaving: { type: "number", description: "What-if: set aside this much more each month directly (on top of the computed net)." },
       },
       additionalProperties: false,
     },
@@ -756,31 +774,104 @@ async function projectSavings(userId: string, input: ToolInput, now: Date) {
     windowLabel = "current month so far (no full-month history yet)";
   }
 
-  const assumedSpend = toNum(input.monthlySpendOverride) ?? avgSpend;
-  const monthlyNet = monthlyIncome - assumedSpend;
   const remaining = Math.max(0, target - saved);
-  const monthsToTarget = remaining === 0 ? 0 : monthlyNet > 0 ? Math.ceil(remaining / monthlyNet) : null;
-  let estimatedArrival: string | null = null;
-  if (monthsToTarget != null) {
-    const d = new Date(year, month - 1 + monthsToTarget, 1);
-    estimatedArrival = fmtYM(d.getFullYear(), d.getMonth() + 1);
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  // Months-to-target + arrival for a given monthly net (shared by baseline + scenario).
+  const projectFor = (net: number): { monthsToTarget: number | null; estimatedArrival: string | null } => {
+    const monthsToTarget = remaining === 0 ? 0 : net > 0 ? Math.ceil(remaining / net) : null;
+    let estimatedArrival: string | null = null;
+    if (monthsToTarget != null) {
+      const d = new Date(year, month - 1 + monthsToTarget, 1);
+      estimatedArrival = fmtYM(d.getFullYear(), d.getMonth() + 1);
+    }
+    return { monthsToTarget, estimatedArrival };
+  };
+
+  const baseNet = monthlyIncome - avgSpend;
+  const base = projectFor(baseNet);
+  const baseline = {
+    monthlyIncome: { salary, otherRecurring: otherIncome, total: round2(monthlyIncome) },
+    monthlySpend: { basis: windowLabel, amount: round2(avgSpend) },
+    monthlyNetSavings: round2(baseNet),
+    monthsToTarget: base.monthsToTarget,
+    estimatedArrival: base.estimatedArrival,
+    ...(base.monthsToTarget == null && remaining > 0 && {
+      note: "monthly spend meets or exceeds income at this rate — unreachable without changes",
+    }),
+  };
+
+  // ── what-if simulator: compute a scenario only when a lever is supplied ──
+  const spendOverride = toNum(input.monthlySpendOverride);
+  const cutTotalPercent = toNum(input.cutTotalPercent);
+  const extraIncome = toNum(input.extraMonthlyIncome) ?? 0;
+  const extraSaving = toNum(input.extraMonthlySaving) ?? 0;
+  const cuts = (Array.isArray(input.cutCategories) ? input.cutCategories : [])
+    .map((c) => (c && typeof c === "object" ? (c as Record<string, unknown>) : null))
+    .filter((c): c is Record<string, unknown> => c != null && typeof c.category === "string");
+
+  const hasWhatIf =
+    spendOverride != null || cutTotalPercent != null || extraIncome !== 0 || extraSaving !== 0 || cuts.length > 0;
+
+  if (!hasWhatIf) {
+    return { target, saved, remainingToTarget: remaining, baseline, recentSpendByCategory: byCategory };
   }
+
+  const appliedLevers: string[] = [];
+  let scenarioSpend = avgSpend;
+  if (spendOverride != null) {
+    scenarioSpend = spendOverride;
+    appliedLevers.push(`assume total monthly spend = ${round2(spendOverride)}`);
+  } else {
+    for (const c of cuts) {
+      const category = c.category as string;
+      const catAvg = byCategory.find((b) => b.category === category)?.monthlyAverage ?? 0;
+      const pct = toNum(c.percent);
+      const amt = toNum(c.amount);
+      let reduction = 0;
+      if (pct != null) {
+        reduction = catAvg * (pct / 100);
+        appliedLevers.push(`cut ${category} by ${pct}% (−${round2(reduction)}/mo)`);
+      } else if (amt != null) {
+        reduction = Math.min(amt, catAvg); // can't cut more than they actually spend
+        appliedLevers.push(`cut ${category} by ${round2(reduction)}/mo`);
+      }
+      if (catAvg === 0) appliedLevers.push(`(no recent ${category} spend to cut)`);
+      scenarioSpend -= reduction;
+    }
+    if (cutTotalPercent != null) {
+      const before = scenarioSpend;
+      scenarioSpend *= 1 - cutTotalPercent / 100;
+      appliedLevers.push(`cut total spend by ${cutTotalPercent}% (−${round2(before - scenarioSpend)}/mo)`);
+    }
+  }
+  scenarioSpend = Math.max(0, scenarioSpend);
+
+  const scenarioIncome = monthlyIncome + extraIncome;
+  if (extraIncome !== 0) appliedLevers.push(`add ${round2(extraIncome)}/mo income`);
+  if (extraSaving !== 0) appliedLevers.push(`set aside ${round2(extraSaving)}/mo more`);
+
+  const scenarioNet = scenarioIncome - scenarioSpend + extraSaving;
+  const scen = projectFor(scenarioNet);
+  const monthsSaved =
+    base.monthsToTarget != null && scen.monthsToTarget != null ? base.monthsToTarget - scen.monthsToTarget : null;
 
   return {
     target,
     saved,
     remainingToTarget: remaining,
-    monthlyIncome: { salary, otherRecurring: otherIncome, total: monthlyIncome },
-    monthlySpend: {
-      basis: toNum(input.monthlySpendOverride) != null ? "override (what-if)" : windowLabel,
-      amount: Math.round(assumedSpend * 100) / 100,
+    baseline,
+    scenario: {
+      appliedLevers,
+      monthlyIncome: { total: round2(scenarioIncome), extraAdded: round2(extraIncome) },
+      monthlySpend: { amount: round2(scenarioSpend) },
+      extraMonthlySaving: round2(extraSaving),
+      monthlyNetSavings: round2(scenarioNet),
+      monthsToTarget: scen.monthsToTarget,
+      estimatedArrival: scen.estimatedArrival,
+      monthsSaved,
+      ...(scen.monthsToTarget == null && remaining > 0 && { note: "still unreachable even with these changes" }),
     },
-    monthlyNetSavings: Math.round(monthlyNet * 100) / 100,
-    monthsToTarget,
-    estimatedArrival,
-    ...(monthsToTarget == null && remaining > 0 && {
-      note: "monthly spend meets or exceeds income at this rate — the target is unreachable without changes",
-    }),
     recentSpendByCategory: byCategory,
   };
 }

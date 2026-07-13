@@ -139,7 +139,10 @@ function buildSystemPrompt(now: Date): string {
     `"看个人 / it's your call": e.g. "游戏占比偏高，不过如果它带给你快乐这完全没问题 — 想更快达标的话，可以考虑…".\n` +
     `- Check get_preferences before advising; respect what the user says they value.\n` +
     `- Ground every insight in real numbers from tools (amounts, percentages, months).\n` +
-    `- For projections, use project_savings and mention the assumption (average spend of recent months).\n\n` +
+    `- For projections, use project_savings and mention the assumption (average spend of recent months). ` +
+    `For "what if I cut X / earn more / save more" follow-ups, call it again with the what-if levers ` +
+    `(cutCategories, cutTotalPercent, extraMonthlyIncome, extraMonthlySaving) and compare the scenario ` +
+    `to the baseline — say how many months SOONER they'd reach the goal. Keep it gentle and preference-aware.\n\n` +
     `MAKING CHANGES: you can ADD, EDIT, DELETE expenses, CREATE and EDIT RECURRING rules, remember ` +
     `PREFERENCES, and reopen/close months. ` +
     `Every change is a PROPOSAL shown on a confirmation card; NOTHING is saved until the user taps Confirm.\n` +
