@@ -88,6 +88,8 @@ export interface SendAssistantMessageResult {
 export async function sendAssistantMessage(input: {
   sessionId: number | null;
   message: string;
+  /** 'quick' = the fast voice mic → brief, one-sentence reply (Slice 3). */
+  mode?: "quick";
 }): Promise<SendAssistantMessageResult> {
   const userId = await requireUserId();
   const message = input.message.trim().slice(0, 2000);
@@ -122,7 +124,7 @@ export async function sendAssistantMessage(input: {
   }
   const sid: number = sessionId;
 
-  const result = await runAssistantTurn(userId, history, message, new Date(), cardContext);
+  const result = await runAssistantTurn(userId, history, message, new Date(), cardContext, input.mode);
 
   // Persist the turn (user msg first, then reply) and bump the session's
   // updatedAt so it sorts to the top of the history list. `data` carries any
@@ -302,6 +304,11 @@ function sanitizeIncomeSource(f: IncomeSourceFields): IncomeSourceFields | null 
 
 export async function executeAssistantAction(
   action: AssistantActionInput,
+  // ADDED (Slice 3 — quick voice mic): when a create comes from the mic, tag the
+  // expense source='voice' so it keeps the ledger "voice" badge + shows in the
+  // recent-voice-log panel (the provenance the old single-shot mic set). Chat/typed
+  // creates stay 'manual'. Only create_expense carries a source column.
+  origin?: "voice" | "chat",
 ): Promise<AssistantActionResult> {
   const userId = await requireUserId();
   try {
@@ -316,7 +323,7 @@ export async function executeAssistantAction(
           note: f.note,
           tags: f.tags,
           ...(f.spentAt && { spentAt: f.spentAt }),
-          source: "manual",
+          source: origin === "voice" ? "voice" : "manual",
         },
         action.overrideClosed ?? false,
       );

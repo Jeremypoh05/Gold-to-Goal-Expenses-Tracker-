@@ -37,6 +37,7 @@ import { notifyDataChanged } from '@/lib/data-events';
 import { VoiceEntryEditor, type VoiceEntryValue } from '@/components/voice/VoiceEntryEditor';
 import { RecurringEntryEditor } from './RecurringEntryEditor';
 import { BonusEntryEditor, SalaryEntryEditor, SavingsGoalEditor, IncomeSourceEntryEditor } from './IncomeEntryEditors';
+import { useAssistant } from './AssistantContext';
 import {
     fetchAssistantSessions,
     fetchAssistantMessages,
@@ -189,7 +190,7 @@ function renderBold(text: string, keyBase: string): React.ReactNode {
 /** Renderer for assistant replies: **bold**, "-" bullets, line breaks, [[go:…]]
  *  navigation chips, and [[suggest:…]] tappable next-step chips. onNavigate lets a
  *  nav click close the surface; onSuggest fires the suggested message (= send()). */
-function AssistantText({
+export function AssistantText({
     text,
     onNavigate,
     onSuggest,
@@ -298,7 +299,7 @@ function AssistantText({
 
 /** Tiny STT-only recorder for the chat mic — transcript lands in the input box
  *  (the user reviews before sending, unlike the quick mic's one-shot flow). */
-function useChatMic(onText: (text: string) => void, onError: (msg: string) => void) {
+export function useChatMic(onText: (text: string) => void, onError: (msg: string) => void) {
     const [recording, setRecording] = useState(false);
     const [transcribing, setTranscribing] = useState(false);
     const recorderRef = useRef<MediaRecorder | null>(null);
@@ -615,6 +616,7 @@ function ProposalCard({
     onWritten,
     initialOutcome,
     onResolve,
+    origin,
 }: {
     proposal: Proposal;
     onNavigate: (target: NavTarget) => void;
@@ -623,6 +625,8 @@ function ProposalCard({
     initialOutcome?: ProposalOutcome;
     /** Persist the resolution so the status survives reload/navigation. */
     onResolve?: (outcome: ProposalOutcome, summary?: string) => void;
+    /** Slice 3: 'voice' tags a mic-created expense source='voice' (ledger badge). */
+    origin?: 'voice' | 'chat';
 }) {
     const [status, setStatus] = useState<CardStatus>(
         initialOutcome === 'confirmed' ? 'done' : initialOutcome === 'cancelled' ? 'cancelled' : 'idle',
@@ -653,11 +657,14 @@ function ProposalCard({
         try {
             let res;
             if (isCreate) {
-                res = await executeAssistantAction({
-                    kind: 'create_expense',
-                    fields: finalFields ?? proposal.create!,
-                    overrideClosed: !!closed,
-                });
+                res = await executeAssistantAction(
+                    {
+                        kind: 'create_expense',
+                        fields: finalFields ?? proposal.create!,
+                        overrideClosed: !!closed,
+                    },
+                    origin,
+                );
             } else if (kind === 'update_expense') {
                 res = await executeAssistantAction({
                     kind: 'update_expense',
@@ -2004,6 +2011,53 @@ function EditIncomeSourceProposalCard({
 
 // ── the chat core ────────────────────────────────────────────
 
+/** Renders the confirm cards for a message's proposals, dispatched by kind. Extracted
+ *  (Slice 3) so BOTH the chat and the quick-mic surface render IDENTICAL cards from one
+ *  place. The quick-mic passes origin='voice' so a mic-created expense keeps
+ *  source='voice' (ledger badge + recent-voice-log). onResolve persists the outcome. */
+export function ProposalCardList({
+    proposals,
+    onNavigate,
+    onWritten,
+    onResolve,
+    origin,
+}: {
+    proposals: ClientProposal[];
+    onNavigate: (target: NavTarget) => void;
+    onWritten: () => void;
+    onResolve: (proposalId: string, outcome: ProposalOutcome, summary?: string) => void;
+    origin?: 'voice' | 'chat';
+}) {
+    if (!proposals || proposals.length === 0) return null;
+    return (
+        <div className="w-full flex flex-col gap-1">
+            {proposals.map((p) =>
+                p.kind === 'create_recurring' ? (
+                    <CreateRecurringProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'edit_recurring' ? (
+                    <RecurringProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'set_preference' ? (
+                    <PreferenceProposalCard key={p.id} proposal={p} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'set_month_status' ? (
+                    <MonthStatusProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'set_savings_goal' ? (
+                    <SavingsGoalProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'adjust_salary' ? (
+                    <SalaryProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'create_bonus' || p.kind === 'update_bonus' || p.kind === 'delete_bonus' ? (
+                    <BonusProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'create_income_source' ? (
+                    <CreateIncomeSourceProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : p.kind === 'edit_income_source' ? (
+                    <EditIncomeSourceProposalCard key={p.id} proposal={p} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ) : (
+                    <ProposalCard key={p.id} proposal={p} origin={origin} onNavigate={onNavigate} onWritten={onWritten} initialOutcome={p.outcome} onResolve={(o, s) => onResolve(p.id, o, s)} />
+                ),
+            )}
+        </div>
+    );
+}
+
 export function AssistantChat({
     active,
     className,
@@ -2017,6 +2071,9 @@ export function AssistantChat({
 }) {
     const confirm = useConfirm();
     const router = useRouter();
+    // Slice 3: the full chat picks up a hand-off left by the quick-mic (a session to
+    // jump to, or a prompt to pre-fill / auto-send) and clears it via consumePending().
+    const { pending, consumePending } = useAssistant();
     const [sessionId, setSessionId] = useState<number | null>(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [sessions, setSessions] = useState<AssistantSessionSummary[]>([]);
@@ -2070,7 +2127,10 @@ export function AssistantChat({
     };
 
     // Restore the latest conversation the first time the surface becomes active.
+    // Slice 3: a pending hand-off (from the quick-mic) takes priority over restore —
+    // it's handled by its own effect below, so skip restore while one is queued.
     useEffect(() => {
+        if (pending) return;
         if (!active || initedRef.current) return;
         initedRef.current = true;
         (async () => {
@@ -2090,7 +2150,7 @@ export function AssistantChat({
                 /* first-load hiccup — the user can still start a fresh chat */
             }
         })();
-    }, [active]);
+    }, [active, pending]);
 
     // Keep the thread pinned to the bottom as messages stream in.
     useEffect(() => {
@@ -2211,6 +2271,34 @@ export function AssistantChat({
 
     /** Stop the in-flight reply (aborts the fetch → the route aborts upstream). */
     const stop = useCallback(() => abortRef.current?.abort(), []);
+
+    // ADDED (Slice 3 — "one brain"): consume a hand-off from the quick-mic. When the
+    // full chat opens with a pending session, jump straight to (and re-fetch) that
+    // thread so the turn the user just did by voice is right there; a pending prompt
+    // pre-fills or auto-sends. Priority over the plain restore above. Defined after
+    // `send` so it can auto-send.
+    useEffect(() => {
+        if (!active || !pending) return;
+        const p = pending;
+        consumePending();
+        initedRef.current = true; // a hand-off counts as "initialised" — don't also restore
+        (async () => {
+            try {
+                if (p.sessionId != null) {
+                    const msgs = await fetchAssistantMessages(p.sessionId);
+                    setSessionId(p.sessionId);
+                    setMessages(msgs.map(persistedToChatMessage));
+                    fetchAssistantSessions().then(setSessions).catch(() => {});
+                }
+            } catch {
+                /* couldn't load the handed-off thread — the user can still type */
+            }
+            if (p.prompt) {
+                if (p.autoSend) void send(p.prompt);
+                else setInput(p.prompt);
+            }
+        })();
+    }, [active, pending, consumePending, send]);
 
     const mic = useChatMic(
         (text) => setInput((cur) => (cur ? `${cur} ${text}` : text)),
@@ -2515,95 +2603,15 @@ export function AssistantChat({
                                         ))}
                                 </div>
                                 {/* WRITE confirm cards (Slice 2/2b) — nothing saves until tapped.
-                                    Dispatch by kind: recurring-rule + preference get their own cards. */}
+                                    Dispatched by kind in the shared ProposalCardList (Slice 3),
+                                    so the chat + quick-mic render identical cards. */}
                                 {m.role === 'assistant' && m.proposals && m.proposals.length > 0 && (
-                                    <div className="w-full flex flex-col gap-1">
-                                        {m.proposals.map((p) =>
-                                            p.kind === 'create_recurring' ? (
-                                                <CreateRecurringProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'edit_recurring' ? (
-                                                <RecurringProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'set_preference' ? (
-                                                <PreferenceProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'set_month_status' ? (
-                                                <MonthStatusProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'set_savings_goal' ? (
-                                                <SavingsGoalProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'adjust_salary' ? (
-                                                <SalaryProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'create_bonus' ||
-                                              p.kind === 'update_bonus' ||
-                                              p.kind === 'delete_bonus' ? (
-                                                <BonusProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'create_income_source' ? (
-                                                <CreateIncomeSourceProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : p.kind === 'edit_income_source' ? (
-                                                <EditIncomeSourceProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ) : (
-                                                <ProposalCard
-                                                    key={p.id}
-                                                    proposal={p}
-                                                    onNavigate={handleNavigate}
-                                                    onWritten={handleWritten}
-                                                    initialOutcome={p.outcome}
-                                                    onResolve={(o, s) => persistOutcome(p.id, o, s)}
-                                                />
-                                            ),
-                                        )}
-                                    </div>
+                                    <ProposalCardList
+                                        proposals={m.proposals}
+                                        onNavigate={handleNavigate}
+                                        onWritten={handleWritten}
+                                        onResolve={persistOutcome}
+                                    />
                                 )}
                             </div>
                         </motion.div>

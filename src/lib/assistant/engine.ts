@@ -245,9 +245,22 @@ function buildSystemPrompt(now: Date): string {
 // claude-api skill's prompt-caching notes); repeat turns (and, since the stable text
 // carries no per-user data, EVERY user's turns) pay ~10% for that portion instead of
 // full price. Ephemeral (5-minute) TTL, no beta header required.
-function systemBlocks(now: Date, cardContext: string, userMessage: string): Anthropic.TextBlockParam[] {
+// ADDED (Slice 3 — quick voice mic): a per-turn brevity directive. The quick-mic
+// is a fast, one-shot voice surface (not the full chat), so its replies should be a
+// single short spoken-style sentence — actions still raise their normal confirm card;
+// depth/follow-up is what the "Continue in assistant" hand-off is for. Lives in the
+// small VOLATILE (uncached) block so it never disturbs the cached stable prefix.
+const QUICK_MODE_DIRECTIVE =
+  "\n\nQUICK VOICE MODE — the user is using the fast voice mic, NOT the full chat. Keep the reply to ONE short, spoken-style sentence (a brief confirmation or summary). Do NOT give long breakdowns, multiple tips, or [[go:...]]/[[suggest:...]] chips here. For any action (log / edit / recurring / income / month / savings) still call the write tool as usual — the confirm card carries the detail. If the user needs depth, analysis, or a back-and-forth, they'll tap “Continue in assistant”, so just answer briefly.";
+
+function systemBlocks(
+  now: Date,
+  cardContext: string,
+  userMessage: string,
+  mode?: "quick",
+): Anthropic.TextBlockParam[] {
   const stable = buildSystemPrompt(now);
-  const volatile = cardContext + languageDirective(userMessage);
+  const volatile = cardContext + languageDirective(userMessage) + (mode === "quick" ? QUICK_MODE_DIRECTIVE : "");
   const blocks: Anthropic.TextBlockParam[] = [
     { type: "text", text: stable, cache_control: { type: "ephemeral" } },
   ];
@@ -282,6 +295,7 @@ export async function runAssistantTurn(
   userMessage: string,
   now: Date = new Date(),
   cardContext = "",
+  mode?: "quick",
 ): Promise<AssistantTurnResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -295,7 +309,7 @@ export async function runAssistantTurn(
   }
 
   const client = new Anthropic({ apiKey });
-  const system = systemBlocks(now, cardContext, userMessage);
+  const system = systemBlocks(now, cardContext, userMessage, mode);
 
   const messages: Anthropic.MessageParam[] = [
     ...cachedHistoryMessages(history),
