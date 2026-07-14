@@ -766,6 +766,17 @@ function ProposalCard({
                 </div>
             )}
 
+            {/* possible duplicate caution (dedup restore — deterministic same-amount/same-day check) */}
+            {isCreate && proposal.duplicate && (
+                <div className="text-[10.5px] leading-relaxed rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-400 bg-amber-500/10">
+                    ⚠ Looks similar to an entry you already have:{' '}
+                    {money(proposal.duplicate.amount, proposal.duplicate.currency)} ·{' '}
+                    {CATEGORIES[proposal.duplicate.category]?.label ?? proposal.duplicate.category}
+                    {proposal.duplicate.note ? ` · ${proposal.duplicate.note}` : ''} on {proposal.duplicate.date}.
+                    Confirm only if this is a separate spend.
+                </div>
+            )}
+
             {/* closed-month caution */}
             {closed && (
                 <div className="text-[10.5px] leading-relaxed rounded-lg px-2 py-1.5 text-amber-700 dark:text-amber-400 bg-amber-500/10">

@@ -11,6 +11,7 @@ import {
   cardOutcomeContext,
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
+import { tryFastPath, extractLastCreate, type LastExpenseContext } from "@/lib/assistant/fast-path";
 import type { Proposal } from "@/lib/assistant/types";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -39,6 +40,8 @@ export async function POST(req: Request): Promise<Response> {
   // message content — appending them to the assistant's own content made the model
   // echo the annotation back to the user verbatim.
   let cardContext = "";
+  // The session's most recent create card — the fast path's amend/delete-last context.
+  let lastExpense: LastExpenseContext | null = null;
   if (sessionId != null) {
     const session = await prisma.chatSession.findFirst({
       where: { id: sessionId, userId },
@@ -51,6 +54,7 @@ export async function POST(req: Request): Promise<Response> {
         content: m.content,
       }));
       cardContext = cardOutcomeContext(session.messages);
+      lastExpense = extractLastCreate(session.messages);
     }
   }
   if (sessionId == null) {
@@ -84,29 +88,48 @@ export async function POST(req: Request): Promise<Response> {
       const toolsUsed: string[] = [];
       const proposals: Proposal[] = [];
       try {
-        for await (const ev of runAssistantTurnStreaming(userId, history, message, {
-          signal: req.signal,
-          cardContext,
-        })) {
-          if (ev.type === "text") {
-            full += ev.text;
-            if (!send({ type: "text", text: ev.text })) break;
-          } else if (ev.type === "reset") {
-            // Pre-tool narration discarded — drop it from what we persist too, so the
-            // saved reply matches the de-duplicated bubble the user sees.
-            full = "";
-            send({ type: "reset" });
-          } else if (ev.type === "tool") {
-            toolsUsed.push(ev.name);
-            send({ type: "tool", name: ev.name });
-          } else if (ev.type === "proposal") {
-            // A WRITE proposal — the chat renders a confirm card; nothing is saved
-            // until the user taps Confirm (→ executeAssistantAction). Collected so we
-            // persist it (outcome=pending) → the card + its status survive a reload.
-            proposals.push(ev.proposal);
-            send({ type: "proposal", proposal: ev.proposal });
-          } else if (ev.type === "error") {
-            send({ type: "error" });
+        // ADDED (cost optimization — fast-path router): try the cheap single-shot
+        // classifier first (behind a zero-cost deterministic gate). It handles
+        // clean logs (1-3 per message), amend/delete of the just-logged expense,
+        // and simple spend totals — anything else falls through to the full
+        // streaming agent completely unchanged, below.
+        const fastPath = await tryFastPath(userId, message, new Date(), lastExpense);
+        if (fastPath) {
+          full = fastPath.reply;
+          send({ type: "text", text: fastPath.reply });
+          for (const t of fastPath.toolsUsed) {
+            toolsUsed.push(t);
+            send({ type: "tool", name: t });
+          }
+          for (const p of fastPath.proposals) {
+            proposals.push(p);
+            send({ type: "proposal", proposal: p });
+          }
+        } else {
+          for await (const ev of runAssistantTurnStreaming(userId, history, message, {
+            signal: req.signal,
+            cardContext,
+          })) {
+            if (ev.type === "text") {
+              full += ev.text;
+              if (!send({ type: "text", text: ev.text })) break;
+            } else if (ev.type === "reset") {
+              // Pre-tool narration discarded — drop it from what we persist too, so the
+              // saved reply matches the de-duplicated bubble the user sees.
+              full = "";
+              send({ type: "reset" });
+            } else if (ev.type === "tool") {
+              toolsUsed.push(ev.name);
+              send({ type: "tool", name: ev.name });
+            } else if (ev.type === "proposal") {
+              // A WRITE proposal — the chat renders a confirm card; nothing is saved
+              // until the user taps Confirm (→ executeAssistantAction). Collected so we
+              // persist it (outcome=pending) → the card + its status survive a reload.
+              proposals.push(ev.proposal);
+              send({ type: "proposal", proposal: ev.proposal });
+            } else if (ev.type === "error") {
+              send({ type: "error" });
+            }
           }
         }
       } catch {

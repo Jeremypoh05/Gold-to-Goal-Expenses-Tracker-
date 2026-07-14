@@ -63,6 +63,77 @@ function ThinkingDots() {
     );
 }
 
+/** ADDED (transcribe-confirm, user request): what we heard is STAGED here for the
+ *  user to check/fix before anything is sent — no more auto-firing a (paid) AI call
+ *  off a garbled or half-finished take. Editable so small STT slips don't force a
+ *  whole re-record. */
+function DraftReview({
+    value,
+    onChange,
+    onSend,
+    onRerecord,
+    onDiscard,
+    busy,
+}: {
+    value: string;
+    onChange: (v: string) => void;
+    onSend: () => void;
+    onRerecord: () => void;
+    onDiscard: () => void;
+    busy: boolean;
+}) {
+    return (
+        <div
+            className="w-full max-w-[340px] rounded-2xl border border-gold-500/40 p-3 flex flex-col gap-2"
+            style={{ background: 'var(--color-bg-card)' }}
+        >
+            <div className="text-[10.5px] uppercase tracking-[0.05em] font-semibold text-ink-2">
+                Did I hear that right?
+            </div>
+            <textarea
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        onSend();
+                    }
+                }}
+                rows={2}
+                className="w-full text-[13px] bg-transparent text-ink-0 resize-none outline-none leading-relaxed"
+                aria-label="Edit what was heard before sending"
+            />
+            <div className="flex items-center gap-2 pt-0.5">
+                <button
+                    type="button"
+                    disabled={busy || !value.trim()}
+                    onClick={onSend}
+                    className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-1.5 rounded-full text-[#1a120a] cursor-pointer hover:brightness-[1.03] transition-all disabled:opacity-60"
+                    style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))' }}
+                >
+                    Send
+                </button>
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onRerecord}
+                    className="inline-flex items-center gap-1.5 text-[11.5px] font-medium px-3 py-1.5 rounded-full border border-line-soft text-ink-1 hover:text-ink-0 hover:border-gold-500/50 transition-colors cursor-pointer disabled:opacity-60"
+                >
+                    ↻ Re-record
+                </button>
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onDiscard}
+                    className="text-[11.5px] text-ink-2 hover:text-ink-0 transition-colors px-2 py-1.5 cursor-pointer disabled:opacity-60"
+                >
+                    Discard
+                </button>
+            </div>
+        </div>
+    );
+}
+
 /** The hero control — a big, alive "tap to talk" mic. Idle: gold, gentle breathing +
  *  the app's sonar `.pulse` rings. Recording: coral, faster pulse + expanding rings.
  *  Busy (transcribing / thinking): a spinner, disabled. */
@@ -185,8 +256,11 @@ export function QuickVoice({
         }
     };
 
+    // Transcribe-confirm (user request): a finished take lands in `draft` for the
+    // user to check/edit — NOTHING is sent (and no AI is spent) until they tap Send.
+    const [draft, setDraft] = useState<string | null>(null);
     const mic = useChatMic(
-        (text) => void runQuickTurn(text),
+        (text) => setDraft(text),
         (msg) => setErrorMsg(msg),
     );
 
@@ -195,7 +269,22 @@ export function QuickVoice({
         if (busy) return;
         setErrorMsg('');
         if (mic.recording) mic.stop();
-        else mic.start();
+        else {
+            setDraft(null); // tapping the mic over a staged draft = re-record
+            mic.start();
+        }
+    };
+    const sendDraft = () => {
+        const text = (draft ?? '').trim();
+        if (!text || busy) return;
+        setDraft(null);
+        void runQuickTurn(text);
+    };
+    const rerecord = () => {
+        if (busy) return;
+        setDraft(null);
+        setErrorMsg('');
+        mic.start();
     };
 
     // After a confirmed write: refresh the visible pages so the ledger voice badge +
@@ -214,25 +303,39 @@ export function QuickVoice({
     };
 
     const statusLabel = mic.recording
-        ? 'Listening… tap to send'
+        ? 'Listening… tap when done'
         : mic.transcribing
           ? 'Got it — reading…'
           : thinking
             ? 'Thinking…'
-            : 'Tap to talk';
+            : draft != null
+              ? 'Check what I heard'
+              : 'Tap to talk';
 
-    // Empty state — the big mic is the hero.
+    // Empty state — the big mic is the hero (with the staged draft below it).
     if (turns.length === 0) {
         return (
             <div className="flex flex-col flex-1 min-h-0 items-center justify-center gap-6 px-6 text-center">
                 <TalkButton big recording={mic.recording} busy={busy} onClick={toggleMic} />
                 <div>
                     <div className="text-[15px] font-semibold text-ink-0">{statusLabel}</div>
-                    <p className="text-[12.5px] text-ink-2 mt-2 leading-relaxed max-w-[290px]">
-                        Say what you spent — “coffee 4.50”, “changed rent to 1300” — or ask how you&apos;re
-                        tracking. English or Mandarin, up to you.
-                    </p>
+                    {draft == null && (
+                        <p className="text-[12.5px] text-ink-2 mt-2 leading-relaxed max-w-[290px]">
+                            Say what you spent — “coffee 4.50”, “changed rent to 1300” — or ask how you&apos;re
+                            tracking. English or Mandarin, up to you.
+                        </p>
+                    )}
                 </div>
+                {draft != null && !mic.recording && (
+                    <DraftReview
+                        value={draft}
+                        onChange={setDraft}
+                        onSend={sendDraft}
+                        onRerecord={rerecord}
+                        onDiscard={() => setDraft(null)}
+                        busy={busy}
+                    />
+                )}
                 {mic.recording && (
                     <button
                         type="button"
@@ -294,6 +397,16 @@ export function QuickVoice({
             </div>
 
             <div className="border-t border-line-soft px-4 pt-3 pb-4 flex flex-col items-center gap-2">
+                {draft != null && !mic.recording && (
+                    <DraftReview
+                        value={draft}
+                        onChange={setDraft}
+                        onSend={sendDraft}
+                        onRerecord={rerecord}
+                        onDiscard={() => setDraft(null)}
+                        busy={busy}
+                    />
+                )}
                 <TalkButton recording={mic.recording} busy={busy} onClick={toggleMic} />
                 <div className="text-[11px] text-ink-2 h-4">{statusLabel}</div>
                 {mic.recording && (

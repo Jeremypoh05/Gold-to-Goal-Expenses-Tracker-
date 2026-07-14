@@ -8,6 +8,16 @@ import { prisma } from "@/lib/db";
 
 export type AiFeature =
   | "assistant_chat"
+  // ADDED (cost optimization — fast-path router): the cheap single-shot classifier
+  // that pre-filters brand-new, unambiguous expense logs before the full agent.
+  // Logged separately from "assistant_chat" so fast-path vs full-agent cost/volume
+  // is measurable independently.
+  | "assistant_fast_path"
+  // ADDED (cost optimization — arch B): the gpt-4o-mini extract-only path for
+  // simple single-item logs (a NON-Anthropic model, ~20x cheaper than the Haiku
+  // classifier). Tagged separately so the mini tier's volume/tokens — and the fact
+  // that its `model` column holds an OpenAI id, priced differently — stay isolated.
+  | "assistant_fast_path_mini"
   | "voice_parse"
   | "voice_edit"
   | "ai_suggest_category"

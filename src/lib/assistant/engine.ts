@@ -166,7 +166,13 @@ function buildSystemPrompt(now: Date): string {
     `"X" → CONFIRMED / CANCELLED / PENDING]). Trust it. A CANCELLED or CONFIRMED card is finished and no longer ` +
     `on screen — NEVER tell the user an old card is "already prepared" or still waiting. If they still want a ` +
     `cancelled action, propose a fresh card by calling the tool again.\n` +
-    `- create_expense: to log a new spend. Infer category/currency/tags/note; omit date for today.\n` +
+    `- create_expense: to log a new spend. Infer category/currency/tags/note; omit date for today. ` +
+    `Currency words: 新币/坡币 → SGD; 令吉/马币/ringgit/RM → MYR; 人民币 → CNY. FUTURE dates are NOT ` +
+    `supported — Honey records spending up to today only. If the user asks to log a future-dated ` +
+    `expense, do NOT call create_expense; explain gently and suggest logging it on the day (or a ` +
+    `recurring rule if it repeats monthly).\n` +
+    `- If a request is missing a REQUIRED detail (like the amount), ask your one clarifying question ` +
+    `directly WITHOUT calling tools first — don't run exploratory searches to guess what they meant.\n` +
     `- update_expense / delete_expense: you MUST have the expense id first — call find_expenses to locate ` +
     `the row (its id is in the results), then act on that id. update_expense changes only the fields you ` +
     `pass. If several rows could match ("my coffee"), ask which one instead of guessing.\n` +

@@ -986,7 +986,11 @@ function pickCurrency(v: unknown): Currency | null {
 /** A shared "not a proposal" shape so Claude can recover (ask again / re-search). */
 type ToolError = { error: string };
 
-async function proposeCreateExpense(
+// Exported: the cost-optimization fast-path router (fast-path.ts) calls this
+// SAME function directly for its own narrow create-only case, so validation +
+// closed-month detection + the proposal shape are guaranteed identical to what
+// the full agent's create_expense tool produces — no duplicated logic.
+export async function proposeCreateExpense(
   userId: string,
   input: ToolInput,
   now: Date,
@@ -1003,10 +1007,43 @@ async function proposeCreateExpense(
     if (!parsed) return { error: "date must be YYYY-MM-DD" };
     when = parsed;
   }
+  // Honey records spending as it happens — future-dated expenses aren't supported
+  // (recurring materialization also only runs up to today). Shared here so BOTH the
+  // full agent's create_expense tool AND the fast-path router enforce it identically.
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  if (when.getTime() > endOfToday.getTime()) {
+    return {
+      error:
+        "that date is in the future — Honey only records spending up to today. Tell the user " +
+        "politely that future expenses can't be logged yet (suggest logging it on the day, or " +
+        "creating a recurring rule if it repeats monthly). Do NOT retry with a future date.",
+    };
+  }
   const tags = normalizeTags(Array.isArray(input.tags) ? (input.tags as string[]) : []);
   const note = typeof input.note === "string" ? input.note.trim() : "";
   const fields: ExpenseFields = { amount, currency, category, note, tags, spentAt: when.toISOString() };
-  const closedMonth = await closedMonthKey(userId, when);
+  // Deterministic dedup check (zero AI, same spirit as the old quick-mic's client-side
+  // check): an existing row with the SAME amount on the SAME day is probably the same
+  // spend being logged twice. Warning only — the card flags it, never blocks.
+  const dayStart = new Date(when.getFullYear(), when.getMonth(), when.getDate());
+  const dayEnd = new Date(when.getFullYear(), when.getMonth(), when.getDate(), 23, 59, 59, 999);
+  const [closedMonth, dupRow] = await Promise.all([
+    closedMonthKey(userId, when),
+    prisma.expense.findFirst({
+      where: { userId, amount, spentAt: { gte: dayStart, lte: dayEnd } },
+      orderBy: { createdAt: "desc" },
+      select: { amount: true, currency: true, category: true, note: true, spentAt: true },
+    }),
+  ]);
+  const duplicate = dupRow
+    ? {
+        date: fmtDate(dupRow.spentAt),
+        amount: Number(dupRow.amount),
+        currency: dupRow.currency as Currency,
+        category: dupRow.category as CategoryKey,
+        note: dupRow.note ?? "",
+      }
+    : null;
 
   return {
     proposal: {
@@ -1014,11 +1051,15 @@ async function proposeCreateExpense(
       kind: "create_expense",
       summary: `Add ${fmtMoney(amount, currency)} · ${category}${note ? ` · ${note}` : ""}`,
       closedMonth,
+      duplicate,
       create: fields,
     },
     modelResult:
       "Add-expense proposal is on screen as a confirmation card — nothing is saved yet. " +
       "Briefly ask the user to review and Confirm it (don't restate every field)." +
+      (duplicate
+        ? ` HEADS-UP: a very similar expense already exists (${fmtMoney(duplicate.amount, duplicate.currency)} · ${duplicate.category}${duplicate.note ? ` · ${duplicate.note}` : ""} on ${duplicate.date}) — briefly warn the user they may be logging the same spend twice; the card shows the warning too.`
+        : "") +
       (closedMonth
         ? ` Note: ${closedMonth} is closed; the card lets them add anyway or cancel.`
         : " The target month is currently OPEN — do NOT mention closing/reopening."),
@@ -1044,7 +1085,10 @@ function rowToFields(r: {
   };
 }
 
-async function proposeUpdateExpense(
+// Exported (like proposeCreateExpense) for the fast-path router's amend-last case —
+// same validation, closed-month checks, and before→after proposal shape as the
+// full agent's update_expense tool.
+export async function proposeUpdateExpense(
   userId: string,
   input: ToolInput,
 ): Promise<WriteToolOutput | ToolError> {
@@ -1127,7 +1171,8 @@ async function proposeUpdateExpense(
   };
 }
 
-async function proposeDeleteExpense(
+// Exported for the fast-path router's delete-last case (see proposeCreateExpense).
+export async function proposeDeleteExpense(
   userId: string,
   input: ToolInput,
 ): Promise<WriteToolOutput | ToolError> {

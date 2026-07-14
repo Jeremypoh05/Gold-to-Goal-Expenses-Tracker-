@@ -149,7 +149,7 @@ model AiUsageLog {
   id                Int      @id @default(autoincrement())
   userId            String
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  feature           String   // "assistant_chat" | "voice_parse" | "voice_edit" | "ai_suggest_category" | "ai_suggest_fixed_meta"
+  feature           String   // "assistant_chat" | "assistant_fast_path" | "assistant_fast_path_mini" | "voice_parse" | "voice_edit" | "ai_suggest_category" | "ai_suggest_fixed_meta"
   model             String   // e.g. "claude-sonnet-5", "claude-haiku-4-5"
   inputTokens       Int      @default(0)
   outputTokens      Int      @default(0)

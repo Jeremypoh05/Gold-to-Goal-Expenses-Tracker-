@@ -11,6 +11,7 @@ import {
   cardOutcomeContext,
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
+import { tryFastPath, extractLastCreate, type LastExpenseContext } from "@/lib/assistant/fast-path";
 import {
   createExpense,
   updateExpense,
@@ -102,6 +103,8 @@ export async function sendAssistantMessage(input: {
   let history: AssistantHistoryMessage[] = [];
   // Past cards' outcomes go in the SYSTEM prompt, not the message content (see route.ts).
   let cardContext = "";
+  // The session's most recent create card — the fast path's amend/delete-last context.
+  let lastExpense: LastExpenseContext | null = null;
   if (sessionId != null) {
     const session = await prisma.chatSession.findFirst({
       where: { id: sessionId, userId },
@@ -114,6 +117,7 @@ export async function sendAssistantMessage(input: {
         content: m.content,
       }));
       cardContext = cardOutcomeContext(session.messages);
+      lastExpense = extractLastCreate(session.messages);
     }
   }
   if (sessionId == null) {
@@ -124,7 +128,16 @@ export async function sendAssistantMessage(input: {
   }
   const sid: number = sessionId;
 
-  const result = await runAssistantTurn(userId, history, message, new Date(), cardContext, input.mode);
+  // ADDED (cost optimization — fast-path router): try the cheap single-shot
+  // classifier first (behind a zero-cost deterministic gate). It handles clean
+  // logs (1-3 per message), amend/delete of the just-logged expense, and simple
+  // spend totals — and bails (returns null) at the slightest doubt; everything
+  // else falls through to the full agent unchanged, below.
+  const now = new Date();
+  const fastPath = await tryFastPath(userId, message, now, lastExpense);
+  const result = fastPath
+    ? { ok: true, reply: fastPath.reply, toolsUsed: fastPath.toolsUsed, proposals: fastPath.proposals }
+    : await runAssistantTurn(userId, history, message, now, cardContext, input.mode);
 
   // Persist the turn (user msg first, then reply) and bump the session's
   // updatedAt so it sorts to the top of the history list. `data` carries any
