@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Design-phase mockup/reference JSX (not shipped code, never imported by src/) —
+    // they carried 73 of the repo's 75 lint errors and drowned out real ones.
+    ".claude/**",
   ]),
 ]);
 

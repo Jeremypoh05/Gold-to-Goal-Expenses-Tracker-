@@ -76,7 +76,10 @@ export function extractLastCreate(
 
 // ── deterministic pre-gate (zero API cost) ───────────────────
 
-const HAS_NUMBER_RE = /[0-9０-９]|[一二两三四五六七八九十百千万]/;
+// Digits across scripts (multilingual round): ASCII/fullwidth + Arabic-Indic ٠-٩ +
+// Extended Arabic-Indic ۰-۹ + Devanagari ०-९ + Thai ๐-๙ + Chinese numerals. Without
+// these, an Arabic user's "غداء ١٥ أمس" never even entered the fast path.
+const HAS_NUMBER_RE = /[0-9０-９٠-٩۰-۹०-९๐-๙]|[一二两三四五六七八九十百千万]/;
 
 // Always full-agent territory — deep analysis, projections, searches over history,
 // recurring/income/months, referential requests. A hit here skips the classifier
@@ -87,10 +90,15 @@ const SKIP_RE = new RegExp(
     "为什么", "什么时候", "多久", "分析", "比较", "对比", "统计", "平均", "预算", "目标", "存到", "存款", "建议",
     "why", "how long", "analy[sz]", "compare", "average", "project", "breakdown", "summar", "budget",
     "\\bgoal\\b", "suggest", "recommend", "advice", "\\btrend", "overspen",
-    // searching / referencing history (needs real context)
-    "搜索", "查一下", "查查", "帮我查", "看看", "找一下", "找找", "寻找", "上次", "之前", "哪一笔", "哪笔",
-    "\\bsearch\\b", "\\bfind\\b", "\\blist\\b", "show me", "last time", "previous", "biggest", "largest",
-    "最大", "最贵", "最多",
+    // Genuine ambiguity that needs REAL conversation context to resolve (need the
+    // full agent). NOTE (2026-07-14): "之前/上次/previous/last time" were REMOVED —
+    // "修改之前买的吹风机" is now a perfectly good edit_search job for Haiku. Read-only
+    // search words ("搜索/查一下/find/list/biggest"…) were ALSO removed — those are now
+    // the search_query intent's job (see SEARCH_Q_RE below, which explicitly PERMITS
+    // them into the classifier instead of this list blocking them). "哪一笔/哪笔" stays
+    // here: "which one did I mean" typically references EARLIER conversation turns
+    // this stateless fast-path can't see — genuinely needs the full agent's history.
+    "哪一笔", "哪笔",
     // recurring / income / months — always the full agent's territory
     "recurring", "subscription", "订阅", "每个月", "每月", "月租", "房租", "租金", "\\brent\\b",
     "salary", "工资", "薪水", "bonus", "奖金", "income", "收入",
@@ -105,6 +113,21 @@ const TOTAL_Q_RE = new RegExp(
   "i",
 );
 
+// Read-only search/list/biggest-smallest phrasing — PERMITS a no-number message into
+// the classifier (search_query intent) instead of the default-deny gate blocking it.
+// This is the counterpart to SKIP_RE removing these same words: without this explicit
+// permit, "what's the cheapest thing I bought" (no digits at all) would silently fall
+// through fastPathGate's final `return false` and escalate straight to Sonnet.
+const SEARCH_Q_RE = new RegExp(
+  [
+    "查一下", "查查", "帮我查", "看看", "找一下", "找找", "寻找", "列一下", "列出", "搜索",
+    "\\bsearch\\b", "\\bfind\\b", "\\blist\\b", "show me",
+    "最大", "最贵", "最多", "最便宜", "最少", "最小",
+    "biggest", "largest", "smallest", "cheapest", "most expensive", "least expensive",
+  ].join("|"),
+  "i",
+);
+
 // Amend/delete phrasing about the just-logged expense — only meaningful when the
 // session actually HAS a last-logged expense to point at.
 const AMEND_RE = new RegExp(
@@ -112,6 +135,28 @@ const AMEND_RE = new RegExp(
     "改成", "改到", "改为", "修改", "改一下", "换成", "删掉", "删除", "不对", "错了", "记错",
     "\\bchange\\b", "\\bupdate\\b", "\\bedit\\b", "\\bfix\\b", "\\bwrong\\b", "\\bdelete\\b",
     "\\bremove\\b", "\\bundo\\b", "\\bcancel\\b", "取消",
+    // Multilingual amend/delete verbs (multilingual sweep, 2026-07-14): without these,
+    // "tukar jadi 15"-style amends-with-number in EVERY non-CN/EN language passed
+    // looksLikeSimpleLog and mini raised a wrong CREATE card. This list covers the
+    // tested top languages (Layer 1); the mini prompt's "not a log → empty array"
+    // self-screen (Layer 2) covers the long tail. False hits only cost the Haiku toll
+    // (escalation is the safe direction) — Haiku classified all 16/16 world amends.
+    // NOTE: \b only works next to ASCII word chars — accented/CJK starts use plain
+    // substrings deliberately.
+    "\\btukar", "\\bubah\\b", "\\bpadam", "\\bhapus", "\\bbuang\\b", "\\bganti\\b", "\\bbatal",
+    "\\bbetulkan", "\\bsalah\\b", // Malay/Indonesian
+    "c[aá]mbi", "\\bborra", "\\belimina", "corrige", // Spanish (+corrige covers French)
+    "änder", "lösch", "korrigier", // German
+    "\\bsupprim", "\\bmodifi", // French
+    "muda para", "\\bmudar\\b", "\\bmude\\b", "\\bapag", "\\bexclui", // Portuguese
+    "変更", "直して", "修正", "削除", "消して", "取り消", // Japanese
+    "바꿔", "수정", "삭제", "지워", // Korean
+    "เปลี่ยน", "แก้ไข", "ลบ", // Thai
+    "đổi thành", "\\bsửa", "xóa", "xoá", // Vietnamese
+    "غير", "غيّر", "احذف", "امسح", "عدل", "عدّل", // Arabic
+    "измени", "поменя", "удали", "исправ", // Russian
+    "மாற்று", "நீக்கு", "திருத்து", // Tamil (SG official language)
+    "बदल", "हटा", "मिटा", "ठीक कर", "कर दो", "बना दो", // Hindi
   ].join("|"),
   "i",
 );
@@ -122,12 +167,13 @@ export function fastPathGate(message: string, hasLastExpense: boolean): boolean 
   if (SKIP_RE.test(message)) return false;
   if (HAS_NUMBER_RE.test(message)) return true; // a possible log / amend-with-value
   if (TOTAL_Q_RE.test(message)) return true; // a possible simple total question
+  if (SEARCH_Q_RE.test(message)) return true; // a possible read-only search_query, even with no digits
   if (hasLastExpense && AMEND_RE.test(message)) return true; // "delete that" etc.
   return false;
 }
 
 // ── arch-B gate: is this a SIMPLE log (one or several) for the cheap mini tier? ──
-// gpt-4o-mini owns the slice it's proven clean on. This gate escalates — sends the
+// The mini model owns the slice it's proven clean on. This gate escalates — sends the
 // message to the Haiku classifier instead — only on things reliably pattern-matched
 // AND outside mini's safe zone: edits/deletes and any question/referential phrasing.
 // WEEKDAY dates are NO LONGER gated out: mini's only weakness was weekday ARITHMETIC,
@@ -142,12 +188,18 @@ const QUESTION_OR_REFERENTIAL_RE = new RegExp(
   [
     "多少", "几多", "为什么", "怎么", "how much", "how many", "how long", "\\bwhy\\b", "？", "\\?",
     "刚才", "那笔", "上一笔", "上笔", "\\bthat one\\b", "\\bthe previous\\b",
+    // Multilingual question/referential words (Layer 1 for the tested top languages;
+    // the mini self-screen covers the rest). Over-escalation is the safe direction.
+    "berapa", "kenapa", "mengapa", "\\btadi\\b", // Malay/Indonesian ("tadi" = just now, referential)
+    "combien", "pourquoi", // French
+    "cu[aá]nto", "por qué", // Spanish
+    "\\bquanto", "\\bquanta", "por que", "porqu[eê]", // Portuguese
   ].join("|"),
   "i",
 );
 
 /** Deterministic decision: is `message` a plausible simple expense log (one or
- *  several) that gpt-4o-mini can safely extract? Exported for the smoke test.
+ *  several) that the mini model can safely extract? Exported for the smoke test.
  *  Requires an amount and no edit/question/referential phrasing. Weekday dates are
  *  fine now — mini flags them via `lastWeekday` and code resolves the date. */
 export function looksLikeSimpleLog(message: string): boolean {
@@ -256,26 +308,47 @@ export const ROUTE_TOOL: Anthropic.Tool = {
     "was. A discourse-marker opener ('OK', 'also', 'another one:', '再来一个', '还有') followed by " +
     "COMPLETE details is still a log. A FUTURE-dated log is STILL intent 'log' — extract it normally " +
     "(the system itself declines future dates with a proper explanation; do not route it to 'other'). " +
-    "If any expense is missing its amount or is ambiguous → other.\n" +
-    "• amend_last — the message corrects the LAST-LOGGED expense shown in the context ('改成15块', " +
-    "'wrong, it was 15', 'make it lunch category', 'add tag work'). ONLY when the message plainly " +
-    "refers to that same expense (no other identifying description that mismatches it). Extract just " +
-    "the fields being CHANGED. If there is no last-logged context, or they describe a DIFFERENT " +
-    "expense ('my coffee from Tuesday') → other.\n" +
-    "• delete_last — the message asks to delete/undo the LAST-LOGGED expense in the context. Same " +
-    "matching rule as amend_last.\n" +
+    "If an amount is missing → use intent='other' with `clarify` asking for it, NOT 'log' with a " +
+    "guessed/missing amount.\n" +
+    "• amend_last — correct the LAST-LOGGED expense (shown in context) ONLY when the message refers to " +
+    "it WITHOUT naming a specific item/merchant/date to locate a row: 'make it 15', '改成15块', 'wrong, " +
+    "it was lunch not shopping', 'add tag work'. Extract just the fields being CHANGED into `amend`. " +
+    "⚠️ If the message names a specific item, merchant, or date to identify WHICH expense — EVEN IF it " +
+    "could be the last one (e.g. '把7月14号的下午茶改成100' when the last log was '套套') — do NOT use " +
+    "amend_last; use edit_search. No last-logged context → edit_search or other. If they clearly want to " +
+    "change the last-logged expense but DON'T say what the new value should be ('it's wrong', 'fix it') " +
+    "→ use intent='other' with `clarify` asking what it should be instead, NOT amend_last with an empty " +
+    "`amend`.\n" +
+    "• edit_search — EDIT an EXISTING expense the user pinpoints by DESCRIPTION (item/merchant + date " +
+    "and/or category), not the just-logged one: '把7月14号的下午茶改成100', 'change the Netflix charge " +
+    "to 19', '7月13号的手表改成80'. Put the locating criteria in `search` (keyword/date/category) and " +
+    "the new values in `amend`. This is the RIGHT intent for 'modify the <thing> on <date>'. If they " +
+    "name WHICH expense but not the new value → other + clarify instead (same rule as amend_last).\n" +
+    "• delete_last — delete/undo the LAST-LOGGED expense, same 'no locating description' rule as " +
+    "amend_last. If they name a specific item/date to find → delete_search.\n" +
+    "• delete_search — DELETE an EXISTING expense pinpointed by description: '删除7月13号的手表', " +
+    "'remove the Netflix charge', 'delete my taxi on the 5th'. Put the locating criteria in `search`.\n" +
     "• total_query — a simple 'how much did I spend' question: total spend, optionally ONE category, " +
     "for today / this week / this month / last month ONLY. Anything else (other periods, comparisons, " +
-    "why-questions, biggest-expense, per-day averages, budgets) → other.\n" +
-    "• other — EVERYTHING else: searches, edits of older expenses, analysis, projections, recurring " +
-    "rules, income, months, questions needing history, multi-intent messages (e.g. a log PLUS a " +
-    "question), or ANY doubt. When in doubt, always choose other.",
+    "why-questions, per-day averages, budgets) → other.\n" +
+    "• search_query — a READ-ONLY request to LIST/FIND expenses matching criteria, or to find the SINGLE " +
+    "biggest/smallest one in a period or on a day: '查一下我这个月买的鞋子', 'find my Netflix charges', " +
+    "'七月十三号最贵的一笔是什么', '这个月最便宜的一笔'. Put criteria in `search`: keyword/category + " +
+    "EITHER `date` (a specific day) OR `period` (today/this_week/this_month/last_month) — never both. " +
+    "`sort`='amount_desc' for biggest/most-expensive, 'amount_asc' for smallest/cheapest, omit for a plain " +
+    "list (newest-first). `limit`=1 for a single biggest/smallest question, omit for a general list. Only " +
+    "for sorting/filtering — if the user ALSO wants to change/delete something → edit_search/delete_search " +
+    "instead; if it needs REASONING beyond sort/filter (why/compare/average/trend/budget), or a date RANGE " +
+    "you can't express as one period, → other.\n" +
+    "• other — EVERYTHING else: analysis, projections, recurring rules, income, months, questions needing " +
+    "history/reasoning, multi-intent messages (e.g. a log PLUS a question), a target spanning an arbitrary " +
+    "RANGE of days, or ANY doubt. When in doubt, always choose other.",
   input_schema: {
     type: "object",
     properties: {
       intent: {
         type: "string",
-        enum: ["log", "amend_last", "delete_last", "total_query", "other"],
+        enum: ["log", "amend_last", "edit_search", "delete_last", "delete_search", "total_query", "search_query", "other"],
         description: "The single intent of this message. Choose 'other' on any doubt.",
       },
       expenses: {
@@ -295,7 +368,81 @@ export const ROUTE_TOOL: Anthropic.Tool = {
           lastWeekday: { type: "integer", description: "New date as a WEEKDAY reference (0=Sun..6=Sat); the system computes the exact date. Only if the user changed the date to a weekday." },
         },
         additionalProperties: false,
-        description: "intent=amend_last: ONLY the fields the user wants changed.",
+        description: "intent=amend_last OR edit_search: ONLY the fields the user wants changed (the NEW values).",
+      },
+      search: {
+        type: "object",
+        properties: {
+          keyword: {
+            type: "string",
+            description:
+              "The item / merchant / note word that identifies the ONE expense to act on, e.g. " +
+              "'下午茶', '手表', 'Netflix', 'taxi'. Copy the user's own word; do NOT translate it.",
+          },
+          category: {
+            type: "string",
+            enum: [...WRITABLE_CATEGORIES, "family"],
+            description: "Category filter, only if the user named one.",
+          },
+          date: {
+            type: "string",
+            description:
+              "The specific day YYYY-MM-DD the expense is on, if the message names one (resolve " +
+              "yesterday/N-days-ago/day-of-month against today; omit for a weekday reference — use " +
+              "lastWeekday). Omit entirely if no day is given.",
+          },
+          lastWeekday: {
+            type: "integer",
+            description: "Weekday 0=Sun..6=Sat if the day is a WEEKDAY reference; the system computes the date.",
+          },
+          period: {
+            type: "string",
+            enum: ["today", "this_week", "this_month", "last_month"],
+            description:
+              "intent=search_query ONLY: a period instead of a specific date (e.g. 'this month's " +
+              "biggest'). Never set together with date/lastWeekday.",
+          },
+          sort: {
+            type: "string",
+            enum: ["date_desc", "amount_desc", "amount_asc"],
+            description:
+              "intent=search_query ONLY: 'amount_desc' for biggest/most-expensive, 'amount_asc' for " +
+              "smallest/cheapest, omit for a plain list (defaults newest-first).",
+          },
+          limit: {
+            type: "integer",
+            description:
+              "intent=search_query ONLY: how many results to return. Use 1 for a single biggest/smallest " +
+              "question. Omit for a general list (defaults to 5, capped at 10).",
+          },
+        },
+        additionalProperties: false,
+        description: "intent=edit_search/delete_search/search_query: criteria to locate expense(s).",
+      },
+      clarify: {
+        type: "string",
+        description:
+          "⚠️ CHECK FOR MULTI-INTENT FIRST, before considering this field: if the message bundles a " +
+          "SECOND distinct request (another action, or a question) alongside the part that's missing a " +
+          "detail — e.g. 'log lunch 12 today, and how much have I spent on food this month?' — leave " +
+          "clarify UNSET and escalate silently. Asking one clarifying question would only resolve the " +
+          "first part and silently drop the second; only the full assistant can handle both in one turn.\n" +
+          "⚠️ ALSO check for a REFERENCE to something said EARLIER in this conversation ('like we just " +
+          "discussed', 'the same as before', 'as I mentioned', 'that one from earlier'): you only see " +
+          "THIS one message, not the conversation history, so you cannot actually resolve what they're " +
+          "referring to — asking a generic clarifying question here would make the user repeat something " +
+          "they already told the assistant. Leave clarify UNSET (escalate silently) so the full assistant, " +
+          "which DOES have the conversation history, can look it up instead.\n" +
+          "Otherwise: use ONLY together with intent='other', and ONLY when the ENTIRE message is a SINGLE " +
+          "request that is CLEARLY about adding, editing, deleting, or searching an expense (the right " +
+          "domain for you) but is missing ONE piece of information you'd need to act confidently — e.g. a " +
+          "bare amount with no idea what it was for, or 'change it' with no new value. Write ONE short, " +
+          "warm question in the user's OWN language/script asking for that missing piece — never claim " +
+          "anything was done or guess the missing detail. Leave this null/omit it for anything needing " +
+          "capability you don't have (analysis, projections, recurring rules, income, months), or a " +
+          "genuinely unclear request type — those must escalate silently (leave clarify unset) so the full " +
+          "assistant, which has those tools, can help. When unsure whether this is a simple missing-detail " +
+          "question or something needing the full assistant, leave clarify unset.",
       },
       total: {
         type: "object",
@@ -333,12 +480,15 @@ export function routeSystemPrompt(now: Date): string {
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
   return (
     `Today is ${weekday}, ${today}. You are a fast, narrow pre-filter in front of a full financial ` +
-    `assistant — your ONLY job is to spot the simplest cases (log / amend-last / delete-last / simple ` +
-    `total) and extract them, or bail out (intent 'other') so the full assistant, which has the whole ` +
-    `conversation, handles it instead. Bias heavily toward 'other' on any doubt, ambiguity, missing ` +
-    `detail, or a second request bundled in — a wrongly-accepted case here risks silently mis-handling ` +
-    `the user's money, which is unacceptable. Never invent a detail (amount, category, note, date) the ` +
-    `user didn't actually say.\n` +
+    `assistant — your ONLY job is to spot the simpler cases (log / amend-last / edit-search / ` +
+    `delete-last / delete-search / simple total / read-only search) and extract them, or bail out (intent ` +
+    `'other') so the full assistant, which has the whole conversation, handles it instead. Bias toward ` +
+    `'other' on any doubt, ambiguity, missing detail, or a second request bundled in — a wrongly-accepted ` +
+    `case here risks silently mis-handling the user's money, which is unacceptable. But 'other' does NOT ` +
+    `always mean a silent hand-off: if the ONLY thing missing is one small clarifying detail (see ` +
+    `'clarify' below), ask for it yourself — don't make the user wait for the full assistant just to be ` +
+    `asked a simple question. Never invent a detail (amount, category, note, date) the user didn't ` +
+    `actually say.\n` +
     `DATE RESOLUTION — resolve against today above: '昨天/yesterday' = today−1; '前天' = today−2; ` +
     `'N天前/N days ago' = today−N; '上个月N号/the Nth of last month' = day N of the previous month; ` +
     `put these in the 'date' field as YYYY-MM-DD. But for a WEEKDAY reference ('上个星期五/上礼拜三/` +
@@ -349,42 +499,46 @@ export function routeSystemPrompt(now: Date): string {
 }
 
 // ── deterministic reply templates ────────────────────────────
+// Warm, friendly tone (user request 2026-07-14) — these are FALLBACKS for the Haiku
+// paths + the rare null-mini-reply; the mini tier's own `reply` is already in-language
+// and warm. Kept honest: the card is PENDING the user's tap, never "saved/done".
 
 const isCJK = (s: string) => (s.match(/[一-鿿]/g) ?? []).length > 0;
 
 function fallbackLogReply(userMessage: string, count: number): string {
-  if (isCJK(userMessage)) return count > 1 ? `我准备了 ${count} 张卡片，请逐张确认。` : "我帮你准备了一张卡片，请检查后确认。";
+  if (isCJK(userMessage))
+    return count > 1 ? `帮你准备好 ${count} 张卡片啦，麻烦逐张确认一下哦～` : "帮你准备好卡片啦，检查一下再点确认就好～";
   return count > 1
-    ? `I've prepared ${count} cards below — please review each one.`
-    : "I've prepared a card below — please review and confirm.";
+    ? `I've popped ${count} cards below for you — have a quick look and confirm each one 🙂`
+    : "I've popped a card below for you — have a quick look and confirm 🙂";
 }
 
 function futureDateReply(userMessage: string): string {
   return isCJK(userMessage)
-    ? "这个日期还没到哦 — Honey 只能记录到今天为止的消费。到那天再记，或者如果是每月固定的，可以设一个 recurring。"
-    : "That date hasn't happened yet — Honey only records spending up to today. Log it on the day, or set up a recurring rule if it repeats monthly.";
+    ? "这个日期还没到哦～ Honey 只能记到今天为止的消费。到那天再记就好，或者如果是每个月固定的，我可以帮你设一个 recurring 😊"
+    : "Oops, that date's still in the future 🙂 Honey only records spending up to today — log it on the day, or I can set up a recurring rule if it repeats monthly.";
 }
 
 function amendReply(userMessage: string, replaced: boolean): string {
   if (isCJK(userMessage))
     return replaced
-      ? "我准备了一张更正后的卡片（旧的那张不用理，别按它的确认就行），请确认新的这张。"
-      : "我准备了一张更新卡片（改动前后都写在上面），请确认。";
+      ? "帮你另外准备了一张更正后的卡片啦（旧的那张不用管它，确认这张新的就好）～"
+      : "帮你准备好更新卡片啦，改动前后都写在上面了，确认一下就好～";
   return replaced
-    ? "I've prepared a corrected card — just ignore the earlier one and confirm this one instead."
-    : "I've prepared an update card (before → after shown) — please confirm.";
+    ? "I've prepared a fresh corrected card for you — just ignore the earlier one and confirm this new one 🙂"
+    : "I've prepared an update card for you (before → after shown) — confirm whenever you're ready 🙂";
 }
 
 function deleteReply(userMessage: string): string {
   return isCJK(userMessage)
-    ? "我准备了删除卡片，请确认后才会真的删掉。"
-    : "I've prepared a delete card — nothing is removed until you confirm.";
+    ? "删除卡片帮你准备好啦，点了确认才会真的删掉,别担心～"
+    : "I've prepared a delete card for you — nothing's removed until you confirm 🙂";
 }
 
 function pendingDeleteReply(userMessage: string): string {
   return isCJK(userMessage)
-    ? "那笔还没保存 — 卡片还等着你确认，直接按卡片上的 Cancel 就可以了，不用删除。"
-    : "That one was never saved — its card is still waiting for you, so just tap Cancel on the card. Nothing to delete.";
+    ? "那笔其实还没保存哦～ 卡片还等着你确认呢,直接按卡片上的 Cancel 就好,不用特地删除～"
+    : "That one was never actually saved 🙂 its card is still waiting for you — just tap Cancel on the card, nothing to delete.";
 }
 
 const CATEGORY_LABELS: Record<string, { en: string; zh: string }> = {
@@ -488,6 +642,194 @@ async function resolveLastExpenseRow(userId: string, f: ExpenseFields): Promise<
   return row?.id ?? null;
 }
 
+// ── edit_search / delete_search: locate ONE existing row by description ───────
+// The cheap tier for "把7月14号的下午茶改成100" / "删除7月13号的手表" — the class of
+// edit/delete that used to force the full Sonnet agent (find_expenses → update/delete,
+// ~5s). The classifier extracts SEARCH CRITERIA only; we resolve the row deterministically
+// here (no model guessing which row). SAFETY: we act ONLY on an UNAMBIGUOUS single match —
+// 0 matches (incl. a keyword that can't match a cross-language stored note like 巴士 vs
+// "bus") or 2+ matches, OR a recurring-generated row (editing one month is usually wrong),
+// all fall through to the full agent, which can search harder, ask which one, or steer to
+// edit_recurring. A criteria-less search returns [] so we never touch the whole ledger.
+
+interface SearchTarget {
+  id: number;
+  note: string | null;
+  amount: number;
+  currency: string;
+  category: string;
+  date: string; // YYYY-MM-DD — shown in candidate lists so the user can tell rows apart
+  recurring: boolean;
+}
+
+async function resolveSearchTargets(
+  userId: string,
+  raw: Record<string, unknown>,
+  now: Date,
+): Promise<SearchTarget[]> {
+  const date = resolveItemDate(raw, now); // handles date + lastWeekday, same as logs
+  const catRaw = typeof raw.category === "string" ? raw.category : "";
+  const cat = ([...WRITABLE_CATEGORIES, "family"] as string[]).includes(catRaw) ? catRaw : "";
+  const kw = typeof raw.keyword === "string" ? raw.keyword.trim() : "";
+  // Require at least one narrowing criterion — never match the entire ledger.
+  if (!date && !cat && !kw) return [];
+
+  const buildWhere = (withDate: boolean): Record<string, unknown> => {
+    const where: Record<string, unknown> = { userId };
+    if (withDate && date) {
+      const from = new Date(`${date}T00:00:00`);
+      const to = new Date(`${date}T23:59:59.999`);
+      if (!Number.isNaN(from.getTime())) where.spentAt = { gte: from, lte: to };
+    }
+    if (cat) where.category = cat;
+    if (kw) where.OR = [{ note: { contains: kw, mode: "insensitive" } }, { tags: { has: kw.toLowerCase() } }];
+    return where;
+  };
+  const run = (where: Record<string, unknown>) =>
+    prisma.expense.findMany({
+      where,
+      orderBy: { spentAt: "desc" },
+      take: 6, // >1 means we escalate anyway; a small cap is enough to detect "many"
+      select: { id: true, note: true, amount: true, currency: true, category: true, spentAt: true, fixed: true, fixedSourceId: true },
+    });
+
+  let rows = await run(buildWhere(true));
+  // WRONG-DATE-RIGHT-ITEM relaxation (user request): if a keyword+date search finds
+  // nothing, the user likely misremembered the date — retry with the KEYWORD but WITHOUT
+  // the date. The keyword is the strong identifier and the confirm card shows the actual
+  // date, so the user verifies ("found the Jul 5 one — is that it?"). We never drop the
+  // keyword itself (that could silently hit an unrelated row). Still 0/many → escalate.
+  if (rows.length === 0 && date && kw) rows = await run(buildWhere(false));
+
+  return rows.map((r) => ({
+    id: r.id,
+    note: r.note,
+    amount: Number(r.amount),
+    currency: r.currency,
+    category: r.category,
+    date: fmtYmd(r.spentAt),
+    recurring: r.fixed || r.fixedSourceId != null,
+  }));
+}
+
+// ── search_query: read-only list/find/biggest-smallest, zero-write ────────────
+// Same criteria object as edit/delete_search, PLUS period/sort/limit. Reuses
+// resolveSearchTargets's query shape but WITHOUT the "≤1 match" restriction (a list
+// is expected to return several rows) and adds sort+limit. Deterministic template
+// reply — no second AI call to narrate results (same "the AI extracts, code answers"
+// pattern as total_query).
+
+interface SearchQueryResult {
+  rows: SearchTarget[]; // may contain ONE extra row past `limit` — the truncation probe
+  sort: string;
+  limit: number; // the CLAMPED limit actually used — callers must reuse this, not re-derive it
+}
+
+async function resolveSearchQuery(
+  userId: string,
+  raw: Record<string, unknown>,
+  now: Date,
+): Promise<SearchQueryResult> {
+  const catRaw = typeof raw.category === "string" ? raw.category : "";
+  const cat = ([...WRITABLE_CATEGORIES, "family"] as string[]).includes(catRaw) ? catRaw : "";
+  const kw = typeof raw.keyword === "string" ? raw.keyword.trim() : "";
+  const period = typeof raw.period === "string" ? periodRange(raw.period, now) : null;
+  const date = period ? null : resolveItemDate(raw, now); // period and a specific date are mutually exclusive
+
+  const where: Record<string, unknown> = { userId };
+  if (period) where.spentAt = { gte: period.from, lte: period.to };
+  else if (date) {
+    const from = new Date(`${date}T00:00:00`);
+    const to = new Date(`${date}T23:59:59.999`);
+    if (!Number.isNaN(from.getTime())) where.spentAt = { gte: from, lte: to };
+  }
+  if (cat) where.category = cat;
+  if (kw) where.OR = [{ note: { contains: kw, mode: "insensitive" } }, { tags: { has: kw.toLowerCase() } }];
+
+  const sort = raw.sort === "amount_desc" || raw.sort === "amount_asc" ? raw.sort : "date_desc";
+  const limitRaw = typeof raw.limit === "number" ? Math.round(raw.limit) : 5;
+  const limit = Math.min(10, Math.max(1, limitRaw));
+  const orderBy =
+    sort === "amount_desc"
+      ? ({ amount: "desc" } as const)
+      : sort === "amount_asc"
+        ? ({ amount: "asc" } as const)
+        : ({ spentAt: "desc" } as const);
+
+  // Fetch one extra row to detect truncation (`hasMore`) without a second count query.
+  const rows = await prisma.expense.findMany({
+    where,
+    orderBy,
+    take: limit + 1,
+    select: { id: true, note: true, amount: true, currency: true, category: true, spentAt: true, fixed: true, fixedSourceId: true },
+  });
+  return {
+    rows: rows.map((r) => ({
+      id: r.id,
+      note: r.note,
+      amount: Number(r.amount),
+      currency: r.currency,
+      category: r.category,
+      date: fmtYmd(r.spentAt),
+      recurring: r.fixed || r.fixedSourceId != null,
+    })),
+    sort,
+    limit,
+  };
+}
+
+/** Bilingual reply for search_query — a single biggest/smallest item (limit=1 with an
+ *  amount sort) gets the "Your biggest expense was X" phrasing; otherwise a bulleted
+ *  list. `rows` may contain ONE extra row past `limit` (the truncation-detection probe
+ *  from resolveSearchQuery) — sliced here, never shown, only used to flag "and more". */
+function searchQueryReply(userMessage: string, rows: SearchTarget[], sort: string, limit: number): string {
+  const cjk = isCJK(userMessage);
+  const catLabel = (c: string) => CATEGORY_LABELS[c]?.[cjk ? "zh" : "en"] ?? c;
+  const money = (r: SearchTarget) => `${CURRENCY_SYMBOL[r.currency] ?? ""}${r.amount.toFixed(2)}`;
+  const hasMore = rows.length > limit;
+  const shown = hasMore ? rows.slice(0, limit) : rows;
+
+  if (shown.length === 0) {
+    return cjk ? "没有找到符合条件的消费记录。" : "No matching expenses found.";
+  }
+  if (limit === 1 && (sort === "amount_desc" || sort === "amount_asc")) {
+    const r = shown[0];
+    const label = sort === "amount_desc" ? (cjk ? "最贵的一笔" : "biggest expense") : cjk ? "最便宜的一笔" : "smallest expense";
+    return cjk
+      ? `${r.date} ${label}是 ${money(r)} 的「${r.note || catLabel(r.category)}」（${catLabel(r.category)}）。`
+      : `Your ${label} on ${r.date} was ${money(r)} · ${r.note || catLabel(r.category)} (${catLabel(r.category)}).`;
+  }
+  const lines = shown.map((r) => `- ${r.date} · ${money(r)} · ${catLabel(r.category)}${r.note ? ` · ${r.note}` : ""}`);
+  const header = cjk
+    ? `找到 ${shown.length}${hasMore ? "+" : ""} 笔符合条件的消费：`
+    : `Found ${shown.length}${hasMore ? "+" : ""} matching expense${shown.length > 1 ? "s" : ""}:`;
+  const more = hasMore ? (cjk ? "\n（还有更多，可以说得更具体一点缩小范围哦～）" : "\n(there are more — try narrowing your question for the full list)") : "";
+  return `${header}\n${lines.join("\n")}${more}`;
+}
+
+/** Bilingual "which one did you mean?" reply for a 2+-match edit_search/delete_search —
+ *  built from the SAME candidate rows we already fetched, so this costs zero extra AI. */
+function ambiguousCandidatesReply(userMessage: string, targets: SearchTarget[], action: "edit" | "delete"): string {
+  const cjk = isCJK(userMessage);
+  const catLabel = (c: string) => CATEGORY_LABELS[c]?.[cjk ? "zh" : "en"] ?? c;
+  const money = (r: SearchTarget) => `${CURRENCY_SYMBOL[r.currency] ?? ""}${r.amount.toFixed(2)}`;
+  const lines = targets.map((r) => `- ${r.date} · ${money(r)} · ${catLabel(r.category)}${r.note ? ` · ${r.note}` : ""}`);
+  if (cjk) {
+    const verb = action === "edit" ? "改" : "删";
+    return `找到好几笔符合的消费，不确定你要${verb}哪一笔哦～ 麻烦说清楚一点（比如金额或更完整的名字）：\n${lines.join("\n")}`;
+  }
+  const verb = action === "edit" ? "edit" : "delete";
+  return `I found a few matching expenses — not sure which one you mean to ${verb}. Could you be a bit more specific (amount or a fuller name)?\n${lines.join("\n")}`;
+}
+
+/** Generic bilingual clarify fallback — used when the model's own `clarify` text comes
+ *  back in the wrong language (same CJK-mismatch guard philosophy as the mini reply). */
+function genericClarifyReply(userMessage: string): string {
+  return isCJK(userMessage)
+    ? "不好意思，我没太明白～ 可以再说清楚一点吗？"
+    : "Sorry, I didn't quite catch that — could you tell me a bit more?";
+}
+
 // ── the router ───────────────────────────────────────────────
 
 export interface FastPathResult {
@@ -500,9 +842,17 @@ export interface FastPathResult {
 
 const mintId = (now: Date) => `fp_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
-// ── arch-B mini tier: gpt-4o-mini extract-only for simple single-item logs ────
+// ── arch-B mini tier: cheap extract-only model for simple expense logs ────
 
-const MINI_MODEL = "gpt-4o-mini";
+// gpt-5.4-mini (multilingual round, 2026-07-14) — swapped from gpt-4o-mini after
+// scripts/multilingual-sweep.ts: 4o-mini failed real MS/ID cases (mapped Malay
+// "isnin" to Sunday, contaminated tags with Chinese "makan外", hallucinated MYR on
+// an Indonesian log) while 5.4-mini scored 16/16 across MS/ID/FR/PT/CN/EN. Measured
+// ~$0.00075/call — ~6.5x 4o-mini but still ~4.4x cheaper than the Haiku classifier;
+// the absolute delta (~$0.40/mo for a HEAVY logger) buys correct any-language
+// extraction. gpt-5.4-nano REJECTED: pricier than 4o-mini ($0.20/$1.25 per MTok)
+// AND failed even the English control case.
+const MINI_MODEL = "gpt-5.4-mini";
 
 // Max expenses either the mini tier OR the classifier may log from ONE message.
 // Generous — a user can dump a whole day's spends at once — but bounded so a garbled
@@ -528,7 +878,8 @@ function tooManyLogsReply(userMessage: string): string {
 // note-vs-tags wording is load-bearing — without it mini jams the meal type (晚餐/
 // 午餐) into note and drops the real item + the requested tag (real user bug, fixed
 // and verified in scripts/mini-extract-tune.ts, 6/6).
-function miniExtractPrompt(now: Date): string {
+// Exported for scripts/multilingual-sweep.ts (tests the REAL prompt, no copy-drift).
+export function miniExtractPrompt(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
@@ -551,6 +902,16 @@ function miniExtractPrompt(now: Date): string {
     `- lastWeekday: set ONLY for a WEEKDAY reference ("上个星期五"/"上礼拜三"/"last Friday") — the weekday ` +
     `as an integer 0=Sunday..6=Saturday, and leave date null. Do NOT compute the weekday's date ` +
     `yourself; we compute it. For every non-weekday date, leave lastWeekday null.\n` +
+    `ONLY log NEW spending stated in THIS message. If the message is instead EDITING/correcting/` +
+    `deleting/cancelling an earlier expense ("change it to 15", "tukar jadi 15", "15に変更して"), ` +
+    `asking a question, or anything other than logging new spending — in ANY language — return an ` +
+    `EMPTY expenses array. Do not guess.\n` +
+    `Also set reply: ONE short sentence telling them you've prepared the card(s) for them to review ` +
+    `and confirm — NEVER say anything is already saved/recorded. reply MUST be written in the language ` +
+    `and script of the USER'S OWN message — an English message gets an English reply, a Tamil message a ` +
+    `Tamil reply. Do NOT reply in Chinese unless the user themselves wrote Chinese (the Chinese phrases ` +
+    `in these instructions are currency examples, not the user's language). If expenses is empty, set ` +
+    `reply to null.\n` +
     `Never invent a detail the user didn't say.`
   );
 }
@@ -572,10 +933,23 @@ const MINI_ITEM_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const MINI_TOOL_PARAMS = {
+// Exported for scripts/multilingual-sweep.ts (tests the REAL schema, no copy-drift).
+// `reply` (multilingual round): a one-line confirmation in the USER'S language —
+// replaces the hardcoded CN/EN fallbackLogReply for every other language. `expenses`
+// empty = the model's own "this isn't a new-expense log" signal (Layer 2 of the
+// misroute defense) — the <1-item post-check turns it into a classifier fall-through.
+export const MINI_TOOL_PARAMS = {
   type: "object",
-  properties: { expenses: { type: "array", items: MINI_ITEM_SCHEMA } },
-  required: ["expenses"],
+  properties: {
+    expenses: { type: "array", items: MINI_ITEM_SCHEMA },
+    reply: {
+      type: ["string", "null"],
+      description:
+        "One short sentence in the SAME language/script as the user's message saying the card(s) " +
+        "are prepared for review — never claim anything is saved. null if expenses is empty.",
+    },
+  },
+  required: ["expenses", "reply"],
   additionalProperties: false,
 } as const;
 
@@ -601,6 +975,7 @@ async function tryMiniSimpleLog(
   if (!apiKey) return null;
 
   let items: Record<string, unknown>[];
+  let modelReply: string | null = null;
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -626,8 +1001,9 @@ async function tryMiniSimpleLog(
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
     const args = json.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-    const parsed = (args ? JSON.parse(args) : {}) as { expenses?: unknown };
+    const parsed = (args ? JSON.parse(args) : {}) as { expenses?: unknown; reply?: unknown };
     items = Array.isArray(parsed.expenses) ? (parsed.expenses as Record<string, unknown>[]) : [];
+    modelReply = typeof parsed.reply === "string" && parsed.reply.trim() ? parsed.reply.trim() : null;
     // Best-effort usage logging (mini is priced differently — an OpenAI id lands in
     // the `model` column, tagged as the mini feature).
     void logAiUsage(userId, "assistant_fast_path_mini", MINI_MODEL, {
@@ -682,8 +1058,14 @@ async function tryMiniSimpleLog(
     }
     proposals.push({ ...result.proposal, id: mintId(now) });
   }
+  // Deterministic reply-language guard (same philosophy as the chat's nav-label
+  // guardrail: the prompt asks, the code guarantees). The sweep showed the model
+  // sometimes answers in Chinese for non-Chinese messages (prompt contamination) —
+  // on a CJK mismatch in either direction, prefer the bilingual template over a
+  // wrong-language sentence.
+  const replyLangOk = modelReply !== null && isCJK(modelReply) === isCJK(userMessage);
   return {
-    reply: fallbackLogReply(userMessage, proposals.length),
+    reply: replyLangOk && modelReply ? modelReply : fallbackLogReply(userMessage, proposals.length),
     proposals,
     toolsUsed: proposals.map(() => "create_expense"),
   };
@@ -704,13 +1086,22 @@ export async function tryFastPath(
 ): Promise<FastPathResult | null> {
   if (!fastPathGate(userMessage, lastExpense != null)) return null;
 
-  // CHEAPEST TIER (arch B): one or several simple new expense logs → gpt-4o-mini extract-only,
-  // ~20x cheaper than the classifier. Skipped while a card is still PENDING the
-  // user's tap, because a follow-up ("make it 15") could be amending THAT card — a
-  // call the context-aware classifier should make, not the context-free mini path.
-  // Any miss (gate fail, no key, error, bad count, dup, bad fields) falls through.
-  const pendingCard = lastExpense?.outcome === "pending";
-  if (!pendingCard && looksLikeSimpleLog(userMessage)) {
+  // CHEAPEST TIER (arch B): one or several simple new expense logs → the mini model
+  // (extract-only), ~4x cheaper than the classifier.
+  //
+  // ROUTING (2026-07-14, user's design): a clean new log goes to mini REGARDLESS of
+  // whether a card is still pending. The old code skipped mini whenever a card was
+  // pending — the theory being a follow-up might be amending that card — but that
+  // sent every "add this, add that" to the pricier Haiku tier just because the user
+  // hadn't tapped Confirm yet (the user's real complaint: batch-logging all hit Haiku).
+  // The correct signal is AMEND INTENT, not pending-card existence: `looksLikeSimpleLog`
+  // already returns false for any amend/delete/question/referential phrasing (in 12+
+  // languages), so a genuine "change it to 15" never reaches mini anyway — it drops to
+  // the context-aware classifier. A bare value with no change-word ("100块") reads as a
+  // NEW log by the user's own rule ("没说改就是新增"), and mini's own self-screen +
+  // the confirm card are the backstops. Any miss (gate/no-key/error/bad-count/dup)
+  // falls through to the classifier.
+  if (looksLikeSimpleLog(userMessage)) {
     const mini = await tryMiniSimpleLog(userId, userMessage, now);
     if (mini) return mini;
   }
@@ -837,6 +1228,52 @@ export async function tryFastPath(
       return null; // confirmed but row vanished (edited/deleted elsewhere) → full agent
     }
 
+    // ── edit_search: locate ONE existing expense by description, then update ──
+    if (intent === "edit_search") {
+      const changes = { ...((input.amend ?? {}) as Record<string, unknown>) };
+      if (Object.keys(changes).length === 0) return null; // no new value stated → full agent
+      if ("lastWeekday" in changes) {
+        const resolved = resolveItemDate(changes, now);
+        delete changes.lastWeekday;
+        if (resolved) changes.date = resolved;
+      }
+      const targets = await resolveSearchTargets(userId, (input.search ?? {}) as Record<string, unknown>, now);
+      // 0 matches → the full agent can search harder (fuzzier keyword, broader query).
+      if (targets.length === 0) return null;
+      // 2+ matches → ask which one CHEAPLY from the candidates we already have (no
+      // extra AI call, no Sonnet) instead of escalating just to have Sonnet ask the
+      // same question with its own tools.
+      if (targets.length > 1) {
+        return { reply: ambiguousCandidatesReply(userMessage, targets, "edit"), proposals: [], toolsUsed: ["find_expenses"] };
+      }
+      // Exactly 1 match, but recurring-generated → full agent (steers to edit_recurring).
+      if (targets[0].recurring) return null;
+      const result = await proposeUpdateExpense(userId, { id: targets[0].id, ...changes });
+      if ("error" in result) return null;
+      return {
+        reply: amendReply(userMessage, false),
+        proposals: [{ ...result.proposal, id: mintId(now) }],
+        toolsUsed: ["find_expenses", "update_expense"],
+      };
+    }
+
+    // ── delete_search: locate ONE existing expense by description, then delete ──
+    if (intent === "delete_search") {
+      const targets = await resolveSearchTargets(userId, (input.search ?? {}) as Record<string, unknown>, now);
+      if (targets.length === 0) return null;
+      if (targets.length > 1) {
+        return { reply: ambiguousCandidatesReply(userMessage, targets, "delete"), proposals: [], toolsUsed: ["find_expenses"] };
+      }
+      if (targets[0].recurring) return null;
+      const result = await proposeDeleteExpense(userId, { id: targets[0].id });
+      if ("error" in result) return null;
+      return {
+        reply: deleteReply(userMessage),
+        proposals: [{ ...result.proposal, id: mintId(now) }],
+        toolsUsed: ["find_expenses", "delete_expense"],
+      };
+    }
+
     // ── delete_last: remove the just-logged expense ──
     if (intent === "delete_last" && lastExpense) {
       const rowId = await resolveLastExpenseRow(userId, lastExpense.fields);
@@ -865,7 +1302,26 @@ export async function tryFastPath(
       return { reply, proposals: [], toolsUsed: ["analyze_spending"] };
     }
 
-    return null; // intent 'other' (or anything malformed) → full agent
+    // ── search_query: read-only list/find/biggest-smallest — zero-write, templated ──
+    if (intent === "search_query") {
+      const s = (input.search ?? {}) as Record<string, unknown>;
+      const { rows, sort, limit } = await resolveSearchQuery(userId, s, now);
+      return { reply: searchQueryReply(userMessage, rows, sort, limit), proposals: [], toolsUsed: ["find_expenses"] };
+    }
+
+    // ── other: usually a silent escalate, but a `clarify` question means the
+    // classifier judged this is squarely our domain (log/edit/delete/search) minus
+    // ONE missing detail — answer it directly instead of paying for a Sonnet turn
+    // just to ask the same question. Same CJK-mismatch guard as the mini reply: a
+    // clarify string in the wrong language falls back to a generic bilingual ask
+    // rather than trusting possibly-contaminated model text.
+    if (typeof input.clarify === "string" && input.clarify.trim()) {
+      const clarify = input.clarify.trim();
+      const reply = isCJK(clarify) === isCJK(userMessage) ? clarify : genericClarifyReply(userMessage);
+      return { reply, proposals: [], toolsUsed: [] };
+    }
+
+    return null; // intent 'other' with no clarify (or anything malformed) → full agent
   } catch {
     return null;
   } finally {

@@ -7,6 +7,8 @@
 //   DELETE    — deletes the just-logged expense (context) → delete card or
 //               tap-Cancel guidance for a never-confirmed card
 //   TOTAL     — simple spend total → deterministic templated answer
+//   SEARCH    — read-only list/find/biggest-smallest → templated answer (2026-07-15)
+//   CLARIFY   — classifier asks ONE missing-detail question directly (2026-07-15)
 //   ESCALATE  — the classifier declines → full agent (unchanged)
 //   FUTURE    — a future-dated log → canned text decline
 //
@@ -17,7 +19,7 @@ loadEnv({ path: ".env.local" });
 import type { LastExpenseContext } from "../src/lib/assistant/fast-path";
 import type { Proposal } from "../src/lib/assistant/types";
 
-type Expect = "log" | "amend" | "delete" | "total" | "escalate" | "gate-skip" | "future";
+type Expect = "log" | "amend" | "delete" | "total" | "search" | "clarify" | "escalate" | "gate-skip" | "future";
 interface Case {
   msg: string;
   expect: Expect;
@@ -72,7 +74,14 @@ async function main() {
     { msg: "为什么我上个月花了那么多？", expect: "gate-skip" },
     { msg: "我需要多久才能存到10万？", expect: "gate-skip" },
     { msg: "change my rent to 1300", expect: "gate-skip" }, // recurring keyword
-    { msg: "find my biggest expense this year", expect: "gate-skip" },
+    // "biggest/find/list" now PERMIT into the classifier (search_query intent, 2026-07-15)
+    // instead of a zero-cost SKIP_RE block — "this year" isn't a supported period, so the
+    // classifier itself (not the free gate) correctly bails to escalate. Net cost: one
+    // extra Haiku call for this specific unsupported-period phrasing; other biggest/find/
+    // list phrasings now resolve cheaply instead of always paying for Sonnet — see below.
+    { msg: "find my biggest expense this year", expect: "escalate" },
+    { msg: "what's my biggest expense this month?", expect: "search" },
+    { msg: "帮我找一下这个月最便宜的一笔", expect: "search" },
     { msg: "delete the grab ride from last week", expect: "gate-skip" }, // no number, no context
     { msg: "log something for lunch", expect: "gate-skip" }, // no amount
     { msg: "把我的工资改成5000", expect: "gate-skip" }, // income
@@ -106,7 +115,10 @@ async function main() {
           ? null
           : `expected replacement create card, got ${r.proposals[0]?.kind}`,
     },
-    { msg: "change my coffee from Tuesday to 10", expect: "escalate", ctx: HOTEL_CTX }, // different expense
+    // 2026-07-15: "to 10" is genuinely ambiguous (new amount, or move the date to the
+    // 10th?) — the classifier now asks that directly via `clarify` (cheap, fast) instead
+    // of escalating just to have Sonnet ask the same question. Not a regression.
+    { msg: "change my coffee from Tuesday to 10", expect: "clarify", ctx: HOTEL_CTX },
     // ── DELETE (context-dependent) ──
     {
       msg: "删掉刚才那个",
@@ -146,11 +158,18 @@ async function main() {
     if (!gateOpen) actual = "gate-skip";
     else if (result == null) actual = "escalate";
     else if (result.proposals.length === 0) {
+      // Disambiguate by toolsUsed, not just reply wording — analyze_spending = a real
+      // total_query answer, find_expenses = the new search_query answer, and an empty
+      // toolsUsed with no card is the new `clarify` one-question reply.
       actual = /future|还没到|hasn't happened/i.test(result.reply)
         ? "future"
         : /cancel/i.test(result.reply)
           ? "delete"
-          : "total";
+          : result.toolsUsed.includes("analyze_spending")
+            ? "total"
+            : result.toolsUsed.includes("find_expenses")
+              ? "search"
+              : "clarify";
     } else {
       const kind = result.proposals[0].kind;
       actual = kind === "update_expense" ? "amend" : kind === "delete_expense" ? "delete" : "log";
