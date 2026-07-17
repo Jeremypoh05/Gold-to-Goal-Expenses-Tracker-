@@ -1,7 +1,6 @@
 'use client';
 
 import {
-    useRef,
     useState,
     useEffect,
     useMemo,
@@ -79,7 +78,7 @@ export function DayPreviewCard({
 
     const middleware = useMemo(
         () => [
-            offset(({ placement }) => ({
+            offset(() => ({
                 mainAxis: 12,
                 crossAxis: isMobile ? -6 : 0, // 👈 subtle 修正
             })),

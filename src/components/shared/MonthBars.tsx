@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { daysInMonth } from '@/lib/utils';
 

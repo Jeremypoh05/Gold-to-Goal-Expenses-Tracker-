@@ -2,13 +2,8 @@
 
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import {
-    MicIcon,
-    CalendarIcon,
-    ChevronIcon,
-} from '@/components/icons';
+import { MicIcon } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
-import { CATEGORIES } from '@/data/categories';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { MONTH_NAMES, cn } from '@/lib/utils';
 import type { CategoryKey } from '@/types';

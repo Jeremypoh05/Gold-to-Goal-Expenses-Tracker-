@@ -71,12 +71,17 @@ export default function FixedExpensesPage() {
 
     // ADDED (Module 4): deep link from a generated ledger/dashboard row —
     // /fixed?edit=<id> auto-opens that item's modal, then cleans the URL.
+    // The setState here is a deliberate ONE-SHOT (guarded by the ?edit param,
+    // which is removed in the same tick): it fires once after the list loads,
+    // not on every render — the "cascading renders" the lint rule guards
+    // against can't occur. Reading window.location keeps it an effect.
     useEffect(() => {
         if (!loaded || items.length === 0) return;
         const editId = Number(new URLSearchParams(window.location.search).get('edit'));
         if (!editId) return;
         const target = items.find((f) => f.id === editId);
         if (target) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot deep-link consumption, see above
             setEditing(target);
             setModalOpen(true);
         }

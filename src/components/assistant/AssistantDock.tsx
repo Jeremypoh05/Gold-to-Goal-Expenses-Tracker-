@@ -9,7 +9,7 @@
 // CHANGED (polish v2): framer-motion for a springy, premium expand/collapse with
 // staggered reveal + proper exit animation (matches the app's motion language —
 // ConfirmDialog / modals already use framer-motion).
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BotIcon, MicIcon } from '@/components/icons';
@@ -32,9 +32,15 @@ export function AssistantDock() {
     const [expanded, setExpanded] = useState(false);
 
     // Collapse the dial whenever the route changes or the panel opens over it.
-    useEffect(() => {
+    // Render-time adjustment (the React-docs "reset state when a value changes"
+    // pattern) instead of a setState-in-effect — same behavior, one render sooner,
+    // and no cascading-render lint error.
+    const collapseKey = `${pathname}|${panelOpen}`;
+    const [prevCollapseKey, setPrevCollapseKey] = useState(collapseKey);
+    if (prevCollapseKey !== collapseKey) {
+        setPrevCollapseKey(collapseKey);
         setExpanded(false);
-    }, [pathname, panelOpen]);
+    }
 
     // The panel covers the right edge — don't float the dock under it.
     if (panelOpen) return null;

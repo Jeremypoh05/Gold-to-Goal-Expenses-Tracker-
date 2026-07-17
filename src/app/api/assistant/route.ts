@@ -12,6 +12,7 @@ import {
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
 import { tryFastPath, extractLastCreate, type LastExpenseContext } from "@/lib/assistant/fast-path";
+import { getAiQuotaStatus, quotaExceededReply, quotaResetAt } from "@/lib/ai-quota";
 import type { Proposal } from "@/lib/assistant/types";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -88,12 +89,22 @@ export async function POST(req: Request): Promise<Response> {
       const toolsUsed: string[] = [];
       const proposals: Proposal[] = [];
       try {
+        // ADDED (2026-07-16): per-user daily AI quota — same gating as
+        // sendAssistantMessage. `fast` exhausted → all AI pauses; only `agent`
+        // exhausted → the cheap tiers below still run, Sonnet turns pause. The
+        // quota reply streams + persists like any normal assistant message.
+        const now = new Date();
+        const quota = await getAiQuotaStatus(userId, now);
+        if (!quota.fastAllowed) {
+          full = quotaExceededReply("all", message, quotaResetAt(now), now);
+          send({ type: "text", text: full });
+        } else {
         // ADDED (cost optimization — fast-path router): try the cheap single-shot
         // classifier first (behind a zero-cost deterministic gate). It handles
-        // clean logs (1-3 per message), amend/delete of the just-logged expense,
-        // and simple spend totals — anything else falls through to the full
-        // streaming agent completely unchanged, below.
-        const fastPath = await tryFastPath(userId, message, new Date(), lastExpense);
+        // clean logs, amend/delete/edit/search, simple totals and read-only
+        // searches — anything else falls through to the full streaming agent,
+        // quota permitting.
+        const fastPath = await tryFastPath(userId, message, now, lastExpense);
         if (fastPath) {
           full = fastPath.reply;
           send({ type: "text", text: fastPath.reply });
@@ -105,6 +116,9 @@ export async function POST(req: Request): Promise<Response> {
             proposals.push(p);
             send({ type: "proposal", proposal: p });
           }
+        } else if (!quota.agentAllowed) {
+          full = quotaExceededReply("agent", message, quotaResetAt(now), now);
+          send({ type: "text", text: full });
         } else {
           for await (const ev of runAssistantTurnStreaming(userId, history, message, {
             signal: req.signal,
@@ -132,6 +146,7 @@ export async function POST(req: Request): Promise<Response> {
             }
           }
         }
+        } // end quota.fastAllowed else
       } catch {
         send({ type: "error" });
       }

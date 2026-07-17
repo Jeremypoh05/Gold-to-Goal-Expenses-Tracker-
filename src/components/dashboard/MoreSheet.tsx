@@ -33,8 +33,10 @@ const MORE_ITEMS: MoreItem[] = [
     { href: '/fixed', label: 'Fixed expenses', sub: 'Rent, bills, subscriptions', Icon: RepeatIcon },
     // CHANGED (Phase 6): Voice page now exists → live link (was "Soon").
     { href: '/voice', label: 'Voice log', sub: 'Talk to log · review entries', Icon: MicIcon },
-    // CHANGED (Phase 7): Settings now opens the Clerk account modal (was "Soon").
-    { href: '#account', label: 'Settings', sub: 'Account & preferences', Icon: SettingsIcon, action: 'account' },
+    // ADDED (2026-07-16): the real platform Settings page (AI usage & quota).
+    { href: '/settings', label: 'Settings', sub: 'AI usage & platform', Icon: SettingsIcon },
+    // CHANGED (Phase 7 → 2026-07-16): the Clerk account modal keeps its own entry.
+    { href: '#account', label: 'Account', sub: 'Profile & security', Icon: SettingsIcon, action: 'account' },
 ];
 
 export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {

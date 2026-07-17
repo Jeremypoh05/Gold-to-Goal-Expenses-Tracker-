@@ -11,7 +11,6 @@ import {
     ChevronIcon,
     CalendarIcon,
     SparkleIcon,
-    ArrowIcon,
 } from '@/components/icons';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { TagChip } from '@/components/shared';

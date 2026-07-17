@@ -1,8 +1,38 @@
 # Honey — AI Assistant Handover
 
-**Date:** 2026-07-15
-**Branch:** `master`, on top of commit `2663db4` ("AI Assistant cost optimization: 3-tier fast-path router")
-**Status:** 4 rounds of work done since that commit, all **UNCOMMITTED**, all real-API verified, **NOT browser-tested**.
+**Date:** 2026-07-17
+**Branch:** `master` — the 4 AI-routing rounds are COMMITTED (`d28ec4c`) and pushed; the
+quality-gate batch (lint zero, AI quotas, Settings page) follows in the next commit.
+**Status:** all real-API verified; **browser testing still pending** — follow `BROWSER-TEST.md`.
+
+## 0. Newest additions (2026-07-16/17, after the strategy discussion)
+
+Product direction agreed with the user (full reasoning in Claude's memory):
+positioning = "speak/fix/query as one trustworthy flow" for SG/MY bilingual users,
+NOT "first AI agent" (competitors like TalkieMoney exist); web-first → PWA →
+Capacitor later; receipt-OCR module deferred (storage pick when built: UploadThing
+first, Cloudflare R2 at scale); admin "gift premium to friends" module deferred
+(needs an email service, e.g. Resend). Undo deferred by user choice.
+
+Shipped in this batch:
+- **Full-repo lint zero** — 73 of the 75 "errors" were `.claude/**` design mockups
+  (now eslint-ignored); the 2 real ones (setState-in-effect in `AssistantDock` +
+  `fixed/page.tsx`) fixed properly, 11 unused-import warnings cleaned.
+- **Per-user daily AI quotas** (`src/lib/ai-quota.ts`) — the pre-launch guard against
+  a runaway user draining the shared API keys (this org's credit HAS hit zero once).
+  Two buckets per local day: `fast` (mini + Haiku, default 150/day) and `agent`
+  (Sonnet, default 30/day; overridable via `AI_QUOTA_FAST_DAILY`/`AI_QUOTA_AGENT_DAILY`).
+  Agent exhausted → cheap log/edit/search keeps working; fast exhausted → all AI
+  pauses until midnight (manual UI never affected). Bilingual friendly block replies.
+  Admins bypass: `ADMIN_USERS` env (comma-separated Clerk ids and/or emails).
+  Enforced at BOTH entry points (`sendAssistantMessage` + the SSE route).
+- **Settings page** (`/settings`, in Sidebar + mobile More-sheet) — today's quota
+  bars + this-month calls/tokens/estimated-cost per tier, admin badge. Server action:
+  `src/lib/settings-actions.ts`.
+
+Note: `fast-path-smoke.ts` is 25/25 with ONE judgment-call case that occasionally
+flips (classifier chooses escalate vs clarify/search — both outcomes safe); a 24/25
+run on that case is variance, not a regression.
 
 This file is a snapshot for picking the work back up — either you, in a future session, or a
 teammate. Read this before touching `src/lib/assistant/`.

@@ -11,6 +11,7 @@ import {
     RepeatIcon,
     SparkleIcon,
     BotIcon,
+    SettingsIcon,
 } from '@/components/icons';
 import { cn, formatMoney, MONTH_NAMES } from '@/lib/utils';
 import { CATEGORIES } from '@/data/categories';
@@ -48,6 +49,8 @@ const NAV_ITEMS: NavItem[] = [
     { href: '/income', label: 'Income', Icon: WalletIcon },
     { href: '/fixed', label: 'Recurring', Icon: RepeatIcon },
     { href: '/voice', label: 'Voice log', Icon: MicIcon },
+    // ADDED (2026-07-16): platform settings — AI usage & quota panel lives here.
+    { href: '/settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
 export function Sidebar() {

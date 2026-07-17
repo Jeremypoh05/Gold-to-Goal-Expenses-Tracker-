@@ -12,6 +12,7 @@ import {
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
 import { tryFastPath, extractLastCreate, type LastExpenseContext } from "@/lib/assistant/fast-path";
+import { getAiQuotaStatus, quotaExceededReply, quotaResetAt } from "@/lib/ai-quota";
 import {
   createExpense,
   updateExpense,
@@ -128,16 +129,29 @@ export async function sendAssistantMessage(input: {
   }
   const sid: number = sessionId;
 
-  // ADDED (cost optimization — fast-path router): try the cheap single-shot
-  // classifier first (behind a zero-cost deterministic gate). It handles clean
-  // logs (1-3 per message), amend/delete of the just-logged expense, and simple
-  // spend totals — and bails (returns null) at the slightest doubt; everything
-  // else falls through to the full agent unchanged, below.
+  // ADDED (2026-07-16): per-user daily AI quota — the pre-launch guard against a
+  // runaway user draining the shared API keys. `fast` exhausted → all AI pauses
+  // until local midnight; only `agent` exhausted → cheap log/edit/search still
+  // work, Sonnet turns pause. The quota reply is persisted as a normal assistant
+  // message below, so the conversation stays coherent. Admins bypass everything.
   const now = new Date();
-  const fastPath = await tryFastPath(userId, message, now, lastExpense);
-  const result = fastPath
-    ? { ok: true, reply: fastPath.reply, toolsUsed: fastPath.toolsUsed, proposals: fastPath.proposals }
-    : await runAssistantTurn(userId, history, message, now, cardContext, input.mode);
+  const quota = await getAiQuotaStatus(userId, now);
+  let result: { ok: boolean; reply: string; toolsUsed: string[]; proposals: Proposal[]; error?: string };
+  if (!quota.fastAllowed) {
+    result = { ok: true, reply: quotaExceededReply("all", message, quotaResetAt(now), now), toolsUsed: [], proposals: [] };
+  } else {
+    // ADDED (cost optimization — fast-path router): try the cheap single-shot
+    // classifier first (behind a zero-cost deterministic gate). It handles clean
+    // logs, amend/delete/edit/search, simple totals and read-only searches — and
+    // bails (returns null) at the slightest doubt; everything else falls through
+    // to the full agent, quota permitting.
+    const fastPath = await tryFastPath(userId, message, now, lastExpense);
+    result = fastPath
+      ? { ok: true, reply: fastPath.reply, toolsUsed: fastPath.toolsUsed, proposals: fastPath.proposals }
+      : !quota.agentAllowed
+        ? { ok: true, reply: quotaExceededReply("agent", message, quotaResetAt(now), now), toolsUsed: [], proposals: [] }
+        : await runAssistantTurn(userId, history, message, now, cardContext, input.mode);
+  }
 
   // Persist the turn (user msg first, then reply) and bump the session's
   // updatedAt so it sorts to the top of the history list. `data` carries any

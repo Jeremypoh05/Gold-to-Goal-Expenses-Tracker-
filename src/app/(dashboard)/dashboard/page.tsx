@@ -10,7 +10,6 @@ import {
     MicIcon,
     ArrowIcon,
     ChevronIcon,
-    BellIcon,
     RepeatIcon,
     EditIcon,
     TrashIcon,
@@ -28,7 +27,6 @@ import {
     getIncomeStats,
 } from '@/lib/expense-utils';
 import { formatMoney, MONTH_NAMES, cn, daysInMonth } from '@/lib/utils';
-import { useGreeting } from '@/hooks/useGreeting';
 import { useVoice } from '@/components/voice'; // ADDED (Phase 6.1): open the voice modal
 // ADDED (Module 4 · UX): in-place row actions — edit opens the right modal, trash deletes.
 import { useAddModal } from '@/components/dashboard/AddModalContext';

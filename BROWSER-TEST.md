@@ -91,6 +91,19 @@
 | H4 | 编辑卡片(Edit 按钮手动改字段) | 正常保存 |
 | H5 | 确认一张卡后,背后页面(dashboard/ledger)数字即时刷新 | 不用手动刷新 |
 
+## I · Settings 页 + AI 配额(2026-07-17 新增)
+
+先在 `.env.local` 里**不要**设 `ADMIN_USERS`(测普通用户视角),测完再设回你的邮箱。
+
+| # | 操作 | 期望 |
+|---|---|---|
+| I1 | Sidebar(桌面)/ More sheet(手机)点 **Settings** | 打开 /settings:今日两条配额进度条(Quick AI x/150、Advanced AI x/30)+ 本月用量表(calls/tokens/≈cost) |
+| I2 | 发几条 AI 消息后刷新 Settings | 进度条数字增长 |
+| I3 | `.env.local` 加 `AI_QUOTA_AGENT_DAILY=0`,重启 dev,问 `为什么我这个月花这么多?` | 友好提示"复杂问题额度用完…简单记账还能用",**语言跟随你的消息**;此时 `记一笔咖啡5块` 仍正常出卡 |
+| I4 | 再加 `AI_QUOTA_FAST_DAILY=0`,重启,发任意 AI 消息 | 友好提示"今天 AI 额度全部用完…手动记账不受影响";手动记账按钮确实正常 |
+| I5 | `.env.local` 设 `ADMIN_USERS=你的邮箱`,重启 | Settings 显示 "Admin account — no limits";AI 全部恢复,进度条显示 ∞ |
+| I6 | 测完删掉两个 `AI_QUOTA_*` 行,保留 `ADMIN_USERS` | 恢复正常 |
+
 ---
 
 ## 结果记录

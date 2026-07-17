@@ -6,7 +6,7 @@ import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { CATEGORIES } from '@/data/categories';
 import { useExpenses } from '@/components/data/ExpensesContext';
 import { getMonthStats } from '@/lib/expense-utils';
-import { formatMoney, MONTH_NAMES, WEEKDAYS_SHORT } from '@/lib/utils';
+import { MONTH_NAMES, WEEKDAYS_SHORT } from '@/lib/utils';
 import type { CategoryKey } from '@/types';
 
 function StatCard({
