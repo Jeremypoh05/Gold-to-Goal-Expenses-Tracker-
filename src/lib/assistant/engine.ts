@@ -58,20 +58,45 @@ const CARD_CORRECTION =
  * Deterministic per-turn reply-language lock derived from the CURRENT user message's
  * script. Fixes "user writes English, bot replies Chinese": the static prompt rule
  * loses to a Chinese-heavy earlier history, so we hard-set the language each turn
- * from THIS message alone. Mixed / neutral messages get no directive (model matches).
+ * from THIS message alone.
+ *
+ * CHANGED (2026-07-18, user feedback): the old rule read the whole CJK-ideograph
+ * block [一-鿿] as "Chinese" — but Japanese KANJI live in that same block, so a
+ * Japanese message was wrongly forced to reply in 简体中文. Now Japanese (kana) and
+ * Korean (hangul) are detected explicitly and locked to their OWN language, and any
+ * other non-Chinese script (Thai, Arabic, Cyrillic, …) gets a universal "same
+ * language" instruction instead of falling through to no-directive. The model is
+ * natively multilingual — this just stops our heuristic from overriding it wrongly.
  */
+const HAS_KANA_RE = /[぀-ゟ゠-ヿ]/; // hiragana + katakana → Japanese, never Chinese
+const HAS_HANGUL_RE = /[가-힣]/; // Korean
+
 function languageDirective(userMessage: string): string {
   const cjk = (userMessage.match(/[一-鿿]/g) ?? []).length;
   const latin = (userMessage.match(/[A-Za-z]/g) ?? []).length;
+  const lock = (lang: string) =>
+    `\n\nCURRENT MESSAGE LANGUAGE: the user's latest message is in ${lang} — reply in ${lang}, ` +
+    `even if earlier messages were in another language.`;
+
+  if (HAS_KANA_RE.test(userMessage)) return lock("Japanese (日本語)");
+  if (HAS_HANGUL_RE.test(userMessage)) return lock("Korean (한국어)");
   if (cjk === 0 && latin >= 2) {
     return (
       "\n\nCURRENT MESSAGE LANGUAGE: the user's latest message is in a Latin-script language " +
-      "(English / Malay / Manglish / Singlish) with no Chinese — reply in that SAME language. " +
-      "Do NOT reply in Chinese, even if earlier messages were Chinese."
+      "(e.g. English, Malay, Manglish, Singlish, French, Spanish) with no Chinese — reply in that " +
+      "SAME language. Do NOT reply in Chinese, even if earlier messages were Chinese."
     );
   }
   if (latin === 0 && cjk >= 1) {
     return "\n\nCURRENT MESSAGE LANGUAGE: the user's latest message is in Chinese — reply in 简体中文.";
+  }
+  // Non-Latin, non-CJK, non-JP/KO scripts (Thai, Arabic, Cyrillic, Tamil, Hindi…) or a
+  // genuinely mixed message: don't force one language, but still nudge the model to
+  // match rather than default to English/Chinese.
+  if (cjk === 0 && latin === 0 && userMessage.trim().length > 0) {
+    return (
+      "\n\nCURRENT MESSAGE LANGUAGE: reply in the SAME language and script as the user's latest message."
+    );
   }
   return "";
 }

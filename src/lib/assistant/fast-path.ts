@@ -347,6 +347,15 @@ export const ROUTE_TOOL: Anthropic.Tool = {
         enum: ["log", "amend_last", "edit_search", "delete_last", "delete_search", "total_query", "search_query", "out_of_scope", "other"],
         description: "The single intent of this message. Choose 'other' on any doubt.",
       },
+      lang: {
+        type: "string",
+        enum: ["en", "zh", "other"],
+        description:
+          "The language of the user's message: 'en' = English, 'zh' = Chinese, 'other' = ANY other " +
+          "language (Malay, Japanese, Korean, French, Thai, Tamil, Arabic, …). Judge from THIS message's " +
+          "actual words, not the script alone (e.g. Japanese uses some Chinese characters but is 'other', " +
+          "not 'zh'). Always set this.",
+      },
       oos: {
         type: "object",
         properties: {
@@ -525,10 +534,19 @@ export function routeSystemPrompt(now: Date): string {
 // paths + the rare null-mini-reply; the mini tier's own `reply` is already in-language
 // and warm. Kept honest: the card is PENDING the user's tap, never "saved/done".
 
-const isCJK = (s: string) => (s.match(/[一-鿿]/g) ?? []).length > 0;
+// CHANGED (2026-07-18, user feedback): the CN/EN reply templates picked their
+// language via `isCJK` = "has a CJK ideograph". But Japanese KANJI are CJK ideographs
+// too, so a Japanese message was wrongly given a Chinese reply. `isChineseMsg`
+// excludes Japanese (kana) and Korean (hangul) — Chinese uses the 中文 template, and
+// everything NOT Chinese uses the English template (or, better, keeps the model's own
+// in-language reply, which is what actually makes non-CN/EN feel native).
+const HAS_KANA_RE = /[぀-ゟ゠-ヿ]/;
+const HAS_HANGUL_RE = /[가-힣]/;
+const isChineseMsg = (s: string) =>
+  /[一-鿿]/.test(s) && !HAS_KANA_RE.test(s) && !HAS_HANGUL_RE.test(s);
 
 function fallbackLogReply(userMessage: string, count: number): string {
-  if (isCJK(userMessage))
+  if (isChineseMsg(userMessage))
     return count > 1 ? `帮你准备好 ${count} 张卡片啦，麻烦逐张确认一下哦～` : "帮你准备好卡片啦，检查一下再点确认就好～";
   return count > 1
     ? `I've popped ${count} cards below for you — have a quick look and confirm each one 🙂`
@@ -536,13 +554,13 @@ function fallbackLogReply(userMessage: string, count: number): string {
 }
 
 function futureDateReply(userMessage: string): string {
-  return isCJK(userMessage)
+  return isChineseMsg(userMessage)
     ? "这个日期还没到哦～ Honey 只能记到今天为止的消费。到那天再记就好，或者如果是每个月固定的，我可以帮你设一个 recurring 😊"
     : "Oops, that date's still in the future 🙂 Honey only records spending up to today — log it on the day, or I can set up a recurring rule if it repeats monthly.";
 }
 
 function amendReply(userMessage: string, replaced: boolean): string {
-  if (isCJK(userMessage))
+  if (isChineseMsg(userMessage))
     return replaced
       ? "帮你另外准备了一张更正后的卡片啦（旧的那张不用管它，确认这张新的就好）～"
       : "帮你准备好更新卡片啦，改动前后都写在上面了，确认一下就好～";
@@ -552,13 +570,13 @@ function amendReply(userMessage: string, replaced: boolean): string {
 }
 
 function deleteReply(userMessage: string): string {
-  return isCJK(userMessage)
+  return isChineseMsg(userMessage)
     ? "删除卡片帮你准备好啦，点了确认才会真的删掉,别担心～"
     : "I've prepared a delete card for you — nothing's removed until you confirm 🙂";
 }
 
 function pendingDeleteReply(userMessage: string): string {
-  return isCJK(userMessage)
+  return isChineseMsg(userMessage)
     ? "那笔其实还没保存哦～ 卡片还等着你确认呢,直接按卡片上的 Cancel 就好,不用特地删除～"
     : "That one was never actually saved 🙂 its card is still waiting for you — just tap Cancel on the card, nothing to delete.";
 }
@@ -636,7 +654,7 @@ async function answerSimpleTotal(
   const sym = CURRENCY_SYMBOL[user?.currency ?? "SGD"] ?? "S$";
   const amount = `${sym}${total.toFixed(2)}`;
 
-  if (isCJK(userMessage)) {
+  if (isChineseMsg(userMessage)) {
     const catLabel = cat ? `在${CATEGORY_LABELS[cat].zh}上` : "";
     return count === 0
       ? `${range.zh}${catLabel}还没有记录任何消费。`
@@ -805,7 +823,7 @@ async function resolveSearchQuery(
  *  list. `rows` may contain ONE extra row past `limit` (the truncation-detection probe
  *  from resolveSearchQuery) — sliced here, never shown, only used to flag "and more". */
 function searchQueryReply(userMessage: string, rows: SearchTarget[], sort: string, limit: number): string {
-  const cjk = isCJK(userMessage);
+  const cjk = isChineseMsg(userMessage);
   const catLabel = (c: string) => CATEGORY_LABELS[c]?.[cjk ? "zh" : "en"] ?? c;
   const money = (r: SearchTarget) => `${CURRENCY_SYMBOL[r.currency] ?? ""}${r.amount.toFixed(2)}`;
   const hasMore = rows.length > limit;
@@ -832,7 +850,7 @@ function searchQueryReply(userMessage: string, rows: SearchTarget[], sort: strin
 /** Bilingual "which one did you mean?" reply for a 2+-match edit_search/delete_search —
  *  built from the SAME candidate rows we already fetched, so this costs zero extra AI. */
 function ambiguousCandidatesReply(userMessage: string, targets: SearchTarget[], action: "edit" | "delete"): string {
-  const cjk = isCJK(userMessage);
+  const cjk = isChineseMsg(userMessage);
   const catLabel = (c: string) => CATEGORY_LABELS[c]?.[cjk ? "zh" : "en"] ?? c;
   const money = (r: SearchTarget) => `${CURRENCY_SYMBOL[r.currency] ?? ""}${r.amount.toFixed(2)}`;
   const lines = targets.map((r) => `- ${r.date} · ${money(r)} · ${catLabel(r.category)}${r.note ? ` · ${r.note}` : ""}`);
@@ -858,7 +876,7 @@ const META_LEAK_RE =
 /** Generic bilingual clarify fallback — used when the model's own `clarify` text comes
  *  back in the wrong language (same CJK-mismatch guard philosophy as the mini reply). */
 function genericClarifyReply(userMessage: string): string {
-  return isCJK(userMessage)
+  return isChineseMsg(userMessage)
     ? "不好意思，我没太明白～ 可以再说清楚一点吗？"
     : "Sorry, I didn't quite catch that. Could you tell me a bit more?";
 }
@@ -873,7 +891,7 @@ const FEEDBACK_EMAIL = "jeremypoh0205@gmail.com";
 
 /** Bilingual fallbacks when the model's own oos reply fails the language guard. */
 function oosFallbackReply(type: string, userMessage: string): string {
-  const cjk = isCJK(userMessage);
+  const cjk = isChineseMsg(userMessage);
   if (type === "investment") {
     return cjk
       ? "投资建议这个我帮不上忙哦,Honey 专注帮你管好消费、收入和储蓄。想看看你的储蓄进度吗?"
@@ -929,7 +947,7 @@ const MAX_LOG_ITEMS = 20;
 /** Friendly bilingual "that's too many at once" reply — shown instead of silently
  *  escalating a 20+-item message to the full agent. */
 function tooManyLogsReply(userMessage: string): string {
-  return isCJK(userMessage)
+  return isChineseMsg(userMessage)
     ? `哇，这条有点多啦～我一次最多帮你记 ${MAX_LOG_ITEMS} 笔。先存好这些，或者分两次发给我好吗？😊`
     : `That's a lot at once — I can prepare up to ${MAX_LOG_ITEMS} in one go. Could you split it into a couple of messages?`;
 }
@@ -1125,7 +1143,7 @@ async function tryMiniSimpleLog(
   // sometimes answers in Chinese for non-Chinese messages (prompt contamination) —
   // on a CJK mismatch in either direction, prefer the bilingual template over a
   // wrong-language sentence.
-  const replyLangOk = modelReply !== null && isCJK(modelReply) === isCJK(userMessage);
+  const replyLangOk = modelReply !== null && isChineseMsg(modelReply) === isChineseMsg(userMessage);
   return {
     reply: replyLangOk && modelReply ? modelReply : fallbackLogReply(userMessage, proposals.length),
     proposals,
@@ -1355,8 +1373,19 @@ export async function tryFastPath(
       };
     }
 
-    // ── total_query: deterministic aggregate + template ──
+    // total_query / search_query are answered by a DETERMINISTIC bilingual (CN/EN)
+    // TEMPLATE — zero AI narration, but only two languages. For ANY other language
+    // (Malay, Japanese, French, Thai…), a hardcoded template can't follow the user's
+    // language, so we ESCALATE to the full Sonnet agent, which computes the numbers
+    // AND phrases the answer natively in that language (this is the fix for "French
+    // question → English answer" / "Japanese → Chinese"). Detected from the
+    // classifier's own `lang` field (reliable), so we don't hardcode per-language
+    // templates — CN/EN stay cheap, everything else gets a correct-language answer.
+    const isOtherLang = input.lang === "other";
+
+    // ── total_query: deterministic aggregate + template (CN/EN only) ──
     if (intent === "total_query") {
+      if (isOtherLang) return null; // non-CN/EN → Sonnet answers in the user's language
       const t = (input.total ?? {}) as Record<string, unknown>;
       if (typeof t.category !== "string" || typeof t.period !== "string") return null;
       const reply = await answerSimpleTotal(userId, userMessage, t.category, t.period, now);
@@ -1364,8 +1393,9 @@ export async function tryFastPath(
       return { reply, proposals: [], toolsUsed: ["analyze_spending"] };
     }
 
-    // ── search_query: read-only list/find/biggest-smallest — zero-write, templated ──
+    // ── search_query: read-only list/find/biggest-smallest — zero-write, templated (CN/EN only) ──
     if (intent === "search_query") {
+      if (isOtherLang) return null; // non-CN/EN → Sonnet
       const s = (input.search ?? {}) as Record<string, unknown>;
       const { rows, sort, limit } = await resolveSearchQuery(userId, s, now);
       return { reply: searchQueryReply(userMessage, rows, sort, limit), proposals: [], toolsUsed: ["find_expenses"] };
@@ -1382,10 +1412,10 @@ export async function tryFastPath(
       const o = (input.oos ?? {}) as Record<string, unknown>;
       const type = typeof o.type === "string" ? o.type : "off_topic";
       const model = typeof o.reply === "string" && o.reply.trim() ? o.reply.trim() : null;
-      const langOk = model !== null && isCJK(model) === isCJK(userMessage);
+      const langOk = model !== null && isChineseMsg(model) === isChineseMsg(userMessage);
       let reply = langOk && model ? model : oosFallbackReply(type, userMessage);
       if (type === "unsupported_feature") {
-        reply += isCJK(userMessage)
+        reply += isChineseMsg(userMessage)
           ? `\n\n📮 如果这个功能对你很重要,欢迎写信到 ${FEEDBACK_EMAIL} 告诉我们,会认真考虑的!`
           : `\n\n📮 If this feature matters to you, drop a note to ${FEEDBACK_EMAIL} and we'll seriously consider it!`;
       }
@@ -1403,7 +1433,7 @@ export async function tryFastPath(
       // Meta-leak backstop takes priority over the language guard — a leaked
       // explanation is never safe to show, in any language.
       if (META_LEAK_RE.test(clarify)) return null; // true escalate — let Sonnet handle it
-      const reply = isCJK(clarify) === isCJK(userMessage) ? clarify : genericClarifyReply(userMessage);
+      const reply = isChineseMsg(clarify) === isChineseMsg(userMessage) ? clarify : genericClarifyReply(userMessage);
       return { reply, proposals: [], toolsUsed: [], handled: "clarify" };
     }
 

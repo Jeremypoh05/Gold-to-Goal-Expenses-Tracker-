@@ -724,10 +724,24 @@ export async function transcribeChatAudio(
     const stt = new FormData();
     stt.append("file", audio, (audio as File).name || "voice.webm");
     stt.append("model", "gpt-4o-transcribe");
+    // STRENGTHENED (2026-07-18, user feedback): the model was TRANSLATING/interpreting
+    // instead of transcribing — "popiah" → "保镖", "Eclipse" (the candy) → "一颗糖果",
+    // "wanton mee" → 混沌面, brand names lost. A voice-logging app must capture the
+    // EXACT words so the AI can then parse them; translating destroys the item name.
+    // This prompt forces VERBATIM, no-translation output and keeps English/Malay/
+    // dialect/brand/dish words in Latin script as spoken.
     stt.append(
       "prompt",
-      "The speaker mixes English, Mandarin Chinese, and Malay (Singapore/Malaysia). " +
-        "Transcribe faithfully, keeping English and Malay words in Latin script.",
+      "Transcribe the audio VERBATIM — the exact words the speaker says, in the exact language(s) " +
+        "they use. This is Singapore/Malaysia, so the speaker freely code-switches between English, " +
+        "Mandarin, Malay and dialect within one sentence. Do NOT translate or interpret ANY word. Keep " +
+        "every English, Malay, dialect, brand and food/dish name in its ORIGINAL Latin-script form exactly " +
+        "as spoken — e.g. 'wanton mee', 'wantan mee', 'popiah', 'char kway teow', 'kaya toast', 'teh " +
+        "tarik', 'nasi lemak', 'Eclipse', 'Grab', 'Daniel Wellington', 'Watsons', 'Guardian'. Write " +
+        "Chinese characters ONLY for words the speaker actually says in Mandarin (e.g. amounts like " +
+        "'十五块', or '午餐'). Never convert an English/Malay word into a similar-sounding Chinese word. " +
+        "For proper nouns and brand names, transcribe your best phonetic guess in Latin letters (e.g. " +
+        "'Daniel Wellington'), never a Chinese translation. Preserve all numbers and currency as said.",
     );
     const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",

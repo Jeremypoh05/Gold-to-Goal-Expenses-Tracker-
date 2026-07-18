@@ -18,6 +18,31 @@ import type { AiQuotaStatus, QuotaOverflowMode } from '@/lib/ai-quota';
 
 const WARN_AT = 0.7; // start showing a tier's bar from 70% used
 
+// Small inline glyphs so the action buttons read as buttons, not plain links
+// (user feedback: "pause instead / use Advanced AI instead 太朴素了, 加 icon/effect").
+function BoltIcon({ size = 13 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M13 2L4.5 13.2c-.4.5 0 1.3.7 1.3H11l-1 7.5c-.1.7.8 1.1 1.3.5L20 11.3c.4-.5 0-1.3-.7-1.3H13l1-7.6c.1-.8-.8-1.2-1.3-.4z" />
+        </svg>
+    );
+}
+function PauseIcon({ size = 13 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <rect x="6" y="5" width="4" height="14" rx="1.4" />
+            <rect x="14" y="5" width="4" height="14" rx="1.4" />
+        </svg>
+    );
+}
+function SwapIcon({ size = 12 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M7 4L3 8l4 4M3 8h13M17 20l4-4-4-4M21 16H8" />
+        </svg>
+    );
+}
+
 function pct(used: number, limit: number): number {
     return limit <= 0 ? 100 : Math.min(100, Math.round((used / limit) * 100));
 }
@@ -94,59 +119,74 @@ export function QuotaStrip({
                 {showAgent && <MiniBar label="Advanced AI" used={quota.agent.used} limit={quota.agent.limit} exhausted={agentExhausted} />}
 
                 {needChoice && (
-                    <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                        <span className="text-[11px] text-ink-2">Quick AI is used up for today.</span>
-                        <button
-                            type="button"
-                            disabled={saving || agentExhausted}
-                            onClick={() => choose('sonnet')}
-                            className="h-7 px-3 rounded-full text-[11px] font-semibold transition-all hover:brightness-105 disabled:opacity-50"
-                            style={{ background: 'linear-gradient(135deg, oklch(0.82 0.155 88), oklch(0.70 0.155 78))', color: '#1a120a' }}
-                        >
-                            Continue with Advanced AI
-                        </button>
-                        <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => choose('stop')}
-                            className="h-7 px-3 rounded-full text-[11px] font-semibold border transition-all hover:bg-black/5 disabled:opacity-50"
-                            style={{ borderColor: 'oklch(0.75 0.05 80 / 0.5)' }}
-                        >
-                            Pause AI for today
-                        </button>
+                    <div className="flex flex-col gap-2 pt-1">
+                        <span className="text-[11px] text-ink-2">Quick AI is used up for today. Keep going, or rest?</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <motion.button
+                                type="button"
+                                whileHover={{ scale: agentExhausted ? 1 : 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                disabled={saving || agentExhausted}
+                                onClick={() => choose('sonnet')}
+                                className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12px] font-semibold cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                style={{ background: 'linear-gradient(135deg, oklch(0.84 0.155 88), oklch(0.68 0.16 76))', color: '#1a120a', boxShadow: '0 4px 14px -3px oklch(0.7 0.16 78 / 0.5)' }}
+                            >
+                                <BoltIcon /> Continue with Advanced AI
+                            </motion.button>
+                            <motion.button
+                                type="button"
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                disabled={saving}
+                                onClick={() => choose('stop')}
+                                className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12px] font-semibold border cursor-pointer transition-all hover:bg-black/[0.04] disabled:opacity-40 disabled:cursor-not-allowed"
+                                style={{ borderColor: 'oklch(0.75 0.06 80 / 0.6)', color: 'var(--color-ink-1)' }}
+                            >
+                                <PauseIcon /> Pause AI for today
+                            </motion.button>
+                        </div>
                     </div>
                 )}
 
                 {fastExhausted && quota.overflow === 'sonnet' && (
-                    <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                        <span className="text-[11px] text-ink-2">
-                            {agentExhausted ? 'Advanced AI is also used up. AI resumes at midnight.' : 'Running on Advanced AI for the rest of today.'}
+                    <div className="flex items-center gap-2 flex-wrap pt-1">
+                        <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium" style={{ color: 'oklch(0.5 0.13 78)' }}>
+                            <BoltIcon size={12} />
+                            {agentExhausted ? 'Advanced AI also used up — AI resumes at midnight.' : 'Running on Advanced AI for the rest of today.'}
                         </span>
                         {!agentExhausted && (
-                            <button
+                            <motion.button
                                 type="button"
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
                                 disabled={saving}
                                 onClick={() => choose('stop')}
-                                className="text-[11px] underline underline-offset-2 text-ink-2 hover:text-ink-1 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-semibold border cursor-pointer transition-all hover:bg-black/[0.04] disabled:opacity-40"
+                                style={{ borderColor: 'oklch(0.75 0.06 80 / 0.55)', color: 'var(--color-ink-1)' }}
                             >
-                                pause instead
-                            </button>
+                                <SwapIcon /> Pause instead
+                            </motion.button>
                         )}
                     </div>
                 )}
 
                 {fastExhausted && quota.overflow === 'stop' && (
-                    <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                        <span className="text-[11px] text-ink-2">AI paused until midnight, as you chose.</span>
+                    <div className="flex items-center gap-2 flex-wrap pt-1">
+                        <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-ink-2">
+                            <PauseIcon size={12} /> AI paused until midnight, as you chose.
+                        </span>
                         {!agentExhausted && (
-                            <button
+                            <motion.button
                                 type="button"
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
                                 disabled={saving}
                                 onClick={() => choose('sonnet')}
-                                className="text-[11px] underline underline-offset-2 text-ink-2 hover:text-ink-1 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-semibold cursor-pointer transition-all hover:brightness-105 disabled:opacity-40"
+                                style={{ background: 'linear-gradient(135deg, oklch(0.84 0.155 88), oklch(0.68 0.16 76))', color: '#1a120a' }}
                             >
-                                use Advanced AI instead
-                            </button>
+                                <SwapIcon /> Use Advanced AI instead
+                            </motion.button>
                         )}
                     </div>
                 )}
