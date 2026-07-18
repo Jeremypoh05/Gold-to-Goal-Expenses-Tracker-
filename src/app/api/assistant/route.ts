@@ -12,7 +12,13 @@ import {
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
 import { tryFastPath, extractLastCreate, type LastExpenseContext } from "@/lib/assistant/fast-path";
-import { getAiQuotaStatus, quotaExceededReply, quotaResetAt } from "@/lib/ai-quota";
+import {
+  getAiQuotaStatus,
+  quotaExceededReply,
+  quotaOverflowAskReply,
+  quotaStoppedReply,
+  quotaResetAt,
+} from "@/lib/ai-quota";
 import type { Proposal } from "@/lib/assistant/types";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -89,15 +95,45 @@ export async function POST(req: Request): Promise<Response> {
       const toolsUsed: string[] = [];
       const proposals: Proposal[] = [];
       try {
-        // ADDED (2026-07-16): per-user daily AI quota — same gating as
-        // sendAssistantMessage. `fast` exhausted → all AI pauses; only `agent`
-        // exhausted → the cheap tiers below still run, Sonnet turns pause. The
-        // quota reply streams + persists like any normal assistant message.
+        // ADDED (2026-07-16, EXTENDED 07-17): per-user daily AI quota — same gating
+        // as sendAssistantMessage. `agent` exhausted → cheap tiers still run, Sonnet
+        // pauses. `fast` exhausted → the user's overflow choice decides: "sonnet" =
+        // continue on the full agent, "stop" = pause for today, unanswered = ask
+        // (the client renders the buttons off the `done` event's quota snapshot).
         const now = new Date();
         const quota = await getAiQuotaStatus(userId, now);
-        if (!quota.fastAllowed) {
+        if (!quota.fastAllowed && quota.overflow !== "sonnet") {
+          full =
+            quota.overflow === "stop"
+              ? quotaStoppedReply(message, quotaResetAt(now), now)
+              : quotaOverflowAskReply(message, quotaResetAt(now), now);
+          send({ type: "text", text: full });
+        } else if (!quota.fastAllowed && quota.overflow === "sonnet" && !quota.agentAllowed) {
           full = quotaExceededReply("all", message, quotaResetAt(now), now);
           send({ type: "text", text: full });
+        } else if (!quota.fastAllowed && quota.overflow === "sonnet") {
+          // Fast exhausted but the user chose to continue on Advanced — go straight
+          // to the full streaming agent (skip the fast tiers entirely).
+          for await (const ev of runAssistantTurnStreaming(userId, history, message, {
+            signal: req.signal,
+            cardContext,
+          })) {
+            if (ev.type === "text") {
+              full += ev.text;
+              if (!send({ type: "text", text: ev.text })) break;
+            } else if (ev.type === "reset") {
+              full = "";
+              send({ type: "reset" });
+            } else if (ev.type === "tool") {
+              toolsUsed.push(ev.name);
+              send({ type: "tool", name: ev.name });
+            } else if (ev.type === "proposal") {
+              proposals.push(ev.proposal);
+              send({ type: "proposal", proposal: ev.proposal });
+            } else if (ev.type === "error") {
+              send({ type: "error" });
+            }
+          }
         } else {
         // ADDED (cost optimization — fast-path router): try the cheap single-shot
         // classifier first (behind a zero-cost deterministic gate). It handles
@@ -180,7 +216,10 @@ export async function POST(req: Request): Promise<Response> {
         /* persistence hiccup — the live reply already reached the user */
       }
 
-      send({ type: "done", toolsUsed });
+      // Post-turn quota snapshot — drives the client's usage strip (≥70% warning)
+      // and the fast-exhausted Continue-on-Advanced / Stop buttons.
+      const quotaAfter = await getAiQuotaStatus(userId).catch(() => undefined);
+      send({ type: "done", toolsUsed, ...(quotaAfter && { quota: quotaAfter }) });
       if (!closed) controller.close();
     },
   });

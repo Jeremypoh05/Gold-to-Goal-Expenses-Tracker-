@@ -21,3 +21,15 @@ export function notifyDataChanged(): void {
     window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
   }
 }
+
+// ADDED (2026-07-17): same bus for AI-quota state. Fired after every AI turn (usage
+// moved) and whenever the fast-exhausted overflow choice changes (chat buttons or
+// the Settings toggle) — so the Settings page's numbers and the chat/quick-mic
+// usage strips stay in sync in real time, no refresh needed.
+export const QUOTA_CHANGED_EVENT = "honey:quota-changed";
+
+export function notifyQuotaChanged(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(QUOTA_CHANGED_EVENT));
+  }
+}

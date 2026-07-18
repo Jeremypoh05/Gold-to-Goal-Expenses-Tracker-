@@ -33,11 +33,12 @@ import { useConfirm } from '@/components/shared';
 import { useFixedEdit, useClosedMonthGuard } from '@/components/fixed';
 import { cn } from '@/lib/utils';
 import { CATEGORIES } from '@/data/categories';
-import { notifyDataChanged } from '@/lib/data-events';
+import { notifyDataChanged, QUOTA_CHANGED_EVENT } from '@/lib/data-events';
 import { VoiceEntryEditor, type VoiceEntryValue } from '@/components/voice/VoiceEntryEditor';
 import { RecurringEntryEditor } from './RecurringEntryEditor';
 import { BonusEntryEditor, SalaryEntryEditor, SavingsGoalEditor, IncomeSourceEntryEditor } from './IncomeEntryEditors';
 import { useAssistant } from './AssistantContext';
+import { QuotaStrip } from './QuotaStrip';
 import {
     fetchAssistantSessions,
     fetchAssistantMessages,
@@ -47,9 +48,11 @@ import {
     transcribeChatAudio,
     executeAssistantAction,
     recordProposalOutcome,
+    fetchQuotaStatus,
     type AssistantSessionSummary,
     type AssistantChatMessage,
 } from '@/lib/assistant-actions';
+import type { AiQuotaStatus } from '@/lib/ai-quota';
 import type {
     Proposal,
     ExpenseFields,
@@ -181,10 +184,33 @@ const SUGGEST_RE = /\[\[suggest:([^\]]+)\]\]/g;
 
 type Chip = { kind: 'nav'; target: NavTarget; label: string } | { kind: 'suggest'; label: string };
 
-/** Inline **bold** within a plain-text run. */
+// ADDED (2026-07-17): plain email addresses in replies (e.g. the feedback contact in
+// unsupported-feature declines) become tappable mailto links.
+const EMAIL_RE = /([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
+function linkifyEmails(text: string, keyBase: string): React.ReactNode {
+    const parts = text.split(EMAIL_RE);
+    if (parts.length === 1) return text;
+    return parts.map((p, i) =>
+        i % 2 === 1 ? (
+            <a
+                key={`${keyBase}m${i}`}
+                href={`mailto:${p}`}
+                className="text-gold-700 underline decoration-dotted underline-offset-2 hover:opacity-80"
+            >
+                {p}
+            </a>
+        ) : (
+            p
+        ),
+    );
+}
+
+/** Inline **bold** + mailto-linked emails within a plain-text run. */
 function renderBold(text: string, keyBase: string): React.ReactNode {
     const parts = text.split(/\*\*(.+?)\*\*/g);
-    return parts.map((p, i) => (i % 2 === 1 ? <b key={`${keyBase}b${i}`}>{p}</b> : <span key={`${keyBase}t${i}`}>{p}</span>));
+    return parts.map((p, i) =>
+        i % 2 === 1 ? <b key={`${keyBase}b${i}`}>{p}</b> : <span key={`${keyBase}t${i}`}>{linkifyEmails(p, `${keyBase}t${i}`)}</span>,
+    );
 }
 
 /** Renderer for assistant replies: **bold**, "-" bullets, line breaks, [[go:…]]
@@ -2099,6 +2125,18 @@ export function AssistantChat({
     const abortRef = useRef<AbortController | null>(null);
     const nextKey = () => `m${++keyCounter.current}`;
 
+    // ADDED (2026-07-17): AI-usage strip. Loaded on mount (so it shows even before
+    // the first message this session), refreshed after every turn (the SSE `done`
+    // event carries a post-turn snapshot), and kept in sync with OTHER surfaces
+    // (Settings' overflow toggle, the quick mic) via the QUOTA_CHANGED event.
+    const [quota, setQuota] = useState<AiQuotaStatus | null>(null);
+    useEffect(() => {
+        fetchQuotaStatus().then(setQuota).catch(() => {});
+        const onChanged = () => fetchQuotaStatus().then(setQuota).catch(() => {});
+        window.addEventListener(QUOTA_CHANGED_EVENT, onChanged);
+        return () => window.removeEventListener(QUOTA_CHANGED_EVENT, onChanged);
+    }, []);
+
     const handleNavigate = useCallback(
         (target: NavTarget) => {
             router.push(NAV_ROUTES[target]);
@@ -2226,6 +2264,7 @@ export function AssistantChat({
                             name?: string;
                             sessionId?: number;
                             proposal?: Proposal;
+                            quota?: AiQuotaStatus;
                         };
                         try {
                             data = JSON.parse(line.slice(5).trim());
@@ -2247,6 +2286,8 @@ export function AssistantChat({
                             patch((m) => ({ ...m, proposals: [...(m.proposals ?? []), p] }));
                         } else if (data.type === 'error') {
                             streamErrored = true;
+                        } else if (data.type === 'done' && data.quota) {
+                            setQuota(data.quota);
                         }
                     }
                 }
@@ -2634,7 +2675,8 @@ export function AssistantChat({
             </div>
 
             {/* Composer */}
-            <div className="px-4 pb-4 pt-2 border-t border-line-soft">
+            <div className="px-4 pb-4 pt-2 border-t border-line-soft flex flex-col gap-2">
+                <QuotaStrip quota={quota} onQuotaChange={setQuota} />
                 <div className="flex items-end gap-2 rounded-2xl border border-line-soft bg-bg-card px-3 py-2">
                     <textarea
                         value={input}

@@ -885,7 +885,11 @@ async function getClosedMonths(userId: string) {
 }
 
 async function getPreferences(userId: string) {
-  const rows = await prisma.userPreference.findMany({ where: { userId } });
+  // `quota.*` keys are SYSTEM state (e.g. the daily-quota overflow choice, see
+  // lib/ai-quota.ts), not user tastes — keep them out of the AI's context.
+  const rows = await prisma.userPreference.findMany({
+    where: { userId, NOT: { key: { startsWith: "quota." } } },
+  });
   return {
     preferences: rows.map((r) => ({ key: r.key, value: r.value })),
     ...(rows.length === 0 && { note: "no saved preferences yet — avoid assuming what the user values" }),

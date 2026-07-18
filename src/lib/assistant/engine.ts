@@ -258,8 +258,9 @@ function buildSystemPrompt(now: Date): string {
     `The label must accurately name the destination it links to. Add a link only when it genuinely helps the ` +
     `user act on the answer — skip it for a plain factual reply, and never invent a TARGET outside the list above.\n\n` +
     `STYLE: concise and conversational. Short paragraphs; use simple "-" bullet lists for breakdowns; ` +
-    `use **bold** for key figures. No headers or tables. If the question is ambiguous (e.g. which ` +
-    `"coffee" or which month), ask one short clarifying question instead of guessing.`
+    `use **bold** for key figures. No headers or tables. In Chinese NEVER use the long dash ——, and use ` +
+    `dashes sparingly in any language; prefer commas and full stops. If the question is ambiguous (e.g. ` +
+    `which "coffee" or which month), ask one short clarifying question instead of guessing.`
   );
 }
 

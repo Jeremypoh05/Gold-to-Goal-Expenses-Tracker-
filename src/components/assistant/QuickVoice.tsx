@@ -18,10 +18,12 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { MicIcon } from '@/components/icons';
 import { cn } from '@/lib/utils';
-import { notifyDataChanged } from '@/lib/data-events';
-import { sendAssistantMessage, recordProposalOutcome } from '@/lib/assistant-actions';
+import { notifyDataChanged, QUOTA_CHANGED_EVENT } from '@/lib/data-events';
+import { sendAssistantMessage, recordProposalOutcome, fetchQuotaStatus } from '@/lib/assistant-actions';
 import type { Proposal, ProposalOutcome } from '@/lib/assistant/types';
+import type { AiQuotaStatus } from '@/lib/ai-quota';
 import { AssistantText, ProposalCardList, useChatMic } from './AssistantChat';
+import { QuotaStrip } from './QuotaStrip';
 import { useAssistant } from './AssistantContext';
 
 // recurring → /fixed (matches the chat's NAV_ROUTES). Only reached by a card's
@@ -224,6 +226,17 @@ export function QuickVoice({
         setQuickSessionId(sessionId);
     }, [sessionId, setQuickSessionId]);
 
+    // ADDED (2026-07-17): AI-usage strip, mirrored with the full chat + Settings via
+    // the QUOTA_CHANGED event (e.g. the user flips the overflow toggle in Settings
+    // while the mic is open, or vice versa via the strip's own buttons here).
+    const [quota, setQuota] = useState<AiQuotaStatus | null>(null);
+    useEffect(() => {
+        fetchQuotaStatus().then(setQuota).catch(() => {});
+        const onChanged = () => fetchQuotaStatus().then(setQuota).catch(() => {});
+        window.addEventListener(QUOTA_CHANGED_EVENT, onChanged);
+        return () => window.removeEventListener(QUOTA_CHANGED_EVENT, onChanged);
+    }, []);
+
     // Keep the results pinned to the bottom as new turns land.
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -242,6 +255,7 @@ export function QuickVoice({
                 sessionIdRef.current = res.sessionId;
                 setSessionId(res.sessionId);
             }
+            if (res.quota) setQuota(res.quota);
             setTurns((prev) =>
                 prev.map((t) =>
                     t.key === key
@@ -346,6 +360,9 @@ export function QuickVoice({
                     </button>
                 )}
                 {errorMsg && <div className="text-[12px] text-red-500 max-w-[290px]">{errorMsg}</div>}
+                <div className="w-full max-w-[340px]">
+                    <QuotaStrip quota={quota} onQuotaChange={setQuota} compact />
+                </div>
             </div>
         );
     }
@@ -397,6 +414,9 @@ export function QuickVoice({
             </div>
 
             <div className="border-t border-line-soft px-4 pt-3 pb-4 flex flex-col items-center gap-2">
+                <div className="w-full max-w-[340px]">
+                    <QuotaStrip quota={quota} onQuotaChange={setQuota} compact />
+                </div>
                 {draft != null && !mic.recording && (
                     <DraftReview
                         value={draft}

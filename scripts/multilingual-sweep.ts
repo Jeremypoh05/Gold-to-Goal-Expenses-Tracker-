@@ -212,7 +212,7 @@ async function main() {
   console.log("═══ A. GATE AUDIT (production regexes, zero API) ═══");
   let gatePass = 0;
   for (const c of GATE_CASES) {
-    const inGate = fastPathGate(c.msg, c.hasLast);
+    const inGate = fastPathGate(c.msg);
     const route = !inGate ? "agent" : looksLikeSimpleLog(c.msg) ? "mini" : "classifier";
     const ok = route === c.want;
     if (ok) gatePass++;

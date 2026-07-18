@@ -107,26 +107,8 @@ const SKIP_RE = new RegExp(
   "i",
 );
 
-// Simple spend-total questions — cheap to answer deterministically.
-const TOTAL_Q_RE = new RegExp(
-  ["多少", "几多", "总共", "一共", "how much", "how many", "total", "spent"].join("|"),
-  "i",
-);
-
-// Read-only search/list/biggest-smallest phrasing — PERMITS a no-number message into
-// the classifier (search_query intent) instead of the default-deny gate blocking it.
-// This is the counterpart to SKIP_RE removing these same words: without this explicit
-// permit, "what's the cheapest thing I bought" (no digits at all) would silently fall
-// through fastPathGate's final `return false` and escalate straight to Sonnet.
-const SEARCH_Q_RE = new RegExp(
-  [
-    "查一下", "查查", "帮我查", "看看", "找一下", "找找", "寻找", "列一下", "列出", "搜索",
-    "\\bsearch\\b", "\\bfind\\b", "\\blist\\b", "show me",
-    "最大", "最贵", "最多", "最便宜", "最少", "最小",
-    "biggest", "largest", "smallest", "cheapest", "most expensive", "least expensive",
-  ].join("|"),
-  "i",
-);
+// (TOTAL_Q_RE / SEARCH_Q_RE removed 2026-07-17 — the gate is default-classifier now,
+// so total/search questions no longer need an explicit permit list to get in.)
 
 // Amend/delete phrasing about the just-logged expense — only meaningful when the
 // session actually HAS a last-logged expense to point at.
@@ -162,14 +144,19 @@ const AMEND_RE = new RegExp(
 );
 
 /** Zero-cost routing decision: should this message be shown to the classifier at
- *  all? Exported for the smoke test. false = straight to the full agent. */
-export function fastPathGate(message: string, hasLastExpense: boolean): boolean {
-  if (SKIP_RE.test(message)) return false;
-  if (HAS_NUMBER_RE.test(message)) return true; // a possible log / amend-with-value
-  if (TOTAL_Q_RE.test(message)) return true; // a possible simple total question
-  if (SEARCH_Q_RE.test(message)) return true; // a possible read-only search_query, even with no digits
-  if (hasLastExpense && AMEND_RE.test(message)) return true; // "delete that" etc.
-  return false;
+ *  all? Exported for the smoke test. false = straight to the full agent.
+ *
+ *  CHANGED (2026-07-17, user direction): DEFAULT-CLASSIFIER, no longer default-deny.
+ *  Only SKIP_RE (analysis/projections/recurring/income — near-certain Sonnet work)
+ *  still skips the toll. EVERYTHING else goes through Haiku first, because the
+ *  classifier now handles the cheap-reply cases the old deny-path silently sent to
+ *  Sonnet: off-topic chatter ("今天天气怎么样"), unsupported-feature asks ("导出
+ *  Excel"), investment questions, and missing-detail clarifies ("log something for
+ *  lunch"). Worst case a genuine Sonnet message pays one extra ~$0.003 Haiku call; every
+ *  intercepted small-talk message SAVES a 1-4¢ Sonnet turn — the user's explicit
+ *  trade ("很害怕 user 一直问废话…跑 sonnet 很浪费"). */
+export function fastPathGate(message: string): boolean {
+  return !SKIP_RE.test(message);
 }
 
 // ── arch-B gate: is this a SIMPLE log (one or several) for the cheap mini tier? ──
@@ -340,6 +327,15 @@ export const ROUTE_TOOL: Anthropic.Tool = {
     "for sorting/filtering — if the user ALSO wants to change/delete something → edit_search/delete_search " +
     "instead; if it needs REASONING beyond sort/filter (why/compare/average/trend/budget), or a date RANGE " +
     "you can't express as one period, → other.\n" +
+    "• out_of_scope — the ENTIRE message is something Honey deliberately doesn't do, in any language:\n" +
+    "  (a) unsupported_feature — an app feature that doesn't exist yet: exporting files/Excel/CSV, " +
+    "connecting banks or cards, receipts/photos, reminders/notifications, bill-splitting, sharing, " +
+    "changing app settings;\n" +
+    "  (b) investment — stock picks, crypto, 'what should I invest in';\n" +
+    "  (c) off_topic — no finance angle at all: weather, news, homework, poems, coding, translations, " +
+    "general chit-chat.\n" +
+    "  Fill `oos` with the type and a short warm reply in the user's OWN language. ⚠️ Only when the WHOLE " +
+    "message is out of scope — if ANY part is a real expense/income request, use that intent (or other).\n" +
     "• other — EVERYTHING else: analysis, projections, recurring rules, income, months, questions needing " +
     "history/reasoning, multi-intent messages (e.g. a log PLUS a question), a target spanning an arbitrary " +
     "RANGE of days, or ANY doubt. When in doubt, always choose other.",
@@ -348,8 +344,30 @@ export const ROUTE_TOOL: Anthropic.Tool = {
     properties: {
       intent: {
         type: "string",
-        enum: ["log", "amend_last", "edit_search", "delete_last", "delete_search", "total_query", "search_query", "other"],
+        enum: ["log", "amend_last", "edit_search", "delete_last", "delete_search", "total_query", "search_query", "out_of_scope", "other"],
         description: "The single intent of this message. Choose 'other' on any doubt.",
+      },
+      oos: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["unsupported_feature", "investment", "off_topic"],
+            description: "Which kind of out-of-scope this is.",
+          },
+          reply: {
+            type: "string",
+            description:
+              "A short, warm, honest reply in the user's OWN language/script: say Honey can't do that, " +
+              "then offer the CLOSEST thing you CAN do (log/edit/search expenses, totals). For off_topic " +
+              "you may add ONE light friendly sentence before steering back. NEVER pretend the feature " +
+              "exists, never give investment advice, never mention any email address (the system appends " +
+              "the feedback contact itself). No dashes (— or ——); use commas and full stops.",
+          },
+        },
+        required: ["type", "reply"],
+        additionalProperties: false,
+        description: "intent=out_of_scope: the decline/steer-back reply.",
       },
       expenses: {
         type: "array",
@@ -422,27 +440,31 @@ export const ROUTE_TOOL: Anthropic.Tool = {
       clarify: {
         type: "string",
         description:
+          "Whatever you write here is shown to the user AS YOUR ENTIRE REPLY, verbatim. It must be ONLY a " +
+          "direct, natural question to the user — NEVER a description of your own routing logic. Never " +
+          "write things like 'this has two requests bundled', 'I only see this message not our earlier " +
+          "conversation', 'I need to let the full assistant handle this' — that is internal reasoning, not " +
+          "something to say to the user, and leaking it looks broken.\n" +
           "⚠️ CHECK FOR MULTI-INTENT FIRST, before considering this field: if the message bundles a " +
           "SECOND distinct request (another action, or a question) alongside the part that's missing a " +
-          "detail — e.g. 'log lunch 12 today, and how much have I spent on food this month?' — leave " +
-          "clarify UNSET and escalate silently. Asking one clarifying question would only resolve the " +
-          "first part and silently drop the second; only the full assistant can handle both in one turn.\n" +
+          "detail — e.g. 'log lunch 12 today, and how much have I spent on food this month?' — DO NOT " +
+          "SET clarify AT ALL (omit the field entirely from your tool call). Do not explain why; just " +
+          "leave it out and choose intent='other'. Silently escalating (with no clarify) lets the full " +
+          "assistant handle both parts in one turn — your job here ends the moment you recognize this.\n" +
           "⚠️ ALSO check for a REFERENCE to something said EARLIER in this conversation ('like we just " +
           "discussed', 'the same as before', 'as I mentioned', 'that one from earlier'): you only see " +
-          "THIS one message, not the conversation history, so you cannot actually resolve what they're " +
-          "referring to — asking a generic clarifying question here would make the user repeat something " +
-          "they already told the assistant. Leave clarify UNSET (escalate silently) so the full assistant, " +
-          "which DOES have the conversation history, can look it up instead.\n" +
-          "Otherwise: use ONLY together with intent='other', and ONLY when the ENTIRE message is a SINGLE " +
-          "request that is CLEARLY about adding, editing, deleting, or searching an expense (the right " +
-          "domain for you) but is missing ONE piece of information you'd need to act confidently — e.g. a " +
-          "bare amount with no idea what it was for, or 'change it' with no new value. Write ONE short, " +
-          "warm question in the user's OWN language/script asking for that missing piece — never claim " +
-          "anything was done or guess the missing detail. Leave this null/omit it for anything needing " +
-          "capability you don't have (analysis, projections, recurring rules, income, months), or a " +
-          "genuinely unclear request type — those must escalate silently (leave clarify unset) so the full " +
-          "assistant, which has those tools, can help. When unsure whether this is a simple missing-detail " +
-          "question or something needing the full assistant, leave clarify unset.",
+          "THIS one message, not the conversation history. DO NOT SET clarify AT ALL here either (omit " +
+          "the field) — just choose intent='other' and stop; do not tell the user you can't see the " +
+          "history. The full assistant, which DOES have the conversation history, will look it up.\n" +
+          "Otherwise (single request, single domain, one small gap): use ONLY together with intent='other', " +
+          "and ONLY when the ENTIRE message is CLEARLY about adding, editing, deleting, or searching an " +
+          "expense (the right domain for you) but is missing ONE piece of information you'd need to act " +
+          "confidently — e.g. a bare amount with no idea what it was for, or 'change it' with no new " +
+          "value. Write ONE short, warm question in the user's OWN language/script asking for THAT missing " +
+          "piece specifically — never claim anything was done, never guess the missing detail, never " +
+          "narrate your own reasoning. Omit this field entirely for anything needing capability you don't " +
+          "have (analysis, projections, recurring rules, income, months) or a genuinely unclear request " +
+          "type — those escalate silently too. When unsure, omit the field.",
       },
       total: {
         type: "object",
@@ -822,12 +844,49 @@ function ambiguousCandidatesReply(userMessage: string, targets: SearchTarget[], 
   return `I found a few matching expenses — not sure which one you mean to ${verb}. Could you be a bit more specific (amount or a fuller name)?\n${lines.join("\n")}`;
 }
 
+// Deterministic backstop (2026-07-17): the prompt asks the model to OMIT `clarify`
+// for multi-intent/referential messages, but real-API testing caught it instead
+// narrating its own routing logic AS the clarify text ("this has two requests
+// bundled…", "I only see this message, not our earlier conversation…") — the exact
+// "internal reasoning leaks into user-visible text" failure class this codebase has
+// hit before (e.g. the card-outcome-annotation leak in engine.ts). Same fix
+// philosophy: the prompt reduces it, this regex is the actual guarantee. A hit here
+// means DON'T trust the model's clarify — fall through to a true silent escalate.
+const META_LEAK_RE =
+  /\bfull assistant\b|\bearlier conversation\b|\bour conversation\b|\btwo requests\b|\bbundled\b|\bI only see this message\b|\bmy own\b.{0,20}\blogic\b|完整助手|之前的对话|我们的对话|两个请求|捆绑/i;
+
 /** Generic bilingual clarify fallback — used when the model's own `clarify` text comes
  *  back in the wrong language (same CJK-mismatch guard philosophy as the mini reply). */
 function genericClarifyReply(userMessage: string): string {
   return isCJK(userMessage)
     ? "不好意思，我没太明白～ 可以再说清楚一点吗？"
-    : "Sorry, I didn't quite catch that — could you tell me a bit more?";
+    : "Sorry, I didn't quite catch that. Could you tell me a bit more?";
+}
+
+// ── out_of_scope replies (2026-07-17) ────────────────────────
+// The 三件套 declines now answered by HAIKU instead of Sonnet (user: small-talk spam
+// must not burn Sonnet money for what is just a friendly no). engine.ts keeps its
+// OUT OF SCOPE section as the backstop for whatever still reaches the full agent.
+
+/** Plain-text email — the chat renderer auto-links it as mailto (user request). */
+const FEEDBACK_EMAIL = "jeremypoh0205@gmail.com";
+
+/** Bilingual fallbacks when the model's own oos reply fails the language guard. */
+function oosFallbackReply(type: string, userMessage: string): string {
+  const cjk = isCJK(userMessage);
+  if (type === "investment") {
+    return cjk
+      ? "投资建议这个我帮不上忙哦,Honey 专注帮你管好消费、收入和储蓄。想看看你的储蓄进度吗?"
+      : "Investment advice is outside what I do. Honey focuses on your spending, income and savings. Want a look at your savings progress instead?";
+  }
+  if (type === "unsupported_feature") {
+    return cjk
+      ? "这个功能 Honey 暂时还没有哦。不过记账、修改、查询这些我都能马上帮你做!"
+      : "Honey doesn't have that feature yet. I can still log, edit and search your expenses for you anytime though!";
+  }
+  return cjk
+    ? "这个我就帮不上啦,我是 Honey 的记账助手。想记一笔,或者看看最近的花销吗?"
+    : "That one's outside my lane, I'm Honey's expense assistant. Want to log something, or check your recent spending?";
 }
 
 // ── the router ───────────────────────────────────────────────
@@ -838,6 +897,9 @@ export interface FastPathResult {
   proposals: Proposal[];
   /** For the UI's tool chips — mirrors what the full agent would have reported. */
   toolsUsed: string[];
+  /** Which text-only mechanism produced this (observability + smoke labeling only —
+   *  the UI ignores it). Set for clarify / out_of_scope replies. */
+  handled?: "clarify" | "out_of_scope";
 }
 
 const mintId = (now: Date) => `fp_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -910,8 +972,8 @@ export function miniExtractPrompt(now: Date): string {
     `and confirm — NEVER say anything is already saved/recorded. reply MUST be written in the language ` +
     `and script of the USER'S OWN message — an English message gets an English reply, a Tamil message a ` +
     `Tamil reply. Do NOT reply in Chinese unless the user themselves wrote Chinese (the Chinese phrases ` +
-    `in these instructions are currency examples, not the user's language). If expenses is empty, set ` +
-    `reply to null.\n` +
+    `in these instructions are currency examples, not the user's language). No long dashes (—— or —); ` +
+    `use commas. If expenses is empty, set reply to null.\n` +
     `Never invent a detail the user didn't say.`
   );
 }
@@ -1084,7 +1146,7 @@ export async function tryFastPath(
   now: Date,
   lastExpense: LastExpenseContext | null,
 ): Promise<FastPathResult | null> {
-  if (!fastPathGate(userMessage, lastExpense != null)) return null;
+  if (!fastPathGate(userMessage)) return null;
 
   // CHEAPEST TIER (arch B): one or several simple new expense logs → the mini model
   // (extract-only), ~4x cheaper than the classifier.
@@ -1309,6 +1371,27 @@ export async function tryFastPath(
       return { reply: searchQueryReply(userMessage, rows, sort, limit), proposals: [], toolsUsed: ["find_expenses"] };
     }
 
+    // ── out_of_scope: unsupported feature / investment advice / off-topic chatter —
+    // answered by HAIKU directly (2026-07-17). This used to fall to Sonnet via
+    // engine.ts's OUT OF SCOPE section (which stays as the backstop for whatever the
+    // classifier still marks 'other'): the user's worry was small-talk spam burning
+    // 1-4¢ Sonnet turns for what is just a friendly decline. Language guard as
+    // always; the feedback email is appended by CODE (never model-written) and the
+    // chat renderer turns it into a mailto link.
+    if (intent === "out_of_scope") {
+      const o = (input.oos ?? {}) as Record<string, unknown>;
+      const type = typeof o.type === "string" ? o.type : "off_topic";
+      const model = typeof o.reply === "string" && o.reply.trim() ? o.reply.trim() : null;
+      const langOk = model !== null && isCJK(model) === isCJK(userMessage);
+      let reply = langOk && model ? model : oosFallbackReply(type, userMessage);
+      if (type === "unsupported_feature") {
+        reply += isCJK(userMessage)
+          ? `\n\n📮 如果这个功能对你很重要,欢迎写信到 ${FEEDBACK_EMAIL} 告诉我们,会认真考虑的!`
+          : `\n\n📮 If this feature matters to you, drop a note to ${FEEDBACK_EMAIL} and we'll seriously consider it!`;
+      }
+      return { reply, proposals: [], toolsUsed: [], handled: "out_of_scope" };
+    }
+
     // ── other: usually a silent escalate, but a `clarify` question means the
     // classifier judged this is squarely our domain (log/edit/delete/search) minus
     // ONE missing detail — answer it directly instead of paying for a Sonnet turn
@@ -1317,8 +1400,11 @@ export async function tryFastPath(
     // rather than trusting possibly-contaminated model text.
     if (typeof input.clarify === "string" && input.clarify.trim()) {
       const clarify = input.clarify.trim();
+      // Meta-leak backstop takes priority over the language guard — a leaked
+      // explanation is never safe to show, in any language.
+      if (META_LEAK_RE.test(clarify)) return null; // true escalate — let Sonnet handle it
       const reply = isCJK(clarify) === isCJK(userMessage) ? clarify : genericClarifyReply(userMessage);
-      return { reply, proposals: [], toolsUsed: [] };
+      return { reply, proposals: [], toolsUsed: [], handled: "clarify" };
     }
 
     return null; // intent 'other' with no clarify (or anything malformed) → full agent

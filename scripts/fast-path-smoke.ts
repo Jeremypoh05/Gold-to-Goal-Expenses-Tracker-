@@ -19,7 +19,7 @@ loadEnv({ path: ".env.local" });
 import type { LastExpenseContext } from "../src/lib/assistant/fast-path";
 import type { Proposal } from "../src/lib/assistant/types";
 
-type Expect = "log" | "amend" | "delete" | "total" | "search" | "clarify" | "escalate" | "gate-skip" | "future";
+type Expect = "log" | "amend" | "delete" | "total" | "search" | "clarify" | "oos" | "escalate" | "gate-skip" | "future";
 interface Case {
   msg: string;
   expect: Expect;
@@ -82,10 +82,22 @@ async function main() {
     { msg: "find my biggest expense this year", expect: "escalate" },
     { msg: "what's my biggest expense this month?", expect: "search" },
     { msg: "帮我找一下这个月最便宜的一笔", expect: "search" },
-    { msg: "delete the grab ride from last week", expect: "gate-skip" }, // no number, no context
-    { msg: "log something for lunch", expect: "gate-skip" }, // no amount
+    // CHANGED (2026-07-17, default-classifier gate): these two used to be zero-cost
+    // gate-skips; now Haiku sees them. "delete the grab ride" → delete_search with no
+    // matching row → escalate (Sonnet searches harder). "log something for lunch" →
+    // domain-correct but missing the amount → Haiku asks via clarify (was a Sonnet turn).
+    { msg: "delete the grab ride from last week", expect: "escalate" },
+    { msg: "log something for lunch", expect: "clarify" },
     { msg: "把我的工资改成5000", expect: "gate-skip" }, // income
     { msg: "how much did I spend per day on average?", expect: "gate-skip" }, // average → deep analysis
+    // ── OUT OF SCOPE (2026-07-17): 三件套 now answered by Haiku, NOT Sonnet ──
+    { msg: "今天天气怎么样？", expect: "oos" },
+    {
+      msg: "can you export my expenses to Excel?",
+      expect: "oos",
+      check: (r) => (r.reply.includes("jeremypoh0205@gmail.com") ? null : "unsupported-feature reply lacks the feedback email"),
+    },
+    { msg: "which stocks should I buy to get rich?", expect: "oos" },
     // ── LOG ──
     { msg: "log $12 lunch at the hawker centre today", expect: "log" },
     {
@@ -149,7 +161,7 @@ async function main() {
   let pass = 0;
   for (const c of CASES) {
     const ctx = c.ctx ?? null;
-    const gateOpen = fastPathGate(c.msg, ctx != null);
+    const gateOpen = fastPathGate(c.msg);
     const started = Date.now();
     const result = gateOpen ? await tryFastPath(user.id, c.msg, new Date(), ctx) : null;
     const secs = ((Date.now() - started) / 1000).toFixed(1);
@@ -158,18 +170,23 @@ async function main() {
     if (!gateOpen) actual = "gate-skip";
     else if (result == null) actual = "escalate";
     else if (result.proposals.length === 0) {
-      // Disambiguate by toolsUsed, not just reply wording — analyze_spending = a real
-      // total_query answer, find_expenses = the new search_query answer, and an empty
-      // toolsUsed with no card is the new `clarify` one-question reply.
-      actual = /future|还没到|hasn't happened/i.test(result.reply)
-        ? "future"
-        : /cancel/i.test(result.reply)
-          ? "delete"
-          : result.toolsUsed.includes("analyze_spending")
-            ? "total"
-            : result.toolsUsed.includes("find_expenses")
-              ? "search"
-              : "clarify";
+      // Disambiguate text-only replies: `handled` marks the oos/clarify mechanisms
+      // explicitly; otherwise analyze_spending = total_query, find_expenses =
+      // search_query, and the reply wording separates future-decline / tap-Cancel.
+      actual =
+        result.handled === "out_of_scope"
+          ? "oos"
+          : result.handled === "clarify"
+            ? "clarify"
+            : /future|还没到|hasn't happened/i.test(result.reply)
+              ? "future"
+              : /cancel/i.test(result.reply)
+                ? "delete"
+                : result.toolsUsed.includes("analyze_spending")
+                  ? "total"
+                  : result.toolsUsed.includes("find_expenses")
+                    ? "search"
+                    : "clarify";
     } else {
       const kind = result.proposals[0].kind;
       actual = kind === "update_expense" ? "amend" : kind === "delete_expense" ? "delete" : "log";

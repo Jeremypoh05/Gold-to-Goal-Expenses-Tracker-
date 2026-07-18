@@ -12,7 +12,16 @@ import {
   type AssistantHistoryMessage,
 } from "@/lib/assistant/engine";
 import { tryFastPath, extractLastCreate, type LastExpenseContext } from "@/lib/assistant/fast-path";
-import { getAiQuotaStatus, quotaExceededReply, quotaResetAt } from "@/lib/ai-quota";
+import {
+  getAiQuotaStatus,
+  quotaExceededReply,
+  quotaOverflowAskReply,
+  quotaStoppedReply,
+  quotaResetAt,
+  setQuotaOverflow,
+  type AiQuotaStatus,
+  type QuotaOverflowMode,
+} from "@/lib/ai-quota";
 import {
   createExpense,
   updateExpense,
@@ -79,7 +88,24 @@ export interface SendAssistantMessageResult {
   reply: string;
   toolsUsed: string[];
   proposals: Proposal[];
+  /** Post-turn quota snapshot — drives the usage strip + overflow buttons in the UI. */
+  quota?: AiQuotaStatus;
   error?: string;
+}
+
+/** The user's fast-exhausted choice (chat buttons + the Settings toggle both call
+ *  this). null = clear back to "ask". Auth'd; fires no AI. */
+export async function setQuotaOverflowAction(mode: QuotaOverflowMode | null): Promise<AiQuotaStatus> {
+  const userId = await requireUserId();
+  await setQuotaOverflow(userId, mode);
+  return getAiQuotaStatus(userId);
+}
+
+/** Current quota snapshot for surfaces that mount without sending (chat open,
+ *  quick-mic open, Settings). Auth'd; read-only. */
+export async function fetchQuotaStatus(): Promise<AiQuotaStatus> {
+  const userId = await requireUserId();
+  return getAiQuotaStatus(userId);
 }
 
 /**
@@ -129,22 +155,32 @@ export async function sendAssistantMessage(input: {
   }
   const sid: number = sessionId;
 
-  // ADDED (2026-07-16): per-user daily AI quota — the pre-launch guard against a
-  // runaway user draining the shared API keys. `fast` exhausted → all AI pauses
-  // until local midnight; only `agent` exhausted → cheap log/edit/search still
-  // work, Sonnet turns pause. The quota reply is persisted as a normal assistant
-  // message below, so the conversation stays coherent. Admins bypass everything.
+  // ADDED (2026-07-16, EXTENDED 07-17): per-user daily AI quota — the pre-launch
+  // guard against a runaway user draining the shared API keys. `agent` exhausted →
+  // cheap log/edit/search still work, Sonnet turns pause. `fast` exhausted → the
+  // USER decides (overflow choice, resets at midnight): continue on Advanced
+  // ("sonnet"), pause for today ("stop"), or not-yet-answered → ask (the UI shows
+  // the buttons). Quota replies persist as normal assistant messages. Admins
+  // bypass everything.
   const now = new Date();
   const quota = await getAiQuotaStatus(userId, now);
   let result: { ok: boolean; reply: string; toolsUsed: string[]; proposals: Proposal[]; error?: string };
   if (!quota.fastAllowed) {
-    result = { ok: true, reply: quotaExceededReply("all", message, quotaResetAt(now), now), toolsUsed: [], proposals: [] };
+    if (quota.overflow === "sonnet") {
+      result = quota.agentAllowed
+        ? await runAssistantTurn(userId, history, message, now, cardContext, input.mode)
+        : { ok: true, reply: quotaExceededReply("all", message, quotaResetAt(now), now), toolsUsed: [], proposals: [] };
+    } else if (quota.overflow === "stop") {
+      result = { ok: true, reply: quotaStoppedReply(message, quotaResetAt(now), now), toolsUsed: [], proposals: [] };
+    } else {
+      result = { ok: true, reply: quotaOverflowAskReply(message, quotaResetAt(now), now), toolsUsed: [], proposals: [] };
+    }
   } else {
     // ADDED (cost optimization — fast-path router): try the cheap single-shot
     // classifier first (behind a zero-cost deterministic gate). It handles clean
-    // logs, amend/delete/edit/search, simple totals and read-only searches — and
-    // bails (returns null) at the slightest doubt; everything else falls through
-    // to the full agent, quota permitting.
+    // logs, amend/delete/edit/search, simple totals, read-only searches, small-talk
+    // declines and clarifies — and bails (returns null) at the slightest doubt;
+    // everything else falls through to the full agent, quota permitting.
     const fastPath = await tryFastPath(userId, message, now, lastExpense);
     result = fastPath
       ? { ok: true, reply: fastPath.reply, toolsUsed: fastPath.toolsUsed, proposals: fastPath.proposals }
@@ -175,12 +211,17 @@ export async function sendAssistantMessage(input: {
     prisma.chatSession.update({ where: { id: sid }, data: { updatedAt: new Date() } }),
   ]);
 
+  // Post-turn snapshot (this turn's AiUsageLog rows are flushed by now, best-effort)
+  // so the UI's usage strip is current the moment the reply lands.
+  const quotaAfter = await getAiQuotaStatus(userId).catch(() => undefined);
+
   return {
     ok: result.ok,
     sessionId: sid,
     reply: result.reply,
     toolsUsed: result.toolsUsed,
     proposals: result.proposals,
+    ...(quotaAfter && { quota: quotaAfter }),
     ...(result.error && { error: result.error }),
   };
 }

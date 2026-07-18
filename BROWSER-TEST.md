@@ -91,6 +91,18 @@
 | H4 | 编辑卡片(Edit 按钮手动改字段) | 正常保存 |
 | H5 | 确认一张卡后,背后页面(dashboard/ledger)数字即时刷新 | 不用手动刷新 |
 
+## H2 · 废话/三件套现在走 Haiku,不再碰 Sonnet(2026-07-17 新增)
+
+| # | 输入 | 期望 |
+|---|---|---|
+| H2-1 | `今天天气怎么样` | Haiku 秒答拉回主题(AiUsageLog 只出 Haiku 行,**没有** Sonnet) |
+| H2-2 | `可以帮我导出6月份的Excel吗` | Haiku 诚实说不支持 + **可点击的** `jeremypoh0205@gmail.com` mailto 链接;只 Haiku,无 Sonnet |
+| H2-3 | `boleh export ke Excel tak?`(马来语) | 全马来语回复 + mailto 链接,只 Haiku |
+| H2-4 | `which stocks should I buy?` | Haiku 婉拒投资建议,无邮箱;只 Haiku |
+| H2-5 | `log something for lunch`(缺金额) | Haiku 直接问"多少钱/买了什么",不转 Sonnet |
+| H2-6 | `log lunch 12 today, and how much did I spend on food this month?`(多意图) | **走 Sonnet**(两部分都要处理,不能只问一半) |
+| H2-7 | `do another one for the 16th, like we just discussed`(引用历史) | **走 Sonnet**(Haiku 看不到历史,不该硬问) |
+
 ## I · Settings 页 + AI 配额(2026-07-17 新增)
 
 先在 `.env.local` 里**不要**设 `ADMIN_USERS`(测普通用户视角),测完再设回你的邮箱。
@@ -103,6 +115,12 @@
 | I4 | 再加 `AI_QUOTA_FAST_DAILY=0`,重启,发任意 AI 消息 | 友好提示"今天 AI 额度全部用完…手动记账不受影响";手动记账按钮确实正常 |
 | I5 | `.env.local` 设 `ADMIN_USERS=你的邮箱`,重启 | Settings 显示 "Admin account — no limits";AI 全部恢复,进度条显示 ∞ |
 | I6 | 测完删掉两个 `AI_QUOTA_*` 行,保留 `ADMIN_USERS` | 恢复正常 |
+| I7(新) | 去掉 `ADMIN_USERS`,设 `AI_QUOTA_FAST_DAILY=0`,重启,在 chat 里发一条消息 | 输入框上方出现**警告条**:两个"Continue with Advanced AI / Pause AI for today"按钮 |
+| I8(新) | 点 **Continue with Advanced AI** | 该消息走 Sonnet 正常回答;警告条变成"Running on Advanced AI for the rest of today" |
+| I9(新) | 不刷新页面,切到 Settings 页 | "When Quick AI runs out" 那栏**立刻**显示"Continue on Advanced AI"被选中(不用手动刷新) |
+| I10(新) | 在 Settings 页把选项改成 **Pause AI for today** | 不刷新,回到 chat/quick mic,警告条**立刻**变成"AI paused until midnight, as you chose" |
+| I11(新) | 用 quick mic 说一句话 | 同样看到配额警告条(格式紧凑版) |
+| I12(新) | 测完删掉 `AI_QUOTA_FAST_DAILY=0`,重启 | 恢复正常,警告条消失 |
 
 ---
 
