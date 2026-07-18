@@ -622,15 +622,65 @@ function periodRange(period: string, now: Date): { from: Date; to: Date; en: str
   }
 }
 
-/** Answer a simple total with ONE Prisma aggregate + a bilingual template — the
- *  numbers come from the same table the agent's analyze_spending reads; only the
- *  narration differs (template instead of a second AI call). */
+// ── cheap multilingual narration (2026-07-18, user's idea) ────
+// The insight (the user's): for a total/search answer in a language we DON'T have a
+// hand-written template for, we still do NOT need the expensive Sonnet agent — the
+// mini model (gpt-5.4-mini, already our any-language workhorse) restates the
+// ALREADY-COMPUTED facts in the user's own language for a fraction of a cent. The
+// numbers are computed in code and passed in as `facts`; mini only PHRASES them, so
+// it cannot get the math wrong. One small call (~$0.00005). Returns null on any
+// failure → caller falls back to the English facts string (never a wrong number).
+async function miniNarrate(userId: string, userMessage: string, facts: string): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: MINI_MODEL,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are Honey, a warm, friendly expense assistant. You are given FACTS that have already " +
+              "been computed for the user. Restate them to the user in the SAME language and script as the " +
+              "user's message — natural and native, one short friendly sentence (or a short bulleted list " +
+              "if the facts are a list). Keep EVERY number, currency symbol and date EXACTLY as given — " +
+              "never change, add, round or omit a number. Do not use long dashes. Do not add advice or " +
+              "commentary beyond restating the facts.",
+          },
+          { role: "user", content: `My message: "${userMessage}"\n\nFacts to tell me: ${facts}` },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    void logAiUsage(userId, "assistant_fast_path_mini", MINI_MODEL, {
+      input_tokens: json.usage?.prompt_tokens ?? 0,
+      output_tokens: json.usage?.completion_tokens ?? 0,
+    }).catch(() => {});
+    const text = json.choices?.[0]?.message?.content?.trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Answer a simple total with ONE Prisma aggregate. CN/EN use a free hand-written
+ *  template; ANY other language (`lang==='other'`) gets the SAME computed English
+ *  facts restated by the cheap mini model in the user's language — no Sonnet, ~sub-
+ *  cent, correct language. `lang` comes from the classifier's own language ID. */
 async function answerSimpleTotal(
   userId: string,
   userMessage: string,
   category: string,
   period: string,
   now: Date,
+  lang: string | undefined,
 ): Promise<string | null> {
   const range = periodRange(period, now);
   if (!range) return null;
@@ -654,16 +704,23 @@ async function answerSimpleTotal(
   const sym = CURRENCY_SYMBOL[user?.currency ?? "SGD"] ?? "S$";
   const amount = `${sym}${total.toFixed(2)}`;
 
-  if (isChineseMsg(userMessage)) {
+  // Chinese template (free).
+  if (lang === "zh" || (lang !== "en" && lang !== "other" && isChineseMsg(userMessage))) {
     const catLabel = cat ? `在${CATEGORY_LABELS[cat].zh}上` : "";
     return count === 0
       ? `${range.zh}${catLabel}还没有记录任何消费。`
       : `${range.zh}${catLabel}一共花了 ${amount}（${count} 笔）。`;
   }
-  const catLabel = cat ? ` on ${CATEGORY_LABELS[cat].en}` : "";
-  return count === 0
-    ? `No spending recorded${catLabel} ${range.en} yet.`
-    : `You've spent ${amount}${catLabel} ${range.en} (${count} ${count === 1 ? "entry" : "entries"}).`;
+  // English facts (also the English reply, and the fallback for `other`).
+  const catEn = cat ? ` on ${CATEGORY_LABELS[cat].en}` : "";
+  const enFacts =
+    count === 0
+      ? `No spending recorded${catEn} ${range.en} yet.`
+      : `You've spent ${amount}${catEn} ${range.en} (${count} ${count === 1 ? "entry" : "entries"}).`;
+  if (lang === "other") {
+    return (await miniNarrate(userId, userMessage, enFacts)) ?? enFacts;
+  }
+  return enFacts;
 }
 
 // ── amend/delete-last row resolution (deterministic) ─────────
@@ -845,6 +902,25 @@ function searchQueryReply(userMessage: string, rows: SearchTarget[], sort: strin
     : `Found ${shown.length}${hasMore ? "+" : ""} matching expense${shown.length > 1 ? "s" : ""}:`;
   const more = hasMore ? (cjk ? "\n（还有更多，可以说得更具体一点缩小范围哦～）" : "\n(there are more — try narrowing your question for the full list)") : "";
   return `${header}\n${lines.join("\n")}${more}`;
+}
+
+/** English FACTS for a search_query result — fed to miniNarrate so it can retell the
+ *  same rows in a non-CN/EN user's language (numbers/dates/notes stay verbatim). */
+function searchQueryFacts(rows: SearchTarget[], sort: string, limit: number): string {
+  const money = (r: SearchTarget) => `${CURRENCY_SYMBOL[r.currency] ?? ""}${r.amount.toFixed(2)}`;
+  const hasMore = rows.length > limit;
+  const shown = hasMore ? rows.slice(0, limit) : rows;
+  if (shown.length === 0) return "No matching expenses were found.";
+  if (limit === 1 && (sort === "amount_desc" || sort === "amount_asc")) {
+    const r = shown[0];
+    const label = sort === "amount_desc" ? "biggest expense" : "smallest expense";
+    return `The ${label} is ${money(r)} on ${r.date} (${r.note || r.category}, category: ${r.category}).`;
+  }
+  const lines = shown.map((r) => `- ${r.date}: ${money(r)}, ${r.category}${r.note ? `, ${r.note}` : ""}`);
+  return (
+    `Found ${shown.length}${hasMore ? " or more" : ""} matching expense(s):\n${lines.join("\n")}` +
+    (hasMore ? "\n(There are more; the user could narrow the query.)" : "")
+  );
 }
 
 /** Bilingual "which one did you mean?" reply for a 2+-match edit_search/delete_search —
@@ -1373,31 +1449,34 @@ export async function tryFastPath(
       };
     }
 
-    // total_query / search_query are answered by a DETERMINISTIC bilingual (CN/EN)
-    // TEMPLATE — zero AI narration, but only two languages. For ANY other language
-    // (Malay, Japanese, French, Thai…), a hardcoded template can't follow the user's
-    // language, so we ESCALATE to the full Sonnet agent, which computes the numbers
-    // AND phrases the answer natively in that language (this is the fix for "French
-    // question → English answer" / "Japanese → Chinese"). Detected from the
-    // classifier's own `lang` field (reliable), so we don't hardcode per-language
-    // templates — CN/EN stay cheap, everything else gets a correct-language answer.
-    const isOtherLang = input.lang === "other";
+    // total_query / search_query: the NUMBERS are computed deterministically in code
+    // (never a model). The NARRATION uses a free hand-written template for CN/EN and,
+    // for ANY other language (Malay, Japanese, French, Thai…), the CHEAP mini model
+    // restates the same computed facts in the user's language (~$0.00005) — NOT the
+    // expensive Sonnet agent. So no per-language hardcoding AND no Sonnet cost: the
+    // model detects the language (classifier `lang` field), mini narrates. This is the
+    // fix for "French question → English answer" done the cheap way (user's idea).
+    const lang = typeof input.lang === "string" ? input.lang : undefined;
 
-    // ── total_query: deterministic aggregate + template (CN/EN only) ──
+    // ── total_query: deterministic aggregate + template/mini-narration ──
     if (intent === "total_query") {
-      if (isOtherLang) return null; // non-CN/EN → Sonnet answers in the user's language
       const t = (input.total ?? {}) as Record<string, unknown>;
       if (typeof t.category !== "string" || typeof t.period !== "string") return null;
-      const reply = await answerSimpleTotal(userId, userMessage, t.category, t.period, now);
+      const reply = await answerSimpleTotal(userId, userMessage, t.category, t.period, now, lang);
       if (!reply) return null;
       return { reply, proposals: [], toolsUsed: ["analyze_spending"] };
     }
 
-    // ── search_query: read-only list/find/biggest-smallest — zero-write, templated (CN/EN only) ──
+    // ── search_query: read-only list/find/biggest-smallest — zero-write ──
     if (intent === "search_query") {
-      if (isOtherLang) return null; // non-CN/EN → Sonnet
       const s = (input.search ?? {}) as Record<string, unknown>;
       const { rows, sort, limit } = await resolveSearchQuery(userId, s, now);
+      // CN/EN → free template; other languages → cheap mini narration of the same rows.
+      if (lang === "other") {
+        const reply = (await miniNarrate(userId, userMessage, searchQueryFacts(rows, sort, limit))) ??
+          searchQueryReply(userMessage, rows, sort, limit);
+        return { reply, proposals: [], toolsUsed: ["find_expenses"] };
+      }
       return { reply: searchQueryReply(userMessage, rows, sort, limit), proposals: [], toolsUsed: ["find_expenses"] };
     }
 
